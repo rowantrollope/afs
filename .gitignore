@@ -1,0 +1,6 @@
+/bin/
+/afs
+*.test
+/coverage.out
+*.log
+.DS_Store

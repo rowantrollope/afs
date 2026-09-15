@@ -1,0 +1,153 @@
+package client
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// Invalidate operation kinds published to other clients sharing an FS key.
+const (
+	// InvalidateOpInode means an entry at the given path was created,
+	// deleted, or had its metadata changed. Subscribers drop the path's
+	// own cache entry AND its parent directory listing.
+	InvalidateOpInode = "inode"
+
+	// InvalidateOpDir means a directory's listing is stale (e.g. a child's
+	// mtime bumped something in it) but the directory's own inode identity
+	// is unchanged. Subscribers drop only the dir listing cache.
+	InvalidateOpDir = "dir"
+
+	// InvalidateOpPrefix means an entire subtree is stale (e.g. after a
+	// directory rename). Subscribers drop every cached entry whose path
+	// starts with the given prefix.
+	InvalidateOpPrefix = "prefix"
+
+	// InvalidateOpContent means a file's byte contents changed. Subscribers
+	// drop the kernel page cache for the file (and refresh size/mtime).
+	InvalidateOpContent = "content"
+
+	// InvalidateOpRootReplace means the live workspace root was replaced as
+	// one operation, typically by restoring a checkpoint. Sync clients should
+	// treat Redis as authoritative and rematerialize the local tree.
+	InvalidateOpRootReplace = "root-replace"
+)
+
+// InvalidateEvent is the payload broadcast on the per-FS-key pub/sub channel
+// whenever a client mutates state that other clients may be caching.
+type InvalidateEvent struct {
+	// Origin is the publisher's opaque client ID. Subscribers skip messages
+	// whose Origin matches their own ID (local state is already correct).
+	Origin string `json:"origin"`
+	// Op is one of InvalidateOp*.
+	Op string `json:"op"`
+	// Paths are the affected absolute paths. Most events have a single path;
+	// rename-prefix events may carry two (src and dst).
+	Paths []string `json:"paths"`
+}
+
+// encodeInvalidate marshals an event for transport. JSON keeps the wire format
+// debuggable from redis-cli PSUBSCRIBE.
+func encodeInvalidate(ev InvalidateEvent) ([]byte, error) {
+	return json.Marshal(ev)
+}
+
+// decodeInvalidate parses a message received on the invalidation channel.
+func decodeInvalidate(payload []byte) (*InvalidateEvent, error) {
+	var ev InvalidateEvent
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		return nil, err
+	}
+	return &ev, nil
+}
+
+// PublishInvalidation appends an invalidation event to the durable change
+// stream and broadcasts it to live subscribers for fsKey. It is used by the
+// control plane for server-side mutations such as checkpoint restore.
+func PublishInvalidation(ctx context.Context, rdb *redis.Client, fsKey string, ev InvalidateEvent) error {
+	if rdb == nil {
+		return errors.New("publish invalidation: nil redis client")
+	}
+	if fsKey == "" {
+		return errors.New("publish invalidation: empty fs key")
+	}
+	if ev.Op == "" {
+		return errors.New("publish invalidation: empty op")
+	}
+	cleaned := ev.Paths[:0]
+	for _, p := range ev.Paths {
+		if p != "" {
+			cleaned = append(cleaned, p)
+		}
+	}
+	if len(cleaned) == 0 {
+		return errors.New("publish invalidation: no paths")
+	}
+	ev.Paths = cleaned
+	if ev.Origin == "" {
+		ev.Origin = "server"
+	}
+	payload, err := encodeInvalidate(ev)
+	if err != nil {
+		return err
+	}
+	keys := newKeyBuilder(fsKey)
+	if err := rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: keys.changesStream(),
+		MaxLen: 10000,
+		Approx: true,
+		Values: map[string]interface{}{
+			"payload": string(payload),
+		},
+	}).Err(); err != nil {
+		return err
+	}
+	return rdb.Publish(ctx, keys.invalidateChannel(), payload).Err()
+}
+
+// ChangeStreamEntry is one entry from the per-workspace durable change
+// stream. Sync clients read these on reconnect to replay missed events.
+type ChangeStreamEntry struct {
+	ID    string          // Redis stream message ID (e.g. "1681234567890-0")
+	Event InvalidateEvent // Decoded event payload
+}
+
+// ErrStreamTrimmed is returned by ReadChangeStream when the client's saved
+// cursor position has been trimmed from the stream (the client was offline
+// longer than the stream's retention window). The caller should fall back
+// to a full reconciliation.
+var ErrStreamTrimmed = errors.New("change stream: saved position was trimmed, full reconcile required")
+
+// newOriginID returns a fresh opaque client identifier. 16 random bytes (hex
+// encoded) is plenty to make collisions astronomically unlikely for a Redis
+// key's worth of concurrent mounts.
+func newOriginID() string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		panic("cannot create unique filesystem publication identity: " + err.Error())
+	}
+	return hex.EncodeToString(buf[:])
+}
+
+func (c *nativeClient) invalidationPayload(op string, paths ...string) string {
+	if c.publishDisabled.Load() {
+		return ""
+	}
+	payload, _ := encodeInvalidate(InvalidateEvent{Origin: c.originID, Op: op, Paths: paths})
+	return string(payload)
+}
+
+// queueInvalidation puts the existing durable stream and live notification in
+// the same Redis transaction as a namespace mutation.
+func (c *nativeClient) queueInvalidation(ctx context.Context, pipe redis.Pipeliner, op string, paths ...string) {
+	payload := c.invalidationPayload(op, paths...)
+	if payload == "" {
+		return
+	}
+	pipe.XAdd(ctx, &redis.XAddArgs{Stream: c.keys.changesStream(), MaxLen: 10000, Approx: true, Values: map[string]interface{}{"payload": payload}})
+	pipe.Publish(ctx, c.keys.invalidateChannel(), payload)
+}
