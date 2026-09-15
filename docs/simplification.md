@@ -137,6 +137,8 @@ file behavior. It passes 12 test/subtest cases; the full process suite passes
 170, with no skips in either suite. See [the comparison](cli-compatibility.md).
 Build and vet pass. Unit and race suites each pass 401 test/subtest cases;
 three optional Redis Array tests are skipped because no Array server is configured.
+Linux build, vet, unit, race and real-Redis process checks passed on `ed59c1e`:
+[verification run](https://github.com/rowantrollope/afs/actions/runs/34917706289).
 
 ### Extraction baseline
 

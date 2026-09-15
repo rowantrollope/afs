@@ -6,7 +6,7 @@
 - [x] Restore text confirmations, tables and details; preserve explicit JSON.
 - [x] Verify both output modes through CLI contract and prior/current tests.
 - [x] Run build, vet, unit/race and process checks.
-- [ ] Publish through normal CI/PR.
+- [x] Publish through normal CI/PR.
 
 Scope: presentation only; `fs cat` keeps exact bytes. Unresolved questions: none.
 
@@ -14,6 +14,8 @@ Review: default-output regressions fail on the preserved pre-fix binary; origina
 CLI passes. Fresh derivative: 170 process passes and 12 prior/current comparison
 passes, zero skips. Explicit JSON shapes and binary/empty `cat` are preserved.
 Build/vet pass; unit/race each pass 401 cases with three optional Array skips.
+Published in PR #2. Linux build/vet/unit/race/process checks passed on `ed59c1e`
+in run `34917706289`; JSON schemas and sync/lifecycle behavior remain unchanged.
 
 Baseline: redis/agent-filesystem `c3897ac05265444568a3819c21728a38a4ed254b`.
 Target: rowantrollope/afs, private; existing initial commit `a91598c` preserved.
