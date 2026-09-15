@@ -12,7 +12,7 @@ is preserved. The upstream AGPL-3.0 license is retained in LICENSE.
 
 | Component | Original location | Action and reason |
 | --- | --- | --- |
-| CLI dispatch and composed workspaces | `cmd/afs/main.go`, `workspace_composition_commands.go`, `volume_commands.go` | Replace dispatch with six command groups; remove composition and exposed volumes |
+| CLI dispatch and composed workspaces | `cmd/afs/main.go`, `workspace_composition_commands.go`, `volume_commands.go` | Use root workspace actions and the cp family; remove composition, exposed volumes and public file commands |
 | Folder sync | `cmd/afs/sync_daemon.go`, `sync_watcher.go`, `sync_event_reconciler.go`, `sync_{uploader,downloader,full_reconciler}.go` | Retain native events, streaming changes, chunk deltas, bounded queues and warm reconciliation |
 | Recovery and conflicts | `cmd/afs/sync_{recovery_plan,conflict,directory_modes,state}.go` | Retain baselines, tombstones, conflict copies and mode restoration; add demonstrated safety regressions |
 | Flush | `cmd/afs/sync_save_{engine,mutations,service}.go`, `sync_control.go` | Retain worker-generation draining, actual-byte verification, save receipts and failure recovery; wire checkpoint/unmount |
@@ -46,9 +46,8 @@ original installation is attempted.
 
 - Thin CLI parsing/wiring: the old CLI routed through composed workspaces,
   cloud sessions and rich file tools. Underlying file, import, checkpoint and sync
-  operations are reused. Recursive deletion adds a postorder traversal over the
-  existing conditional delete operation; the original primitive removes only
-  empty directories.
+  operations are reused. File access now uses ordinary mounted directories;
+  the shared native client remains because synchronization needs it.
 - Authenticated status/shutdown/detach operations extend the existing file-based
   save control transport. This is needed for flush-before-unmount and safe daemon
   identification. Registry and root file locks prevent competing local owners.
@@ -80,6 +79,12 @@ Baseline tests passed before deletion. Focused fault injection then reproduced:
    locally could mistake the pending local copy for a new file and re-upload it.
    A deterministic test reproduced this on both the original and derivative.
    The live baseline is now retained until local deletion completes.
+8. A directory deletion arriving before its child deletions failed with
+   `directory not empty` and was abandoned, leaving an empty remote directory.
+   Both versions reproduced the missing retry. This error now schedules the
+   existing reconciliation planner, which orders deletes and checks concurrent
+   edits. Regressions cover eventual removal and preservation of a newer peer
+   child; the focused race cases passed 30 repetitions.
 
 Regression tests and narrow changes address these cases using the existing
 conflict-copy and recovery policy. Historical upstream notes were used to find
@@ -95,9 +100,9 @@ Testing the extracted wiring found and corrected several issues before delivery:
   mount state now records generation and root identity so warm recovery is
   allowed only for the established directory. A substituted populated directory
   is rejected before Redis access.
-- `fs rm --recursive` needed a traversal around the original empty-directory
-  remove primitive. It now observes the tree first, removes children before
-  parents, and rejects competing updates through the retained conditional API.
+- The initial extraction added a conditional traversal for `fs rm --recursive`.
+  That CLI-only traversal was subsequently removed with the public `fs` group.
+  Mounted directory deletion continues through the retained sync engine.
 - Local checkpoint flush matching treated different Redis usernames as separate
   databases. It now matches normalized endpoint/database/workspace identity.
 - Initial hydration could classify `.afsignore` and excluded local files as an
@@ -122,13 +127,62 @@ old commands to the reduced surface and records intentional differences.
 
 ## Verification
 
-### Default output correction
+### Root workspace CLI
+
+Workspace actions now live at the root: `create`, `list`, `info`, `fork`,
+`delete`, `mount`, `unmount` and `status`. Checkpoints remain under `cp`, keeping
+workspace deletion distinct from checkpoint deletion. The `ws` and `fs` command
+groups are removed without aliases. The former direct-file parser, recursive
+delete helper and file-list formatter are deleted; the shared native client,
+Redis Array selection and all synchronization/storage mechanisms remain.
+
+Process tests now make file changes in real mounted folders. Generation-pinned
+read-only native clients observe published bytes for crash/fencing cases; the
+prior/current comparison uses independent mounts and ordinary filesystem
+snapshots. Removed-command tests run before any configuration or Redis access.
+
+Fresh-binary acceptance on macOS arm64, Go 1.26.1 and disposable Redis 7.0.15:
+109 process test/subtest passes in 33.904 seconds and 12 paired original/current
+passes in 6.928 seconds, with no skips or failures. The command-specific file
+assertions were replaced by mounted-folder workflows; all retained synchronization
+scenarios remain covered. Build and vet pass; unit and race suites each pass
+403 cases, with
+three optional Array tests skipped because no dedicated server is configured.
+An initial race run had one disposable Redis startup timeout, without a data-race
+report. The affected test then passed 30 repetitions and the full race suite
+passed with Redis startup logs captured; the original timeout's cause was not
+established. No timeout or fixture behavior was changed.
+
+A later Linux run exposed a race in the save-rejection test: failed saves resume
+ordinary synchronization, so recovery could publish the preserved edit before
+the test inspected remote bytes. A test-only barrier now separately verifies
+rejection without a receipt, the remote tree before recovery, and convergence
+after releasing recovery. Production save behavior is unchanged.
+The corrected test passed 100 race-detector repetitions; the related save suite
+also passed with the race detector.
+The same audit reproduced timeout and inbound-conflict assertions racing resumed
+recovery; test-only barriers now verify the save boundary and subsequent byte
+preservation separately. The deadline-drain fixture keeps its cancellation fault
+active across retries and sends each channel notification once, preventing a
+reproduced double-close panic when recovery retries the upload.
+All three related cases passed 30 race-detector repetitions; the full save group
+passed 84 test/subtest cases with the race detector.
+
+Linux CI passed build, vet, unit, race and real-Redis process acceptance on
+implementation commit `826b052`:
+[verification run](https://github.com/rowantrollope/afs/actions/runs/34919890029).
+The installed slim AFS executable was atomically updated to that commit after
+checking its module identity; all 109 process cases also passed against the
+actual installed binary. The original agent-filesystem installation was not
+replaced.
+
+### Default output correction (before file-command removal)
 
 The initial extraction incorrectly emitted JSON for structured responses even
-without `--json`. The shared serializer now requires an explicit human rendering
+without `--json`. The shared serializer was changed to require a human rendering
 at each call site: plain tables, labeled details or a short confirmation.
-Explicit `--json` retains its payloads and encoder; `fs cat` still writes exact
-bytes. Storage, sync and lifecycle operations are unchanged.
+Explicit `--json` retained its payloads and encoder; `fs cat` still wrote exact
+bytes at that stage. Storage, sync and lifecycle operations were unchanged.
 
 New real-Redis command tests reproduce the default-output failure against the
 saved pre-fix binary and pass with the correction. The paired prior/current
@@ -176,8 +230,8 @@ disposable Redis 7.0.15:
   No skipped optional test is counted as a pass.
 
 Production Go source fell from 258 files / 91,591 physical lines in the immutable
-baseline archive to 65 files / 18,579 lines, approximately an 80% reduction,
-including the default-output correction.
+baseline archive to 65 files / 18,380 lines, approximately an 80% reduction,
+including the root CLI and directory-deletion retry correction.
 The comparison includes comments and excludes test files. The original checkout
 still has commit `c3897ac` and only its pre-existing untracked work.
 
@@ -226,9 +280,9 @@ not verified without its dedicated server. No original config file is read.
   Windows is unsupported.
 - Sync retains regular files, directories, symlinks, mode handling, `.afsignore`
   and the original built-in ignores. It does not capture every transient write.
-- A file publication is atomic; recursive CLI deletion is a sequence of
-  conditional removals. A concurrent change can stop it after earlier removals.
-  Symlinks are removed as links, never traversed by recursive deletion.
+- File publication remains atomic. Ordinary directory edits and removals are
+  synchronized through the retained reconciliation engine; they are not a
+  multi-file transaction.
 - Checkpoint creation flushes registered local mounts, then snapshots published
   remote state. A concurrently arriving remote change can cause an honest flush
   rejection; allow clients to settle and retry. It is not a distributed snapshot.

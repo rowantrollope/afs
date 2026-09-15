@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rowantrollope/afs/internal/controlplane"
+	"github.com/rowantrollope/afs/mount/client"
 )
 
 var binary string
@@ -109,16 +111,18 @@ func (r *redisServer) signal(s syscall.Signal) {
 func (r *redisServer) url() string { return "redis://" + r.addr + "/0" }
 
 type cli struct {
-	t             *testing.T
-	redis         *redisServer
-	state, config string
-	mounts        map[string]int
+	t               *testing.T
+	redis           *redisServer
+	state, config   string
+	mounts          map[string]int
+	mountWorkspaces map[string]string
+	writers         map[string]string
 }
 
 func newCLI(t *testing.T, r *redisServer) *cli {
 	t.Helper()
 	dir := t.TempDir()
-	c := &cli{t: t, redis: r, state: filepath.Join(dir, "state"), config: filepath.Join(dir, "config.json"), mounts: map[string]int{}}
+	c := &cli{t: t, redis: r, state: filepath.Join(dir, "state"), config: filepath.Join(dir, "config.json"), mounts: map[string]int{}, mountWorkspaces: map[string]string{}, writers: map[string]string{}}
 	if err := os.WriteFile(c.config, []byte(`{"redis":"`+r.url()+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -192,15 +196,113 @@ func (c *cli) mount(workspace, path string) int {
 		c.t.Fatalf("mount PID missing: %s", out)
 	}
 	c.mounts[path] = v.PID
+	c.mountWorkspaces[path] = workspace
 	return v.PID
 }
-func (c *cli) unmount(path string) { c.t.Helper(); c.run(nil, "unmount", path); delete(c.mounts, path) }
-func (c *cli) remote(workspace, path string) ([]byte, error) {
-	out, diag, err := c.runTimeout(5*time.Second, nil, "fs", "cat", workspace, path)
+func (c *cli) unmount(path string) {
+	c.t.Helper()
+	c.run(nil, "unmount", path)
+	delete(c.mounts, path)
+	delete(c.mountWorkspaces, path)
+}
+
+// Published observations use only the retained native client's read operations.
+// Pinning the live generation also prevents its ensureRoot path from creating
+// any Redis state when a workspace has been removed or replaced.
+func (c *cli) publishedReader(ctx context.Context, workspace string) (context.Context, client.Client, error) {
+	store := controlplane.NewStore(c.redis.client)
+	meta, err := store.GetWorkspaceMeta(ctx, workspace)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", err, diag)
+		return ctx, nil, err
 	}
-	return out, nil
+	generation, err := store.WorkspaceGeneration(ctx, meta.ID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return client.WithWorkspaceGeneration(ctx, generation), client.New(c.redis.client, controlplane.WorkspaceFSKey(meta.ID)), nil
+}
+func (c *cli) remote(workspace, path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx, reader, err := c.publishedReader(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
+	return reader.Cat(ctx, "/"+path)
+}
+func (c *cli) published(workspace, path string) []byte {
+	c.t.Helper()
+	out, err := c.remote(workspace, path)
+	if err != nil {
+		c.t.Fatalf("read published %s/%s: %v", workspace, path, err)
+	}
+	return out
+}
+func (c *cli) awaitMissingPublished(workspace, path string) {
+	c.t.Helper()
+	eventually(c.t, 30*time.Second, "published path removed: "+workspace+"/"+path, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		ctx, reader, err := c.publishedReader(ctx, workspace)
+		if err != nil {
+			return false
+		}
+		stat, err := reader.Stat(ctx, "/"+path)
+		return err == nil && stat == nil
+	})
+}
+
+// Test mutations are ordinary filesystem operations performed in real mounted
+// directories. Reuse an explicit test mount where possible; otherwise create a
+// test-owned writer mount which callers close before restore or deletion.
+func (c *cli) writerRoot(workspace string) string {
+	c.t.Helper()
+	for root, mountedWorkspace := range c.mountWorkspaces {
+		if mountedWorkspace == workspace {
+			if _, active := c.mounts[root]; active {
+				return root
+			}
+		}
+	}
+	root, err := os.MkdirTemp(filepath.Dir(c.state), "writer-")
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	c.mount(workspace, root)
+	c.writers[workspace] = root
+	return root
+}
+func (c *cli) closeWriter(workspace string) {
+	c.t.Helper()
+	if root, ok := c.writers[workspace]; ok {
+		c.unmount(root)
+		delete(c.writers, workspace)
+	}
+}
+func (c *cli) put(workspace, path string, data []byte) {
+	c.t.Helper()
+	write(c.t, filepath.Join(c.writerRoot(workspace), path), data)
+	awaitRemote(c.t, c, workspace, path, data)
+}
+func (c *cli) removePublished(workspace, path string) {
+	c.t.Helper()
+	if err := os.RemoveAll(filepath.Join(c.writerRoot(workspace), path)); err != nil {
+		c.t.Fatal(err)
+	}
+	c.awaitMissingPublished(workspace, path)
+}
+func (c *cli) movePublished(workspace, source, destination string) {
+	c.t.Helper()
+	root := c.writerRoot(workspace)
+	data, err := os.ReadFile(filepath.Join(root, source))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(root, source), filepath.Join(root, destination)); err != nil {
+		c.t.Fatal(err)
+	}
+	awaitRemote(c.t, c, workspace, destination, data)
+	c.awaitMissingPublished(workspace, source)
 }
 func eventually(t *testing.T, timeout time.Duration, description string, condition func() bool) {
 	t.Helper()
@@ -254,24 +356,21 @@ func containsBytes(roots []string, want []byte) bool {
 func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 	r := newRedis(t)
 	a, b := newCLI(t, r), newCLI(t, r)
-	a.run(nil, "ws", "create", "shared")
+	a.run(nil, "create", "shared")
 	left, right := filepath.Join(t.TempDir(), "left"), filepath.Join(t.TempDir(), "right")
 	a.mount("shared", left)
 	b.mount("shared", right)
-	t.Run("exact direct file bytes", func(t *testing.T) {
+	t.Run("exact mounted file bytes", func(t *testing.T) {
 		a.t = t
 		b.t = t
 		for name, data := range map[string][]byte{"text": []byte("hello\n"), "binary": {0, 255, 1, 0, 128}, "empty": {}, "nested/file": []byte("nested")} {
-			a.run(data, "fs", "put", "shared", name)
-			got := a.run(nil, "fs", "cat", "shared", name)
+			a.put("shared", name, data)
+			got := a.published("shared", name)
 			if !bytes.Equal(got, data) {
 				t.Fatalf("round trip %s", name)
 			}
 			awaitFile(t, filepath.Join(left, name), data)
 			awaitFile(t, filepath.Join(right, name), data)
-		}
-		if msg := a.mustFail("--json", "fs", "cat", "shared", "binary"); !strings.Contains(msg, "json") {
-			t.Fatal(msg)
 		}
 	})
 	t.Run("disjoint concurrent writers", func(t *testing.T) {
@@ -295,7 +394,7 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 	t.Run("same path preserves competing bytes", func(t *testing.T) {
 		a.t = t
 		b.t = t
-		a.run([]byte("base"), "fs", "put", "shared", "race")
+		a.put("shared", "race", []byte("base"))
 		awaitFile(t, filepath.Join(left, "race"), []byte("base"))
 		awaitFile(t, filepath.Join(right, "race"), []byte("base"))
 		r.signal(syscall.SIGSTOP)
@@ -314,12 +413,12 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 		b.t = t
 		write(t, filepath.Join(left, "checkpoint-local"), []byte("flushed"))
 		a.run(nil, "cp", "create", "shared", "--name", "capture")
-		a.run(nil, "ws", "fork", "shared", "fork", "--checkpoint", "capture")
-		if got := a.run(nil, "fs", "cat", "fork", "checkpoint-local"); string(got) != "flushed" {
+		a.run(nil, "fork", "shared", "fork", "--checkpoint", "capture")
+		if got := a.published("fork", "checkpoint-local"); string(got) != "flushed" {
 			t.Fatalf("local flush missing: %q", got)
 		}
-		a.run([]byte("changed"), "fs", "put", "shared", "checkpoint-local")
-		if got := a.run(nil, "fs", "cat", "fork", "checkpoint-local"); string(got) != "flushed" {
+		a.put("shared", "checkpoint-local", []byte("changed"))
+		if got := a.published("fork", "checkpoint-local"); string(got) != "flushed" {
 			t.Fatal("fork changed with source")
 		}
 		awaitFile(t, filepath.Join(left, "checkpoint-local"), []byte("changed"))
@@ -329,7 +428,7 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 		a.run(nil, "cp", "show", "shared", "newer")
 		a.run(nil, "cp", "delete", "shared", "capture", "--yes")
 		a.mustFail("cp", "show", "shared", "capture")
-		if got := a.run(nil, "fs", "cat", "fork", "checkpoint-local"); string(got) != "flushed" {
+		if got := a.published("fork", "checkpoint-local"); string(got) != "flushed" {
 			t.Fatal("checkpoint deletion broke independent fork")
 		}
 
@@ -353,8 +452,8 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 	a.unmount(left)
 	b.unmount(right)
 	awaitFile(t, filepath.Join(left, "from-left"), []byte("left"))
-	a.run(nil, "ws", "delete", "shared", "--yes")
-	if got := a.run(nil, "fs", "cat", "fork", "checkpoint-local"); string(got) != "flushed" {
+	a.run(nil, "delete", "shared", "--yes")
+	if got := a.published("fork", "checkpoint-local"); string(got) != "flushed" {
 		t.Fatal("source deletion broke fork")
 	}
 }
@@ -362,10 +461,10 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 func TestDisconnectCrashAndRootLoss(t *testing.T) {
 	r := newRedis(t)
 	a, b := newCLI(t, r), newCLI(t, r)
-	a.run(nil, "ws", "create", "recovery")
-	a.run([]byte("base"), "fs", "put", "recovery", "file")
+	a.run(nil, "create", "recovery")
 	left, right := filepath.Join(t.TempDir(), "left"), filepath.Join(t.TempDir(), "right")
 	a.mount("recovery", left)
+	a.put("recovery", "file", []byte("base"))
 	pid := b.mount("recovery", right)
 	awaitFile(t, filepath.Join(left, "file"), []byte("base"))
 	awaitFile(t, filepath.Join(right, "file"), []byte("base"))
@@ -385,7 +484,7 @@ func TestDisconnectCrashAndRootLoss(t *testing.T) {
 			t.Fatal(err)
 		}
 		eventually(t, 5*time.Second, "stopped daemon", func() bool { return strings.Contains(string(b.run(nil, "--json", "status", right)), "stopped") })
-		a.run([]byte("remote while stopped"), "fs", "put", "recovery", "after-crash")
+		a.put("recovery", "after-crash", []byte("remote while stopped"))
 		pid = b.mount("recovery", right)
 		awaitFile(t, filepath.Join(right, "after-crash"), []byte("remote while stopped"))
 	})
@@ -403,7 +502,7 @@ func TestDisconnectCrashAndRootLoss(t *testing.T) {
 		eventually(t, 35*time.Second, "full reconciliation refuses missing root", func() bool {
 			return clientLogContains(a, "no such file") || clientLogContains(a, "local root unavailable") || clientLogContains(a, "does not exist")
 		})
-		got := a.run(nil, "fs", "cat", "recovery", "file")
+		got := a.published("recovery", "file")
 		if string(got) != "base" {
 			t.Fatal("missing root changed published tree")
 		}
@@ -420,8 +519,8 @@ func TestDisconnectCrashAndRootLoss(t *testing.T) {
 func TestRestoreFencesOtherProcessAndPreservesPendingLocalData(t *testing.T) {
 	r := newRedis(t)
 	owner, peer := newCLI(t, r), newCLI(t, r)
-	owner.run(nil, "ws", "create", "restore")
-	owner.run([]byte("old"), "fs", "put", "restore", "file")
+	owner.run(nil, "create", "restore")
+	owner.put("restore", "file", []byte("old"))
 	owner.run(nil, "cp", "create", "restore", "--name", "old")
 	root := filepath.Join(t.TempDir(), "peer")
 	pid := peer.mount("restore", root)
@@ -431,7 +530,8 @@ func TestRestoreFencesOtherProcessAndPreservesPendingLocalData(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(root, "file"), []byte("pending local bytes"))
-	owner.run([]byte("published newer"), "fs", "put", "restore", "file")
+	owner.put("restore", "file", []byte("published newer"))
+	owner.closeWriter("restore")
 	owner.run(nil, "cp", "restore", "restore", "old", "--yes")
 	if err := p.Signal(syscall.SIGCONT); err != nil {
 		t.Fatal(err)
@@ -440,7 +540,7 @@ func TestRestoreFencesOtherProcessAndPreservesPendingLocalData(t *testing.T) {
 		out := strings.ToLower(string(peer.run(nil, "--json", "status", root)))
 		return strings.Contains(out, "generation") || strings.Contains(out, "replaced") || strings.Contains(out, "restored") || strings.Contains(out, "deleted") || strings.Contains(out, "stale")
 	})
-	if got := owner.run(nil, "fs", "cat", "restore", "file"); string(got) != "old" {
+	if got := owner.published("restore", "file"); string(got) != "old" {
 		t.Fatalf("stale client republished: %q", got)
 	}
 	if !containsBytes([]string{root}, []byte("pending local bytes")) {
@@ -461,7 +561,7 @@ func TestRestoreFencesOtherProcessAndPreservesPendingLocalData(t *testing.T) {
 func TestForegroundAndOutputConfiguration(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
-	c.run(nil, "ws", "create", "foreground")
+	c.run(nil, "create", "foreground")
 	root := filepath.Join(t.TempDir(), "foreground")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -495,7 +595,7 @@ func TestForegroundAndOutputConfiguration(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("foreground shutdown did not finish")
 	}
-	if got := c.run(nil, "fs", "cat", "foreground", "file"); string(got) != "foreground" {
+	if got := c.published("foreground", "file"); string(got) != "foreground" {
 		t.Fatal("foreground shutdown did not flush")
 	}
 	// Help/version do not contact Redis, even with an unreachable explicit URL.
@@ -506,9 +606,9 @@ func TestForegroundAndOutputConfiguration(t *testing.T) {
 	if err = os.WriteFile(c.config, badConfig, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c.run(nil, "ws", "list") // explicit --redis from harness overrides config.
+	c.run(nil, "list") // explicit --redis from harness overrides config.
 	secret := "secret-e2e-" + strconv.Itoa(os.Getpid())
-	out := c.mustFail("--redis", "redis://user:"+secret+"@127.0.0.1:1/0", "ws", "list")
+	out := c.mustFail("--redis", "redis://user:"+secret+"@127.0.0.1:1/0", "list")
 	if strings.Contains(out, secret) {
 		t.Fatal("connection error leaked password")
 	}
@@ -517,12 +617,12 @@ func TestForegroundAndOutputConfiguration(t *testing.T) {
 func TestDeleteAndRenameVersusPausedWriter(t *testing.T) {
 	r := newRedis(t)
 	a, b := newCLI(t, r), newCLI(t, r)
-	a.run(nil, "ws", "create", "mutations")
+	a.run(nil, "create", "mutations")
 	root := filepath.Join(t.TempDir(), "peer")
 	pid := b.mount("mutations", root)
 	p, _ := os.FindProcess(pid)
 	for _, op := range []string{"delete", "rename"} {
-		a.run([]byte("base"), "fs", "put", "mutations", op)
+		a.put("mutations", op, []byte("base"))
 		awaitFile(t, filepath.Join(root, op), []byte("base"))
 		if err := p.Signal(syscall.SIGSTOP); err != nil {
 			t.Fatal(err)
@@ -530,9 +630,9 @@ func TestDeleteAndRenameVersusPausedWriter(t *testing.T) {
 		changed := []byte(op + " local competing edit")
 		write(t, filepath.Join(root, op), changed)
 		if op == "delete" {
-			a.run(nil, "fs", "rm", "mutations", op)
+			a.removePublished("mutations", op)
 		} else {
-			a.run(nil, "fs", "mv", "mutations", op, op+"-moved")
+			a.movePublished("mutations", op, op+"-moved")
 		}
 		if err := p.Signal(syscall.SIGCONT); err != nil {
 			t.Fatal(err)
@@ -556,12 +656,13 @@ func TestDeleteAndRenameVersusPausedWriter(t *testing.T) {
 		}
 	}
 	b.unmount(root)
+	a.closeWriter("mutations")
 }
 
 func TestUnmountOutageReportsFailureAndKeepsLocalFiles(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
-	c.run(nil, "ws", "create", "outage")
+	c.run(nil, "create", "outage")
 	root := filepath.Join(t.TempDir(), "root")
 	c.mount("outage", root)
 	r.stop()
@@ -582,7 +683,7 @@ func TestUnmountOutageReportsFailureAndKeepsLocalFiles(t *testing.T) {
 func TestWorkspaceDeletionFencesPausedClient(t *testing.T) {
 	r := newRedis(t)
 	owner, peer := newCLI(t, r), newCLI(t, r)
-	owner.run(nil, "ws", "create", "deletion-case")
+	owner.run(nil, "create", "deletion-case")
 	root := filepath.Join(t.TempDir(), "peer")
 	pid := peer.mount("deletion-case", root)
 	p, _ := os.FindProcess(pid)
@@ -590,7 +691,7 @@ func TestWorkspaceDeletionFencesPausedClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(root, "pending"), []byte("preserve after workspace deletion"))
-	owner.run(nil, "ws", "delete", "deletion-case", "--yes")
+	owner.run(nil, "delete", "deletion-case", "--yes")
 	if err := p.Signal(syscall.SIGCONT); err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +702,7 @@ func TestWorkspaceDeletionFencesPausedClient(t *testing.T) {
 	if !containsBytes([]string{root}, []byte("preserve after workspace deletion")) {
 		t.Fatal("workspace deletion lost local unpublished bytes")
 	}
-	owner.mustFail("ws", "info", "deletion-case")
+	owner.mustFail("info", "deletion-case")
 	peer.run(nil, "unmount", root, "--force")
 	delete(peer.mounts, root)
 }
@@ -614,7 +715,7 @@ func TestPerformanceSmoke(t *testing.T) {
 		write(t, filepath.Join(source, fmt.Sprintf("dir-%02d/file-%04d", i%20, i)), bytes.Repeat([]byte("workspace bytes\n"), 32))
 	}
 	start := time.Now()
-	a.run(nil, "ws", "create", "performance", "--from", source)
+	a.run(nil, "create", "performance", "--from", source)
 	t.Logf("import 1000 files: %s", time.Since(start))
 	left, right := filepath.Join(t.TempDir(), "left"), filepath.Join(t.TempDir(), "right")
 	start = time.Now()
@@ -685,7 +786,7 @@ func TestImportedMetadataAndUnreadableRoot(t *testing.T) {
 	if err := os.Symlink("sub/executable", filepath.Join(source, "link")); err != nil {
 		t.Fatal(err)
 	}
-	a.run(nil, "ws", "create", "metadata", "--from", source)
+	a.run(nil, "create", "metadata", "--from", source)
 	left, right := filepath.Join(t.TempDir(), "left"), filepath.Join(t.TempDir(), "right")
 	a.mount("metadata", left)
 	b.mount("metadata", right)
@@ -722,13 +823,13 @@ func TestImportedMetadataAndUnreadableRoot(t *testing.T) {
 		t.Fatalf("unreadable root did not report its scan failure: %s", message)
 	}
 	a.mustFail("cp", "show", "metadata", "unreadable")
-	if got := b.run(nil, "fs", "cat", "metadata", "sub/executable"); string(got) != "#!/bin/sh\n" {
+	if got := b.published("metadata", "sub/executable"); string(got) != "#!/bin/sh\n" {
 		t.Fatal("unreadable root changed remote content")
 	}
 	if err := os.Chmod(left, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	a.run(nil, "fs", "rm", "metadata", "sub", "--recursive")
+	a.removePublished("metadata", "sub")
 	for _, root := range []string{left, right} {
 		eventually(t, 30*time.Second, "recursive delete reaches "+root, func() bool { _, err := os.Lstat(filepath.Join(root, "sub")); return os.IsNotExist(err) })
 		awaitFile(t, filepath.Join(root, "outside"), []byte("keep symlink target"))
@@ -740,8 +841,8 @@ func TestImportedMetadataAndUnreadableRoot(t *testing.T) {
 func TestReplacedRootRejectedLiveAndOnRestart(t *testing.T) {
 	r := newRedis(t)
 	owner, peer := newCLI(t, r), newCLI(t, r)
-	owner.run(nil, "ws", "create", "identity")
-	owner.run([]byte("published stays"), "fs", "put", "identity", "kept")
+	owner.run(nil, "create", "identity")
+	owner.put("identity", "kept", []byte("published stays"))
 	root := filepath.Join(t.TempDir(), "root")
 	pid := peer.mount("identity", root)
 	awaitFile(t, filepath.Join(root, "kept"), []byte("published stays"))
@@ -750,12 +851,12 @@ func TestReplacedRootRejectedLiveAndOnRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(root, "unrelated"), []byte("replacement directory"))
-	owner.run([]byte("remote event"), "fs", "put", "identity", "new-remote")
+	owner.put("identity", "new-remote", []byte("remote event"))
 	eventually(t, 30*time.Second, "running daemon rejects replacement local root", func() bool {
 		return clientLogContains(peer, "root changed") || clientLogContains(peer, "replaced") || clientLogContains(peer, "root identity")
 	})
-	owner.mustFail("fs", "cat", "identity", "unrelated")
-	if got := owner.run(nil, "fs", "cat", "identity", "kept"); string(got) != "published stays" {
+	owner.awaitMissingPublished("identity", "unrelated")
+	if got := owner.published("identity", "kept"); string(got) != "published stays" {
 		t.Fatal("replacement root deleted remote files")
 	}
 	awaitFile(t, filepath.Join(root, "unrelated"), []byte("replacement directory"))
@@ -769,12 +870,13 @@ func TestReplacedRootRejectedLiveAndOnRestart(t *testing.T) {
 		t.Fatalf("unexpected replaced-root rejection: %s", message)
 	}
 	awaitFile(t, filepath.Join(root, "unrelated"), []byte("replacement directory"))
+	owner.closeWriter("identity")
 }
 
 func TestStaleRegistryDoesNotSignalUnrelatedProcess(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
-	c.run(nil, "ws", "create", "stale")
+	c.run(nil, "create", "stale")
 	root := filepath.Join(t.TempDir(), "root")
 	c.mount("stale", root)
 	registryPath := filepath.Join(c.state, "mounts.json")

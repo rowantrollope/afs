@@ -1,5 +1,31 @@
 # AFS extraction
 
+## Remove file commands and flatten workspace actions
+
+- [x] Delete public `fs` commands and their CLI-only helpers.
+- [x] Move workspace actions to root; retain `cp`; reject removed `ws`/`fs` forms.
+- [x] Update help/docs and adapt process/compatibility tests to mounted files.
+- [x] Fix demonstrated parent-directory deletion retry/order issue.
+- [x] Verify all retained behavior, readable defaults and explicit JSON.
+- [x] Publish through normal CI/PR and update the installed derivative.
+
+Decision: user selected root workspace actions with `cp` retained. File access
+uses ordinary mounted directories. Internal storage/sync/Array support remains.
+Unresolved questions: none.
+
+Review: build/vet pass; unit and race each pass 403 test/subtest cases with three
+optional Array skips. Process acceptance passes 109 cases; paired original/current
+CLI comparison passes 12, with no skips in either. File operations now use real
+mounted folders, preserving all retained sync scenarios. A parent-first directory
+delete failure reproduced on original and derivative; the existing reconciliation
+planner now retries it safely, including protection for a newer peer edit.
+Focused race cases pass 30 repetitions. An initial disposable Redis startup
+timeout did not recur in 30 focused repetitions or the full race rerun; captured
+server logs showed no startup errors. Original checkout remains unchanged.
+Published in PR #3. Linux build/vet/unit/race/process checks passed on `826b052`
+in run `34919890029`. The installed slim AFS binary now uses that implementation
+and passed all 109 process cases directly through its installed path.
+
 ## Default output correction
 
 - [x] Reproduce JSON-default regression and inspect prior readable output.

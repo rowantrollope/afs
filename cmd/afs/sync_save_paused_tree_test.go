@@ -8,11 +8,41 @@ import (
 	"time"
 )
 
+type syncSavePausedTreeClient struct {
+	*syncSaveInflightClient
+	recoveryStarted chan struct{}
+	recoveryRelease chan struct{}
+	recoveryOnce    sync.Once
+}
+
+func (c *syncSavePausedTreeClient) Echo(ctx context.Context, path string, data []byte) error {
+	if path == "/old" {
+		select {
+		case <-c.stored:
+			// Keep resumed sync from publishing the edit until the test has
+			// inspected the failed save's remote tree.
+			c.recoveryOnce.Do(func() { close(c.recoveryStarted) })
+			select {
+			case <-c.recoveryRelease:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		default:
+		}
+	}
+	return c.syncSaveInflightClient.Echo(ctx, path, data)
+}
+
 func TestSyncSaveRejectsLocalChangesDuringDrain(t *testing.T) {
 	env := newSyncTestEnv(t)
-	gate := &syncSaveInflightClient{Client: env.fsClient, stored: make(chan struct{}), release: make(chan struct{}), postStat: make(chan error, 1)}
-	var release sync.Once
+	gate := &syncSavePausedTreeClient{
+		syncSaveInflightClient: &syncSaveInflightClient{Client: env.fsClient, stored: make(chan struct{}), release: make(chan struct{}), postStat: make(chan error, 1)},
+		recoveryStarted:        make(chan struct{}),
+		recoveryRelease:        make(chan struct{}),
+	}
+	var release, releaseRecovery sync.Once
 	defer release.Do(func() { close(gate.release) })
+	defer releaseRecovery.Do(func() { close(gate.recoveryRelease) })
 	d := env.startDaemon(t, func(cfg *syncDaemonConfig) { cfg.FS = gate })
 	if err := d.watcher.Close(); err != nil {
 		t.Fatal(err)
@@ -47,10 +77,24 @@ func TestSyncSaveRejectsLocalChangesDuringDrain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("save did not finish")
 	}
+	if service.active == nil || service.active == d {
+		t.Fatal("failed save did not resume a fresh sync generation")
+	}
+	select {
+	case <-gate.recoveryStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("resumed sync did not recover the local change")
+	}
 	if env.readLocalFile(t, "old") != "changed during pause" {
 		t.Fatal("local change was overwritten")
 	}
 	if env.readRemoteFile(t, "old") != "before pause" {
 		t.Fatal("failed save published a different local tree")
 	}
+	// A failed save still resumes ordinary sync. Its later publication does
+	// not constitute a save receipt and must not race the assertion above.
+	releaseRecovery.Do(func() { close(gate.recoveryRelease) })
+	assertEventually(t, 3*time.Second, "resumed sync to publish the preserved local change", func() bool {
+		return env.readRemoteFile(t, "old") == "changed during pause"
+	})
 }

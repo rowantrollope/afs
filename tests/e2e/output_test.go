@@ -43,46 +43,51 @@ func readableOutput(t *testing.T, raw []byte, facts ...[]string) {
 func TestDefaultCommandOutput(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
-	file := filepath.Join(t.TempDir(), "source.bin")
 	wantBinary := []byte{0, 255, '\n', 128, 'x'}
-	write(t, file, wantBinary)
 	importRoot := t.TempDir()
-	write(t, filepath.Join(importRoot, "imported"), []byte("from directory"))
+	write(t, filepath.Join(importRoot, "notes", "original"), []byte("one\n"))
+	write(t, filepath.Join(importRoot, "binary"), wantBinary)
+	write(t, filepath.Join(importRoot, "empty"), nil)
+	writer := filepath.Join(t.TempDir(), "writer")
 	type step struct {
-		name  string
-		args  []string
-		input []byte
-		facts [][]string
+		name   string
+		args   []string
+		before func()
+		facts  [][]string
 	}
 	steps := []step{
-		{"empty workspace list", []string{"ws", "list"}, nil, [][]string{{"no workspaces", "empty"}}},
+		{"empty workspace list", []string{"list"}, nil, [][]string{{"no workspaces", "empty"}}},
 		{"empty mount status", []string{"status"}, nil, [][]string{{"no mounts", "no mounted", "no active", "empty"}}},
-		{"ws create", []string{"ws", "create", "friendly"}, nil, [][]string{{"created"}, {"friendly"}}},
-		{"ws create from directory", []string{"ws", "create", "import-friendly", "--from", importRoot}, nil, [][]string{{"created", "imported"}, {"import-friendly"}}},
-		{"ws list", []string{"ws", "list"}, nil, [][]string{{"friendly"}, {"import-friendly"}}},
-		{"ws info", []string{"ws", "info", "friendly"}, nil, [][]string{{"friendly"}, {"id"}, {"head", "checkpoint"}}},
-		{"empty file list", []string{"fs", "ls", "friendly"}, nil, [][]string{{"no files", "no entries", "empty"}}},
-		{"fs mkdir", []string{"fs", "mkdir", "friendly", "notes"}, nil, [][]string{{"created", "mkdir"}, {"notes"}}},
-		{"fs put stdin", []string{"fs", "put", "friendly", "notes/original"}, []byte("one\n"), [][]string{{"wrote", "written", "put"}, {"notes/original"}, {"4"}, {"bytes"}}},
-		{"fs put from file", []string{"fs", "put", "friendly", "binary", "--from", file}, nil, [][]string{{"wrote", "written", "put"}, {"binary"}, {"5"}, {"bytes"}}},
-		{"fs ls", []string{"fs", "ls", "friendly", "notes"}, nil, [][]string{{"original"}, {"4"}}},
-		{"fs mv", []string{"fs", "mv", "friendly", "notes/original", "notes/renamed"}, nil, [][]string{{"moved", "renamed"}, {"notes/original"}, {"notes/renamed"}}},
+		{"create", []string{"create", "blank"}, nil, [][]string{{"created"}, {"blank"}}},
+		{"create from directory", []string{"create", "friendly", "--from", importRoot}, nil, [][]string{{"created", "imported"}, {"friendly"}}},
+		{"list", []string{"list"}, nil, [][]string{{"friendly"}, {"blank"}}},
+		{"info", []string{"info", "friendly"}, nil, [][]string{{"friendly"}, {"id"}, {"head", "checkpoint"}}},
 		{"cp create", []string{"cp", "create", "friendly", "--name", "before-edit"}, nil, [][]string{{"checkpoint"}, {"created"}, {"before-edit"}}},
 		{"cp list", []string{"cp", "list", "friendly"}, nil, [][]string{{"before-edit"}}},
-		{"cp show", []string{"cp", "show", "friendly", "before-edit"}, nil, [][]string{{"before-edit"}, {"files"}, {"bytes"}, {"notes/renamed"}}},
-		{"ws fork", []string{"ws", "fork", "friendly", "friendly-copy", "--checkpoint", "before-edit"}, nil, [][]string{{"forked"}, {"friendly"}, {"friendly-copy"}}},
-		{"fs rm", []string{"fs", "rm", "friendly", "notes/renamed"}, nil, [][]string{{"removed", "deleted"}, {"notes/renamed"}}},
-		{"cp create next", []string{"cp", "create", "friendly", "--name", "after-edit"}, nil, [][]string{{"checkpoint"}, {"after-edit"}}},
-		{"uncheckpointed edit before restore", []string{"fs", "put", "friendly", "pending"}, []byte("preserve in safety checkpoint"), [][]string{{"wrote", "written", "put"}, {"pending"}}},
-		{"cp restore", []string{"cp", "restore", "friendly", "before-edit", "--yes"}, nil, [][]string{{"restored"}, {"friendly"}, {"safety"}}},
+		{"cp show", []string{"cp", "show", "friendly", "before-edit"}, nil, [][]string{{"before-edit"}, {"files"}, {"bytes"}, {"notes/original"}}},
+		{"fork", []string{"fork", "friendly", "friendly-copy", "--checkpoint", "before-edit"}, nil, [][]string{{"forked"}, {"friendly"}, {"friendly-copy"}}},
+		{"cp create next", []string{"cp", "create", "friendly", "--name", "after-edit"}, func() {
+			c.mount("friendly", writer)
+			if err := os.Remove(filepath.Join(writer, "notes", "original")); err != nil {
+				t.Fatal(err)
+			}
+			c.unmount(writer)
+		}, [][]string{{"checkpoint"}, {"after-edit"}}},
+		{"cp restore", []string{"cp", "restore", "friendly", "before-edit", "--yes"}, func() {
+			c.mount("friendly", writer)
+			write(t, filepath.Join(writer, "pending"), []byte("preserve in safety checkpoint"))
+			c.unmount(writer)
+		}, [][]string{{"restored"}, {"friendly"}, {"safety"}}},
 		{"cp delete", []string{"cp", "delete", "friendly", "after-edit", "--yes"}, nil, [][]string{{"deleted"}, {"checkpoint"}, {"after-edit"}}},
-		{"fs rm recursive", []string{"fs", "rm", "friendly", "notes", "--recursive"}, nil, [][]string{{"removed", "deleted"}, {"notes"}}},
-		{"ws delete", []string{"ws", "delete", "friendly-copy", "--yes"}, nil, [][]string{{"deleted"}, {"workspace"}, {"friendly-copy"}}},
+		{"delete", []string{"delete", "friendly-copy", "--yes"}, nil, [][]string{{"deleted"}, {"workspace"}, {"friendly-copy"}}},
 	}
 	for _, s := range steps {
+		if s.before != nil {
+			s.before()
+		}
 		commandSucceeded := false
 		t.Run(s.name, func(t *testing.T) {
-			out, diag, err := c.runTimeout(30*time.Second, s.input, s.args...)
+			out, diag, err := c.runTimeout(30*time.Second, nil, s.args...)
 			if err != nil {
 				t.Fatalf("afs %v: %v\nstdout=%s\nstderr=%s", s.args, err, out, diag)
 			}
@@ -96,25 +101,18 @@ func TestDefaultCommandOutput(t *testing.T) {
 			return
 		}
 	}
-	t.Run("cat remains exact binary stdout", func(t *testing.T) {
-		out, diag, err := c.runTimeout(10*time.Second, nil, "fs", "cat", "friendly", "binary")
-		if err != nil || len(diag) != 0 || !bytes.Equal(out, wantBinary) {
-			t.Fatalf("cat changed: %v stdout=%x stderr=%s", err, out, diag)
+	for rel, want := range map[string][]byte{"binary": wantBinary, "empty": nil, "notes/original": []byte("one\n")} {
+		got, err := c.remote("friendly", rel)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("checkpoint command changed file %s: %x %v", rel, got, err)
 		}
-	})
-	t.Run("cat remains exact empty stdout", func(t *testing.T) {
-		c.run(nil, "fs", "put", "friendly", "empty")
-		out, diag, err := c.runTimeout(10*time.Second, nil, "fs", "cat", "friendly", "empty")
-		if err != nil || len(diag) != 0 || len(out) != 0 {
-			t.Fatalf("empty cat changed: %v stdout=%q stderr=%s", err, out, diag)
-		}
-	})
+	}
 }
 
 func TestDefaultMountOutputAndJSONStatus(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
-	c.run(nil, "--json", "ws", "create", "visible-mount")
+	c.run(nil, "--json", "create", "visible-mount")
 	root := filepath.Join(t.TempDir(), "root")
 	// Mount without --json, then obtain PID through the explicit machine API for
 	// test-owned process cleanup. Readable output never doubles as a hidden API.

@@ -51,6 +51,7 @@ func NewWithCacheAndObserver(rdb *redis.Client, key string, ttl time.Duration, o
 
 var ErrWriteConflict = internal.ErrWriteConflict
 var ErrWorkspaceChanged = internal.ErrWorkspaceChanged
+var ErrDirNotEmpty = internal.ErrDirNotEmpty
 
 func WithExpectedStat(ctx context.Context, stat *StatResult) context.Context {
 	return internal.WithExpectedStat(ctx, stat)

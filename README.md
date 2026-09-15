@@ -28,7 +28,7 @@ Use the binary directly or put it on your PATH. Do not replace an existing
 Pass a Redis URL with each command:
 
 ```sh
-afs --redis redis://localhost:6379/0 ws create demo
+afs --redis redis://localhost:6379/0 create demo
 ```
 
 Or put this in `~/.config/afs-lite/config.json` (or select a file with `--config`):
@@ -51,9 +51,9 @@ saved baseline and private daemon log beneath that directory.
 Both machines must reach the **same Redis database**. First create the workspace:
 
 ```sh
-afs ws create shared
+afs create shared
 # Or import a directory using the original parallel import machinery:
-afs ws create project --from ./existing-project
+afs create project --from ./existing-project
 ```
 
 On machine A:
@@ -87,32 +87,40 @@ It leaves local files intact. A failed flush returns an error and keeps the daem
 running. `unmount --force` detaches without a flush; pending content may exist only
 in the local directory. Ctrl-C in foreground mode also attempts a flush.
 
-## Files
+## Files and command output
+
+Use ordinary filesystem tools inside a mounted directory:
 
 ```sh
-afs fs ls shared
-printf 'exact bytes\n' | afs fs put shared notes/today.txt
-afs fs put shared image.bin --from ./image.bin
-afs fs cat shared image.bin > ./download.bin
-afs fs mkdir shared documents
-afs fs mv shared notes/today.txt documents/today.txt
-afs fs rm shared documents --recursive
+afs mount shared ~/agent-a
+mkdir -p ~/agent-a/documents
+printf 'exact bytes\n' > ~/agent-a/documents/today.txt
+cat ~/agent-a/documents/today.txt
+cp ./image.bin ~/agent-a/image.bin
+mv ~/agent-a/documents/today.txt ~/agent-a/documents/yesterday.txt
+rg 'exact' ~/agent-a
+rm ~/agent-a/documents/yesterday.txt
 ```
 
-Paths are workspace-relative. File commands use the same Redis mutation path as
-sync; mounted clients receive their changes. `cat` writes exact bytes, including
-binary and empty files. It rejects `--json`; other commands accept `--json` for
-machine-readable results. Errors go to stderr.
+Folder synchronization publishes these changes and receives changes from other
+clients. Use `afs cp create` or normal `afs unmount` when you need a completed
+local flush. There is no separate remote-file command group.
 
 Commands print readable text by default: tables for lists, labeled details for
-`ws info`, `cp show` and `status <directory>`, and short confirmations for changes.
+`info`, `cp show` and `status <directory>`, and short confirmations for changes.
 Use `--json` explicitly when piping structured results into scripts:
 
 ```sh
-afs ws list                 # readable table
-afs --json ws list          # JSON array
-afs status ./agent-a        # connection, pending work, conflicts and errors
+afs list                   # readable table
+afs --json list            # JSON array
+afs status ~/agent-a       # connection, pending work, conflicts and errors
 ```
+
+Workspace actions are `create`, `list`, `info`, `fork` and `delete` at the root,
+alongside `mount`, `unmount` and `status`. Checkpoints stay under `cp`:
+`afs delete shared` deletes a workspace; `afs cp delete shared old-checkpoint`
+deletes a checkpoint. Both retain their confirmation and safety checks.
+The former `ws` prefix and `fs` group are removed, with no compatibility aliases.
 
 ## Checkpoints and forks
 
@@ -120,8 +128,8 @@ afs status ./agent-a        # connection, pending work, conflicts and errors
 afs cp create shared --name before-refactor
 afs cp list shared
 afs cp show shared before-refactor
-afs ws fork shared experiment --checkpoint before-refactor
-afs ws fork shared latest-experiment
+afs fork shared experiment --checkpoint before-refactor
+afs fork shared latest-experiment
 ```
 
 Forks have independent trees and checkpoint/blob ownership. Omitting
@@ -140,7 +148,7 @@ contents matter; this is not a distributed filesystem transaction.
 afs unmount ~/agent-a
 afs cp restore shared before-refactor --yes
 afs cp delete shared old-checkpoint --yes
-afs ws delete experiment --yes
+afs delete experiment --yes
 ```
 
 Restore requires local mounts to be unmounted and retains the existing safety

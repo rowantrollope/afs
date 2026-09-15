@@ -70,6 +70,7 @@ func TestSyncSaveResumePreservesManagedRootReplacementGuard(t *testing.T) {
 func TestSyncSaveServiceWaitsForRemoteWriteAndRestartsAfterTimeout(t *testing.T) {
 	env := newSyncTestEnv(t)
 	s := newDirectSaveService(t, env)
+	recovery := gateSyncSaveRecovery(t, s.active)
 	env.writeLocalFile(t, "file", "saved bytes")
 	entered, release := make(chan struct{}), make(chan struct{})
 	fault := &syncSaveFaultClient{Client: env.fsClient, write: func(ctx context.Context, p string, data []byte, mode uint32) error {
@@ -96,13 +97,18 @@ func TestSyncSaveServiceWaitsForRemoteWriteAndRestartsAfterTimeout(t *testing.T)
 	default:
 	}
 	result := <-done
-	if result.Success || !strings.Contains(result.Error, "deadline exceeded") {
+	if result.Success || result.Save != nil || !strings.Contains(result.Error, "deadline exceeded") {
 		t.Fatalf("save = %+v", result)
 	}
+	recovery.awaitRecovery(t)
 	if s.active == nil || env.remoteExists(t, "file") {
 		t.Fatal("timeout must restart without claiming a write")
 	}
 	close(release)
+	recovery.resume()
+	assertEventually(t, 3*time.Second, "resumed sync to publish the pending file", func() bool {
+		return env.remoteExists(t, "file") && env.readRemoteFile(t, "file") == "saved bytes"
+	})
 	result = s.save(saveRequestForDaemon(s.active, 5*time.Second))
 	if !result.Success || env.readRemoteFile(t, "file") != "saved bytes" {
 		t.Fatalf("retry = %+v", result)

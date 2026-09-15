@@ -1,72 +1,25 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/rowantrollope/afs/mount/client"
 )
 
 func TestHelpAndVersionDoNotLoadRedisOrConfiguration(t *testing.T) {
-	for _, args := range [][]string{{"--config", "/does/not/exist", "--redis", "not-a-url", "--help"}, {"--config", "/does/not/exist", "ws", "--help"}, {"--redis", "invalid", "--version"}} {
+	for _, args := range [][]string{{"--config", "/does/not/exist", "--redis", "not-a-url", "--help"}, {"--config", "/does/not/exist", "create", "--help"}, {"--redis", "invalid", "--version"}} {
 		out, err := captureStdout(t, func() error { return runCLI(args) })
 		if err != nil || out == "" {
 			t.Fatalf("%v: output %q error %v", args, out, err)
 		}
 	}
 	out, _ := captureStdout(t, func() error { return runCLI([]string{"--help"}) })
-	for _, excluded := range []string{"vol ", "FUSE", "NFS", "mcp", "auth", "query", "cloud"} {
+	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "FUSE", "NFS", "mcp", "auth", "query", "cloud"} {
 		if strings.Contains(out, excluded) {
 			t.Errorf("root help contains excluded surface %q", excluded)
 		}
-	}
-}
-
-type editBeforeRemoveClient struct {
-	client.Client
-	before func()
-}
-
-func (c *editBeforeRemoveClient) Rm(ctx context.Context, p string) error {
-	if c.before != nil {
-		before := c.before
-		c.before = nil
-		before()
-	}
-	return c.Client.Rm(ctx, p)
-}
-
-func TestRecursiveRemoveProtectsConcurrentEdit(t *testing.T) {
-	env := newSyncTestEnv(t)
-	ctx := context.Background()
-	env.writeRemoteFile(t, "tree/nested/file", "original")
-	root, err := env.fsClient.Stat(ctx, "/tree")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fs := &editBeforeRemoveClient{Client: env.fsClient, before: func() {
-		env.writeRemoteFile(t, "tree/nested/file", "competing edit")
-	}}
-	if err := removeRemoteTree(ctx, fs, "/tree", root); !errors.Is(err, client.ErrWriteConflict) {
-		t.Fatalf("expected conflict, got %v", err)
-	}
-	if got := env.readRemoteFile(t, "tree/nested/file"); got != "competing edit" {
-		t.Fatalf("competing edit lost: %q", got)
-	}
-	root, err = env.fsClient.Stat(ctx, "/tree")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := removeRemoteTree(ctx, env.fsClient, "/tree", root); err != nil {
-		t.Fatal(err)
-	}
-	if st, err := env.fsClient.Stat(ctx, "/tree"); err != nil || st != nil {
-		t.Fatalf("tree remains: %+v %v", st, err)
 	}
 }
 
@@ -114,32 +67,22 @@ func TestLocalMountDatabaseIdentity(t *testing.T) {
 	}
 }
 
-func TestWorkspacePathsRejectEscapes(t *testing.T) {
-	for _, bad := range []string{"../outside", "nested/../../outside", "/absolute", "a\\b", "a\x00b"} {
-		if _, err := workspacePath(bad); err == nil {
-			t.Errorf("accepted %q", bad)
-		}
-	}
-	for _, good := range []string{"", ".", "nested/file", "help", "-name"} {
-		if _, err := workspacePath(good); err != nil {
-			t.Errorf("rejected %q: %v", good, err)
-		}
+func TestGlobalOptions(t *testing.T) {
+	opts, args, err := parseGlobalOptions([]string{"info", "w", "--redis=redis://localhost:6379/8", "--json"})
+	if err != nil || len(args) != 2 || !opts.json || opts.redisURL != "redis://localhost:6379/8" {
+		t.Fatalf("opts=%+v args=%v err=%v", opts, args, err)
 	}
 }
 
-func TestGlobalOptionsAndBinaryJSON(t *testing.T) {
-	opts, args, err := parseGlobalOptions([]string{"fs", "cat", "w", "file", "--redis=redis://localhost:6379/8", "--json"})
-	if err != nil || len(args) != 4 || !opts.json || opts.redisURL != "redis://localhost:6379/8" {
-		t.Fatalf("opts=%+v args=%v err=%v", opts, args, err)
-	}
-	a := app{options: cliOptions{json: true}}
-	err = a.files([]string{"cat", "workspace", "file"})
-	if err == nil || !strings.Contains(err.Error(), "does not support --json") {
-		t.Fatalf("cat JSON error = %v", err)
-	}
-	out, err := captureStdout(t, func() error { return a.output(map[string]any{"bytes": 3}, "Wrote 3 bytes.\n") })
-	if err != nil || !json.Valid([]byte(out)) {
-		t.Fatalf("invalid JSON: %q %v", out, err)
+func TestRemovedCommandGroupsFailBeforeConfigOrRedis(t *testing.T) {
+	for _, group := range []string{"fs", "ws"} {
+		for _, args := range [][]string{{group}, {group, "--help"}, {group, "create", "demo"}} {
+			args = append([]string{"--config", "/does/not/exist", "--redis", "invalid"}, args...)
+			out, err := captureStdout(t, func() error { return runCLI(args) })
+			if err == nil || !strings.Contains(err.Error(), "unknown command") || out != "" {
+				t.Fatalf("removed command %v: output=%q error=%v", args, out, err)
+			}
+		}
 	}
 }
 

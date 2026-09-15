@@ -13,8 +13,8 @@ while extracting the original `c3897ac` baseline.
   unchanged chunks on the server, preserving delta-transfer bandwidth.
 - File mutations compare the current path, inode identity and publication
   revision. Callers bind the candidate to a prior remote stat observation: sync captures
-  it before comparing remote bytes; the CLI captures it before reading candidate
-  input. A competing update returns a conflict instead of silently overwriting
+  it before comparing remote bytes. A competing update returns a conflict
+  instead of silently overwriting
   it. The existing sync conflict/reconciliation path retains the local candidate.
 - Each publication has an opaque operation identity. A lost response is checked
   against that identity; retrying the same Redis operation cannot replay its
@@ -52,7 +52,7 @@ for a future event; setting the existing Redis read to nonblocking fixes it.
 
 The generation marker belongs to workspace lifecycle management. Native clients
 without a generation remain available to isolated tests and internal setup;
-user-facing commands and mounted daemons supply one.
+workspace lifecycle operations and mounted daemons supply one.
 
 ## Verification performed
 

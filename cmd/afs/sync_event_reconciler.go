@@ -1055,6 +1055,11 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 	}
 	if res.Err != nil {
 		r.log.Err("upload "+res.Op.Path, res.Err.Error())
+		if res.Op.Kind == opUploadDelete && errors.Is(res.Err, client.ErrDirNotEmpty) {
+			// Watcher delivery can put a removed directory before its children.
+			// The retained recovery planner orders deletes and rechecks edits.
+			r.requestFullSweep()
+		}
 		return
 	}
 	if res.Conflict {
