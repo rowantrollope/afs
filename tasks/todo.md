@@ -13,7 +13,7 @@ Target: rowantrollope/afs, private; existing initial commit `a91598c` preserved.
 - [x] Execute every documented reduced command and README workflow through a built binary.
 - [x] Verify retained tests; real Redis and independent-process acceptance; focused performance checks.
 - [x] Document guarantees, limitations, provenance, additions, and results.
-- [ ] Build, vet, test, race; commit and push without changing visibility/protections.
+- [x] Build, vet, test, race; commit and push without changing visibility/protections.
 
 ## Decisions
 - Original checkout and installed processes/configuration/data remain untouched.
@@ -30,8 +30,11 @@ Package tests alone do not satisfy this gate.
 ## Review
 All local acceptance gates pass on final production code:
 - Build, vet, Linux cross-build.
-- Unit and race: 387 test/subtest passes each; two optional Array skips each.
+- Unit and race: 388 test/subtest passes each; two optional Array skips each.
 - Fresh-binary CLI/process suite: 134 passes, no failures or skips.
 - Actual prior/current CLI comparison: six passes, no failures or skips.
 - Root/flush/publication safety regressions pass; original checkout unchanged.
-- Production source is about 80% smaller. Publication and Linux CI follow.
+- Production source is about 80% smaller. Committed and pushed through PR #1.
+- Linux CI exposed an empty-file deletion edge on Redis 7. Reproduced and fixed;
+  full Redis 7 unit/race/CLI/compatibility checks pass. Linux runs are recorded
+  on PR #1. Repository visibility and protections were not changed.

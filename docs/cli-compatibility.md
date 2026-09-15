@@ -48,3 +48,6 @@ AFS_BASELINE_BINARY="$afs_baseline_dir/afs-prior" go test -tags compatibility -c
 `redis-server` and Go are required. The suite builds the extracted CLI fresh by default; `AFS_E2E_BINARY` can select an already built derivative. Missing baseline binaries or Redis are failures, never skips. All spawned Redis servers and sync mounts are owned by the test and stopped during cleanup. No NFS/FUSE or account services are needed.
 
 Observed on macOS arm64 with Go 1.26.1 and Redis 8.6.2: both top-level tests and all four subtests passed, with no skips. The paired filesystem workflow took 3.07 seconds in the recorded run; this is acceptance evidence, not a performance comparison. No production changes were needed to pass this comparison.
+
+Final repeat with disposable Redis 7.0.15 after the empty-file deletion fix:
+six test/subtest passes, zero skips; package time 3.856 seconds.

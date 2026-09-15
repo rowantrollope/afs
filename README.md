@@ -11,7 +11,7 @@ See the [simplification report](docs/simplification.md) for provenance and chang
 ## Build
 
 Requires Go 1.22.2 or newer and a Redis server. Supported local platforms are
-macOS and Linux. No FUSE, NFS, control-plane server or agent plugin is required.
+macOS and Linux; acceptance runs cover Redis 7.0.15 and 8.6.2. No FUSE, NFS, control-plane server or agent plugin is required.
 
 ```sh
 git clone https://github.com/rowantrollope/afs.git

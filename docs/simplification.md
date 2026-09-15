@@ -98,6 +98,11 @@ Testing the extracted wiring found and corrected several issues before delivery:
   databases. It now matches normalized endpoint/database/workspace identity.
 - Managed mounts reject authoritative bulk root replacement; restore cannot
   erase their pending local edits while a manifest is being read.
+- Linux CI exposed Redis 7 serializing a zero-byte decrement as `-0`, which
+  aborted empty-file deletion before its change event. A regression reproduced
+  the failure on Redis 7.0.15; skipping that zero counter adjustment fixes it.
+  Full unit/race and both CLI suites then passed on Redis 7.0.15. The focused
+  deletion tests also passed with the race detector on Redis 8.6.2.
 
 These are extraction/lifecycle acceptance findings, not claims that every issue
 was present in the original CLI. [The CLI comparison](cli-compatibility.md) maps
@@ -114,28 +119,30 @@ Baseline on macOS arm64, Go 1.26.1, isolated Redis/miniredis:
   passes. Five optional feature/environment tests skipped; these are not claimed
   as verification. Raw logs: `/private/tmp/afs-baseline-results`.
 
-Derivative checks on the final production code:
+Derivative checks on the final production code, macOS arm64 / Go 1.26.1 /
+disposable Redis 7.0.15:
 
 - `go build ./...` and `go vet ./...`: passed.
-- `go test -json -count=1 ./...`: 387 test/subtest passes; two optional Redis
+- `go test -json -count=1 ./...`: 388 test/subtest passes; two optional Redis
   Array tests skipped because their dedicated server was not configured.
-- `go test -race -json -count=1 ./...`: 387 test/subtest passes; the same two
+- `go test -race -json -count=1 ./...`: 388 test/subtest passes; the same two
   optional Redis Array tests skipped. No race reports.
 - `GOOS=linux GOARCH=amd64 go build ./...`: cross-build passed. This is compilation
   evidence, separate from executing the Linux test suite.
 - `go test -tags=integration -timeout=15m -count=1 -json ./tests/e2e`: passed
-  in 23.902 seconds. Fourteen top-level tests, 134 test/subtest passes, zero skips
+  in 29.512 seconds. Fourteen top-level tests, 134 test/subtest passes, zero skips
   or failures. This builds a fresh binary and includes all reduced commands,
   offline help, 50 invalid/confirmation cases, config precedence, exact bytes/JSON,
   and independent-process synchronization/recovery.
 - `AFS_BASELINE_BINARY=/path/to/afs-prior go test -tags compatibility -count=1 -v
   ./tests/compat`: both actual CLI binaries passed the paired workflow; six
-  test/subtest passes, zero skips. The recorded package run took 5.375 seconds.
+  test/subtest passes, zero skips. The recorded package run took 3.856 seconds.
   [Command mapping and reproduction](cli-compatibility.md).
-- No skipped optional test is counted as a pass.
+- No skipped optional test is counted as a pass. Linux CI results are attached
+  to [PR #1](https://github.com/rowantrollope/afs/pull/1).
 
 Production Go source fell from 258 files / 91,591 physical lines in the immutable
-baseline archive to 64 files / 18,380 lines, approximately an 80% reduction.
+baseline archive to 64 files / 18,381 lines, approximately an 80% reduction.
 The comparison includes comments and excludes test files. The original checkout
 still has commit `c3897ac` and only its pre-existing untracked work.
 
@@ -155,7 +162,8 @@ Command: `go test -run '^$' -bench 'BenchmarkBuildManifest_(Small|Medium)_' -ben
 The retained parallel path remains materially faster than serial in both samples.
 No large scanner regression was observed.
 
-Independent-process smoke on 1,000 files against disposable Redis with AOF
+Representative independent-process smoke on 1,000 files against disposable
+Redis 8.6.2 with AOF
 `appendfsync always`: import 142 ms; two initial mounts 381 ms; one small change
 reaching the other client 155 ms; checkpoint after sync 2.22 s. Two idle clients
 averaged 1.0 Redis commands/second over two seconds. These values are local

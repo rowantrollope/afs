@@ -77,3 +77,67 @@ func TestChangeStreamCatchupDoesNotWaitForAnotherChange(t *testing.T) {
 		t.Fatal("caught-up journal read blocked waiting for a future event")
 	}
 }
+
+func TestDeleteEmptyFilePublishesCountersAndChange(t *testing.T) {
+	rdb, ctx := setupTestRedis(t)
+	const fsKey = "delete-empty-journal"
+	c := New(rdb, fsKey)
+	if err := c.Echo(ctx, "/keep", []byte("keep")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.CreateFile(ctx, "/empty", 0o644, true); err != nil {
+		t.Fatal(err)
+	}
+	keys := newKeyBuilder(fsKey)
+	if err := rdb.Del(ctx, keys.changesStream(), keys.rootDirty()).Err(); err != nil {
+		t.Fatal(err)
+	}
+	writerRedis := redis.NewClient(rdb.Options())
+	t.Cleanup(func() { _ = writerRedis.Close() })
+	// Supplemental notifications cannot hide an error partway through the
+	// atomic deletion script: that script must mark dirty and append the event.
+	writerRedis.AddHook(journalFailureHook{})
+	if err := New(writerRedis, fsKey).Rm(ctx, "/empty"); err != nil {
+		t.Errorf("delete empty file: %v", err)
+	}
+	if stat, err := New(rdb, fsKey).Stat(ctx, "/empty"); err != nil || stat != nil {
+		t.Errorf("deleted file stat = %+v, error = %v", stat, err)
+	}
+	info, err := c.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Files != 1 || info.TotalDataBytes != 4 {
+		t.Errorf("counters after deleting empty file: %+v", info)
+	}
+	if dirty, err := rdb.Get(ctx, keys.rootDirty()).Result(); err != nil || dirty != "1" {
+		t.Errorf("root dirty = %q, error = %v", dirty, err)
+	}
+	entries, err := rdb.XRange(ctx, keys.changesStream(), "-", "+").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range entries {
+		payload, _ := entry.Values["payload"].(string)
+		event, err := decodeInvalidate([]byte(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range event.Paths {
+			if event.Op == InvalidateOpInode && path == "/empty" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("empty file was deleted without its durable change event")
+	}
+	if err := c.Rm(ctx, "/keep"); err != nil {
+		t.Fatal(err)
+	}
+	info, err = c.Info(ctx)
+	if err != nil || info.Files != 0 || info.TotalDataBytes != 0 {
+		t.Fatalf("counters after deleting nonempty file: %+v, %v", info, err)
+	}
+}

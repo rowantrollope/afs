@@ -349,7 +349,8 @@ redis.call('HSET',KEYS[6],'mtime_ms',ARGV[5],'ctime_ms',ARGV[5])
 local counter='files'
 if kind=='dir' then counter='directories' elseif kind=='symlink' then counter='symlinks' end
 redis.call('HINCRBY',KEYS[5],counter,-1)
-if kind=='file' then redis.call('HINCRBY',KEYS[5],'total_data_bytes',-size) end
+-- Redis 7 serializes negative zero as '-0', which HINCRBY rejects.
+if kind=='file' and size>0 then redis.call('HINCRBY',KEYS[5],'total_data_bytes',-size) end
 redis.call('SET',KEYS[8],'1')
 if ARGV[7] ~= '' then
  redis.call('XADD',KEYS[9],'MAXLEN','~',10000,'*','payload',ARGV[7])
