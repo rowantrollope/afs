@@ -540,3 +540,50 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 		}
 	}
 }
+
+func TestMountPreservesPreexistingIgnoredFiles(t *testing.T) {
+	source := t.TempDir()
+	public := []byte("already published remote content\n")
+	write(t, filepath.Join(source, "public.txt"), public, 0o644)
+	remoteTree := snapshot(t, source)
+	var priorTree map[string]fileState
+	for _, prior := range []bool{true, false} {
+		name := "current"
+		if prior {
+			name = "prior"
+		}
+		ok := t.Run(name, func(t *testing.T) {
+			c := newCLI(t, prior)
+			c.mapped([]string{"vol", "import", "corpus", source}, []string{"ws", "create", "corpus", "--from", source})
+			mount := filepath.Join(c.root, "mount")
+			write(t, filepath.Join(mount, ".afsignore"), []byte("private/\n"), 0o644)
+			write(t, filepath.Join(mount, "private", "local.txt"), []byte("private local bytes must survive\n"), 0o600)
+			want := snapshot(t, mount)
+			want["public.txt"] = remoteTree["public.txt"]
+
+			c.mount("corpus", mount)
+			equal(t, "mount preserves ignore file and ignored local bytes", snapshot(t, mount), want)
+			equal(t, "published public file", c.cat("corpus", "public.txt"), public)
+			// A completed save/checkpoint proves the exclusion survives a full
+			// scan, rather than merely checking before the daemon can upload.
+			c.checkpoint("ignored-preserved", mount)
+			equal(t, "ignored paths stay out of Redis", c.listing("corpus", "."), []listingEntry{{Name: "public.txt", Type: "file", Size: int64(len(public))}})
+			c.unmount(mount)
+			got := snapshot(t, mount)
+			equal(t, "unmount preserves ignored local bytes", got, want)
+			if prior {
+				priorTree = got
+			} else {
+				equal(t, "prior/current ignored-file preservation", got, priorTree)
+			}
+
+			verify := filepath.Join(c.root, "verify")
+			c.mount("corpus", verify)
+			equal(t, "independent mount contains only published files", snapshot(t, verify), remoteTree)
+			c.unmount(verify)
+		})
+		if !ok && prior {
+			t.Fatal("original CLI ignored-file behavior failed; comparison needs a verified baseline")
+		}
+	}
+}

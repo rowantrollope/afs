@@ -11,9 +11,9 @@ Target: rowantrollope/afs, private; existing initial commit `a91598c` preserved.
 - [x] Adapt CLI, isolated configuration/namespace/state, lifecycle and flush wiring.
 - [x] Map prior CLI to reduced CLI and run black-box behavioral comparisons.
 - [x] Execute every documented reduced command and README workflow through a built binary.
-- [x] Verify retained tests; real Redis and independent-process acceptance; focused performance checks.
-- [x] Document guarantees, limitations, provenance, additions, and results.
-- [x] Build, vet, test, race; commit and push without changing visibility/protections.
+- [x] Verify final regressions; real Redis and independent-process acceptance; focused performance checks.
+- [x] Update guarantees, limitations, provenance, additions, and final results.
+- [ ] Build, vet, test, race; commit, push, verify Linux CI and merge normally.
 
 ## Decisions
 - Original checkout and installed processes/configuration/data remain untouched.
@@ -29,12 +29,14 @@ Package tests alone do not satisfy this gate.
 
 ## Review
 All local acceptance gates pass on final production code:
-- Build, vet, Linux cross-build.
-- Unit and race: 388 test/subtest passes each; two optional Array skips each.
-- Fresh-binary CLI/process suite: 134 passes, no failures or skips.
-- Actual prior/current CLI comparison: six passes, no failures or skips.
-- Root/flush/publication safety regressions pass; original checkout unchanged.
-- Production source is about 80% smaller. Committed and pushed through PR #1.
-- Linux CI exposed an empty-file deletion edge on Redis 7. Reproduced and fixed;
-  full Redis 7 unit/race/CLI/compatibility checks pass. Linux runs are recorded
-  on PR #1. Repository visibility and protections were not changed.
+- Build, vet and Linux cross-build.
+- Unit and race: 396 test/subtest passes each; three optional Array skips each.
+- Fresh-binary CLI/process suite: 135 passes, no failures or skips.
+- Actual prior/current CLI comparison: nine passes, no failures or skips.
+- Tests reproduce and fix ignored-file hydration, pending remote deletion during
+  full reconciliation, and empty-file replay after a peer deletion.
+- The pending-delete regression also fails on the original baseline; four
+  focused sync cases pass 50 race-detector repetitions after the narrow fix.
+- Production source is about 80% smaller. Original checkout remains unchanged.
+- Prior commit passed Linux CI. Latest fixes await commit, push and Linux CI
+  before merging PR #1; visibility and protections remain unchanged.

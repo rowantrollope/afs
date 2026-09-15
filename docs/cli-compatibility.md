@@ -22,7 +22,7 @@ The compatibility suite runs two real CLI binaries against separate disposable R
 
 The tests compare workspace names and checkpoint head availability, normalized directory entries, checkpoint file/folder/byte totals, and materialized paths, file sizes, SHA-256 byte digests, permission modes, and symlink targets. Timestamps, random identifiers, formatting, and private local control directories (`.afs-sync` / `.afs-lite-sync`) are excluded from equality. Ordinary hidden user files are included.
 
-The shared fixture includes text, empty and binary files, an executable, an empty directory, a hidden file, and a relative symlink. Both CLIs must import and materialize that fixture, then publish ordinary local edits, rename, chmod, deletion, directory creation, and a 2,150,005-byte binary file. An independent remount verifies the published tree; the original fork must remain unchanged; restoring the earlier checkpoint must recover the original bytes and metadata. Unmount must preserve the local tree. Help and version run with a nonexistent config, without Redis.
+The shared fixture includes text, empty and binary files, an executable, an empty directory, a hidden file, and a relative symlink. Both CLIs must import and materialize that fixture, then publish ordinary local edits, rename, chmod, deletion, directory creation, and a 2,150,005-byte binary file. An independent remount verifies the published tree; the original fork must remain unchanged; restoring the earlier checkpoint must recover the original bytes and metadata. Unmount must preserve the local tree. A separate paired test starts with a local `.afsignore` containing `private/` and an existing `private/local.txt`, then mounts a workspace containing `public.txt`. Both CLIs must preserve the ignore file and private bytes, hydrate the public file, exclude the private paths through a completed save/checkpoint, preserve them on unmount, and expose only public content on an independent mount. Help and version run with a nonexistent config, without Redis.
 
 ## Intentional differences
 
@@ -47,7 +47,15 @@ AFS_BASELINE_BINARY="$afs_baseline_dir/afs-prior" go test -tags compatibility -c
 
 `redis-server` and Go are required. The suite builds the extracted CLI fresh by default; `AFS_E2E_BINARY` can select an already built derivative. Missing baseline binaries or Redis are failures, never skips. All spawned Redis servers and sync mounts are owned by the test and stopped during cleanup. No NFS/FUSE or account services are needed.
 
-Observed on macOS arm64 with Go 1.26.1 and Redis 8.6.2: both top-level tests and all four subtests passed, with no skips. The paired filesystem workflow took 3.07 seconds in the recorded run; this is acceptance evidence, not a performance comparison. No production changes were needed to pass this comparison.
+## Recorded result
 
-Final repeat with disposable Redis 7.0.15 after the empty-file deletion fix:
-six test/subtest passes, zero skips; package time 3.856 seconds.
+The final suite passed on macOS arm64, Go 1.26.1 and disposable Redis 7.0.15:
+three top-level tests and six subtests, zero skips or failures, 4.997 seconds.
+The original binary was built from the exact baseline commit above; the
+extracted binary was built fresh from the tested source.
+
+The paired ignored-file case caught a derivative regression: initial bulk
+hydration removed pre-existing ignored local files. The corrected predicate uses
+the retained warm reconciliation path whenever user-owned local entries exist.
+The final comparison passes after that fix and the deletion/retry regressions
+recorded in [the simplification report](simplification.md).

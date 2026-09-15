@@ -903,10 +903,12 @@ func (r *reconciler) handleRemoteEvent(ctx context.Context, ev remoteEvent) {
 				stat = stat2
 				// Fall through to the download/update logic below.
 			} else {
-				// Confirmed: file truly gone from remote.
+				// Confirmed: file truly gone from remote. Invalidate plans made
+				// before this observation, but retain the live local baseline
+				// until the downloader removes it. A tombstone while that file
+				// still exists looks like a local recreation to a full sweep.
 				r.state.mu.Lock()
 				if entry, ok := r.state.state.Entries[rel]; ok && !entry.Deleted {
-					entry.Deleted = true
 					entry.Version = r.state.nextVersion()
 					entry.LastSyncedAt = time.Now().UTC()
 					r.state.state.Entries[rel] = entry
@@ -914,7 +916,7 @@ func (r *reconciler) handleRemoteEvent(ctx context.Context, ev remoteEvent) {
 				}
 				r.state.mu.Unlock()
 
-				fmt.Fprintf(os.Stderr, "afs sync: handleRemoteEvent %s: stat nil confirmed after retry → tombstone + downloadDelete\n", rel)
+				fmt.Fprintf(os.Stderr, "afs sync: handleRemoteEvent %s: stat nil confirmed after retry → downloadDelete\n", rel)
 				r.log.RemoteChange(rel, "deleted")
 				r.queueDownload(downloadOp{
 					Kind:        opDownloadDelete,

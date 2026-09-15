@@ -76,6 +76,10 @@ Baseline tests passed before deletion. Focused fault injection then reproduced:
 5. A crash between file commit and separate journal append could leave no durable
    reconnect event for published bytes.
 6. Journal catch-up could wait indefinitely for a new event after reaching its end.
+7. A full reconciliation between observing a remote deletion and applying it
+   locally could mistake the pending local copy for a new file and re-upload it.
+   A deterministic test reproduced this on both the original and derivative.
+   The live baseline is now retained until local deletion completes.
 
 Regression tests and narrow changes address these cases using the existing
 conflict-copy and recovery policy. Historical upstream notes were used to find
@@ -96,6 +100,10 @@ Testing the extracted wiring found and corrected several issues before delivery:
   parents, and rejects competing updates through the retained conditional API.
 - Local checkpoint flush matching treated different Redis usernames as separate
   databases. It now matches normalized endpoint/database/workspace identity.
+- Initial hydration could classify `.afsignore` and excluded local files as an
+  empty directory and remove them. The CLI regression reproduced this loss.
+  Bulk hydration now requires a root containing only control metadata; the
+  retained warm path preserves other local entries and applies ignore rules.
 - Managed mounts reject authoritative bulk root replacement; restore cannot
   erase their pending local edits while a manifest is being read.
 - Linux CI exposed Redis 7 serializing a zero-byte decrement as `-0`, which
@@ -103,6 +111,10 @@ Testing the extracted wiring found and corrected several issues before delivery:
   the failure on Redis 7.0.15; skipping that zero counter adjustment fixes it.
   Full unit/race and both CLI suites then passed on Redis 7.0.15. The focused
   deletion tests also passed with the race detector on Redis 8.6.2.
+- An exact transport retry of a committed empty-file creation could recreate
+  the file after another client deleted it. Every publication now consumes its
+  staging key, including zero-byte writes; live same-token retries remain
+  idempotent. Tests cover both cases, counters, and empty-file chunk operations.
 
 These are extraction/lifecycle acceptance findings, not claims that every issue
 was present in the original CLI. [The CLI comparison](cli-compatibility.md) maps
@@ -123,26 +135,26 @@ Derivative checks on the final production code, macOS arm64 / Go 1.26.1 /
 disposable Redis 7.0.15:
 
 - `go build ./...` and `go vet ./...`: passed.
-- `go test -json -count=1 ./...`: 388 test/subtest passes; two optional Redis
+- `go test -json -count=1 ./...`: 396 test/subtest passes; three optional Redis
   Array tests skipped because their dedicated server was not configured.
-- `go test -race -json -count=1 ./...`: 388 test/subtest passes; the same two
+- `go test -race -json -count=1 ./...`: 396 test/subtest passes; the same three
   optional Redis Array tests skipped. No race reports.
 - `GOOS=linux GOARCH=amd64 go build ./...`: cross-build passed. This is compilation
   evidence, separate from executing the Linux test suite.
 - `go test -tags=integration -timeout=15m -count=1 -json ./tests/e2e`: passed
-  in 29.512 seconds. Fourteen top-level tests, 134 test/subtest passes, zero skips
+  in 27.875 seconds. Fifteen top-level tests, 135 test/subtest passes, zero skips
   or failures. This builds a fresh binary and includes all reduced commands,
   offline help, 50 invalid/confirmation cases, config precedence, exact bytes/JSON,
   and independent-process synchronization/recovery.
 - `AFS_BASELINE_BINARY=/path/to/afs-prior go test -tags compatibility -count=1 -v
-  ./tests/compat`: both actual CLI binaries passed the paired workflow; six
-  test/subtest passes, zero skips. The recorded package run took 3.856 seconds.
+  ./tests/compat`: both actual CLI binaries passed the paired workflow; nine
+  test/subtest passes, zero skips. The recorded package run took 4.997 seconds.
   [Command mapping and reproduction](cli-compatibility.md).
 - No skipped optional test is counted as a pass. Linux CI results are attached
   to [PR #1](https://github.com/rowantrollope/afs/pull/1).
 
 Production Go source fell from 258 files / 91,591 physical lines in the immutable
-baseline archive to 64 files / 18,381 lines, approximately an 80% reduction.
+baseline archive to 64 files / 18,400 lines, approximately an 80% reduction.
 The comparison includes comments and excludes test files. The original checkout
 still has commit `c3897ac` and only its pre-existing untracked work.
 

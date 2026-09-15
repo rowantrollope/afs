@@ -85,12 +85,16 @@ else
  if linked ~= ARGV[1] or current ~= ARGV[3] then return -1 end
  if redis.call('EXISTS', KEYS[1]) == 0 then return -1 end
 end
-if redis.call('EXISTS', KEYS[2]) == 0 and ARGV[8] ~= '0' then return -3 end
+-- Every publication consumes staging, including an empty file. A missing
+-- stage after a concurrent delete must never let a transport retry recreate it.
+if redis.call('EXISTS', KEYS[2]) == 0 then return -3 end
 local previous = tonumber(redis.call('HGET', KEYS[1], 'size') or '0')
-if redis.call('EXISTS', KEYS[2]) == 1 then
+if ARGV[8] == '0' then
+ redis.call('DEL', KEYS[2], KEYS[4])
+else
  redis.call('RENAME', KEYS[2], KEYS[4])
  redis.call('PERSIST', KEYS[4])
-else redis.call('DEL', KEYS[4]) end
+end
 for i=10,#ARGV,2 do redis.call('HSET',KEYS[1],ARGV[i],ARGV[i+1]) end
 redis.call('HSET',KEYS[1],'revision',ARGV[4])
 redis.call('HDEL',KEYS[1],'content')
@@ -158,7 +162,12 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 func (c *nativeClient) stageFullFile(ctx context.Context, inode *inodeData) (string, error) {
 	stage := c.keys.content(inode.ID) + ":stage:" + newOriginID()
 	pipe := c.rdb.TxPipeline()
-	rediscontent.QueueWriteFull(ctx, pipe, stage, inode.ContentRef, []byte(inode.Content))
+	if inode.Size == 0 {
+		// Empty Arrays need no live content key, but still need consumable staging.
+		pipe.Set(ctx, stage, "", 0)
+	} else {
+		rediscontent.QueueWriteFull(ctx, pipe, stage, inode.ContentRef, []byte(inode.Content))
+	}
 	pipe.Expire(ctx, stage, publicationTTL)
 	_, err := pipe.Exec(ctx)
 	return stage, err
@@ -303,8 +312,13 @@ func (c *nativeClient) publishChunks(ctx context.Context, p string, chunks map[i
 			}
 		}
 	}
-	// Array range writes preserve existing TTL; newly created arrays need one.
-	if err := c.rdb.Expire(ctx, stage, publicationTTL).Err(); err != nil {
+	// COPY of an empty file may have no source key; truncating an Array to
+	// zero deletes its stage. Keep an empty marker for the publication to consume.
+	if newSize == 0 {
+		if err := c.rdb.Set(ctx, stage, "", publicationTTL).Err(); err != nil {
+			return err
+		}
+	} else if err := c.rdb.Expire(ctx, stage, publicationTTL).Err(); err != nil {
 		return err
 	}
 	fields := map[string]interface{}{}

@@ -361,3 +361,23 @@ func TestConfigurationFileSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestMountKeepsPreexistingIgnoredFiles(t *testing.T) {
+	r := newRedis(t)
+	c := newCLI(t, r)
+	c.run(nil, "ws", "create", "ignored-local")
+	c.run([]byte("published"), "fs", "put", "ignored-local", "included")
+	root := filepath.Join(t.TempDir(), "root")
+	write(t, filepath.Join(root, ".afsignore"), []byte("private/\n"))
+	write(t, filepath.Join(root, "private", "local.txt"), []byte("keep local only"))
+	c.mount("ignored-local", root)
+	awaitFile(t, filepath.Join(root, "included"), []byte("published"))
+	for relative, want := range map[string]string{".afsignore": "private/\n", "private/local.txt": "keep local only"} {
+		got, err := os.ReadFile(filepath.Join(root, relative))
+		if err != nil || string(got) != want {
+			t.Fatalf("mount destroyed existing ignored file %s: %q %v", relative, got, err)
+		}
+	}
+	c.mustFail("fs", "cat", "ignored-local", "private/local.txt")
+	c.unmount(root)
+}

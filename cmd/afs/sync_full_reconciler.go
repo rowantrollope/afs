@@ -271,17 +271,20 @@ func (f *fullReconciler) isColdStart() bool {
 	if entryCount > 0 {
 		return false
 	}
-	populated, err := f.hasSyncableLocalEntries()
+	populated, err := f.hasNonControlLocalEntries()
 	return err == nil && !populated
 }
 
-func (f *fullReconciler) hasSyncableLocalEntries() (bool, error) {
+// Bulk materialization replaces local contents, including ignored files. Only
+// the control directory is preserved by that path; any other local entry must
+// use ordinary warm reconciliation, which leaves ignored contents intact.
+func (f *fullReconciler) hasNonControlLocalEntries() (bool, error) {
 	entries, err := os.ReadDir(f.r.root)
 	if err != nil {
 		return false, err
 	}
 	for _, entry := range entries {
-		if !isSyncControlPath(entry.Name()) && !f.r.ignore.shouldIgnore(entry.Name(), entry.IsDir()) {
+		if entry.Name() != syncControlDirName {
 			return true, nil
 		}
 	}
@@ -326,7 +329,7 @@ func (f *fullReconciler) coldStart(ctx context.Context, onProgress ProgressFunc)
 	if err := f.checkRunning(ctx); err != nil {
 		return err
 	}
-	if populated, err := f.hasSyncableLocalEntries(); err != nil {
+	if populated, err := f.hasNonControlLocalEntries(); err != nil {
 		return err
 	} else if populated {
 		return errors.New("local files appeared during initial download; preserve them and retry mounting")

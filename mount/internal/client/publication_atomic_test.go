@@ -321,3 +321,122 @@ func TestWorkspaceGenerationChangesAtMutationBoundary(t *testing.T) {
 		})
 	}
 }
+
+// Discard the first successful publication reply and resend the identical
+// command, as a transport retry would. A peer may delete between the attempts.
+type replayPublicationHook struct {
+	peer              Client
+	peerContext       context.Context
+	deleteBeforeRetry bool
+	replayed          bool
+}
+
+func (h *replayPublicationHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+func (h *replayPublicationHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+func (h *replayPublicationHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		err := next(ctx, cmd)
+		if h.replayed || err != nil || (cmd.Name() != "eval" && cmd.Name() != "evalsha") {
+			return err
+		}
+		h.replayed = true
+		if h.deleteBeforeRetry {
+			if err := h.peer.Rm(h.peerContext, "/file"); err != nil {
+				return err
+			}
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func TestCreatePublicationRetryPreservesConcurrentDeletion(t *testing.T) {
+	for _, content := range []string{"", "hello"} {
+		for _, deleted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("size_%d/deleted_%v", len(content), deleted), func(t *testing.T) {
+				rdb, ctx := setupTestRedis(t)
+				const fsKey = "create-replay"
+				peer := New(rdb, fsKey)
+				writerRedis := redis.NewClient(rdb.Options())
+				t.Cleanup(func() { _ = writerRedis.Close() })
+				hook := &replayPublicationHook{peer: peer, peerContext: ctx, deleteBeforeRetry: deleted}
+				writerRedis.AddHook(hook)
+				err := New(writerRedis, fsKey).Echo(WithExpectedStat(ctx, nil), "/file", []byte(content))
+				if !hook.replayed {
+					t.Fatal("publication was not replayed")
+				}
+				stat, statErr := peer.Stat(ctx, "/file")
+				if statErr != nil {
+					t.Fatal(statErr)
+				}
+				if deleted {
+					if stat != nil {
+						t.Fatalf("publication retry recreated a deleted file: %+v", stat)
+					}
+					if err == nil {
+						t.Fatal("superseded publication claimed success")
+					}
+				} else {
+					if err != nil || stat == nil {
+						t.Fatalf("live same-token publication was not recognized: stat=%+v, err=%v", stat, err)
+					}
+					data, err := peer.Cat(ctx, "/file")
+					if err != nil || string(data) != content {
+						t.Fatalf("replayed content=%q, err=%v", data, err)
+					}
+				}
+				info, err := peer.Info(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				files, size := int64(1), int64(len(content))
+				if deleted {
+					files, size = 0, 0
+				}
+				if info.Files != files || info.TotalDataBytes != size {
+					t.Fatalf("retry changed counters: %+v, want files=%d bytes=%d", info, files, size)
+				}
+			})
+		}
+	}
+}
+
+func TestEmptyFilePublicationPaths(t *testing.T) {
+	rdb, ctx := setupTestRedis(t)
+	checkEmptyFilePublicationPaths(t, rdb, ctx)
+}
+
+func TestArrayEmptyFilePublicationPaths(t *testing.T) {
+	rdb, ctx := setupArrayRedisFromEnv(t)
+	checkEmptyFilePublicationPaths(t, rdb, ctx)
+}
+
+func checkEmptyFilePublicationPaths(t *testing.T, rdb *redis.Client, ctx context.Context) {
+	t.Helper()
+	c := New(rdb, "empty-publication-paths")
+	if err := c.Echo(ctx, "/empty", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteChunks(ctx, "/new-empty", nil, 0, 0, nil); err != nil {
+		t.Fatalf("create empty through chunks: %v", err)
+	}
+	if err := c.WriteChunks(ctx, "/empty", nil, 0, 0, nil); err != nil {
+		t.Fatalf("clear empty chunk metadata: %v", err)
+	}
+	if err := c.WriteChunks(ctx, "/empty", map[int][]byte{0: []byte("data")}, 4, 4, nil); err != nil {
+		t.Fatalf("grow empty file: %v", err)
+	}
+	if data, err := c.Cat(ctx, "/empty"); err != nil || string(data) != "data" {
+		t.Fatalf("grown file=%q, err=%v", data, err)
+	}
+	if err := c.WriteChunks(ctx, "/empty", nil, 4, 0, nil); err != nil {
+		t.Fatalf("truncate through chunks: %v", err)
+	}
+	for _, path := range []string{"/empty", "/new-empty"} {
+		data, err := c.Cat(ctx, path)
+		if err != nil || len(data) != 0 {
+			t.Fatalf("empty file %s=%q, err=%v", path, data, err)
+		}
+	}
+}

@@ -12,3 +12,6 @@ line against the prior CLI, including whether the reduced instructions work.
 - Test every reduced command and README workflow through the built binary;
   distinguish intentional surface changes from behavioral regressions.
 - Do not call the extraction complete until the resulting CLI contract passes.
+
+- Compare initial mount and remount separately. Include pre-existing ignored
+  files: an entry excluded from sync must not be treated as disposable data.

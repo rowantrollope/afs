@@ -21,6 +21,8 @@ while extracting the original `c3897ac` baseline.
   counters or overwrite a later publication. A caller retry against an obsolete
   observation fails. Identical competing creates can still succeed as an
   already-published result.
+  Empty-file writes also consume staging; replay after a peer deletes the
+  committed file fails instead of recreating it.
 - File content, deletion and metadata changes append to the existing change
   stream and notify subscribers in the same Redis operation. Directory creation
   and rename queue these notifications in their existing transactions.
@@ -62,7 +64,8 @@ On macOS arm64, Go 1.26.1, disposable Redis 8.6.2:
 - The interrupted-chunk, missing-journal and blocked-catch-up regressions failed
   against the original baseline and pass with the fixes.
 - Real-Redis tests cover concurrent publication, lost acknowledgement followed by
-  a newer writer, conditional delete versus edit, complete chunked creation,
+  a newer writer or deletion, live same-token retries, empty-file chunk paths,
+  conditional delete versus edit, complete chunked creation,
   and generation rotation immediately before put/chunks/delete/rename/chmod/
   mkdir/symlink mutations.
 - Preserved native tests and focused strict-save, recovery and uploader tests
