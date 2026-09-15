@@ -412,21 +412,24 @@ func (r *reconciler) takeFallbackRenameCandidate(rel, wantType string) (renameCa
 }
 
 func (r *reconciler) takeRenameCandidateForLocalFile(rel, identity, hash string, size int64, hasStored bool) (renameCandidate, bool) {
-	if candidate, ok := r.takeRenameCandidate(renameCandidateKeyForLocalFile(identity, hash, size)); ok {
-		return candidate, true
-	}
+	// An atomic replacement of a tracked path keeps that path's baseline.
+	// Its new inode may reuse a recently deleted file's identity; treating
+	// that as a rename would substitute the unrelated source's baseline.
 	if hasStored {
 		return renameCandidate{}, false
+	}
+	if candidate, ok := r.takeRenameCandidate(renameCandidateKeyForLocalFile(identity, hash, size)); ok {
+		return candidate, true
 	}
 	return r.takeFallbackRenameCandidate(rel, "file")
 }
 
 func (r *reconciler) takeRenameCandidateForLocalSymlink(rel, identity, target string, hasStored bool) (renameCandidate, bool) {
-	if candidate, ok := r.takeRenameCandidate(renameCandidateKeyForLocalSymlink(identity, target)); ok {
-		return candidate, true
-	}
 	if hasStored {
 		return renameCandidate{}, false
+	}
+	if candidate, ok := r.takeRenameCandidate(renameCandidateKeyForLocalSymlink(identity, target)); ok {
+		return candidate, true
 	}
 	return r.takeFallbackRenameCandidate(rel, "symlink")
 }

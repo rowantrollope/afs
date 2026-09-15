@@ -1,5 +1,28 @@
 # AFS extraction
 
+## PR #4 CI follow-up
+
+- [x] Reproduce the missed startup deletion with a gated subscription regression.
+- [x] Recover changes only after confirmed subscription; rescan when no cursor exists.
+- [x] Reproduce and fix recycled-inode rename matching on an existing tracked path.
+- [x] Isolate the manually queued inbound-read fixture from automatic recovery.
+- [x] Preserve large-file chunk metadata when recovery wins the initial upload race.
+- [x] Pass final local checks before updating the PR.
+
+The original PR CI runs passed all four/eight-client native suites. One unit run
+missed a remote deletion before subscription confirmation; the other run's core
+smoke preserved an edit as an unexpected conflict copy. A deterministic reused-
+inode regression reproduces the same canonical/conflict result and silent-copy
+ordering. Historical inode reuse cannot be proven from those artifacts. The fix
+keeps existing file/symlink baselines while retaining new-path rename detection.
+Deletion and byte-preservation guards and workload deadlines remain unchanged.
+Final local verification passes build/vet, 654 unit and 654 race test/subtest
+cases with real Array enabled and no skips, 109 CLI cases, 14 dependency
+regressions and 16 harness tests. All ten core scenarios also pass with Go 1.22
+in isolated Linux processes. Source hashes stayed unchanged and owned cleanup
+completed. GitHub PR #4 tracks publication and the merge gate; merge and pull
+main only after the updated commit's CI checks pass.
+
 ## Check in native mounts and concurrency fixes
 
 - [x] Verify the final source against retained acceptance evidence and review the diff.

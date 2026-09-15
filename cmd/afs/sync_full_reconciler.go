@@ -1213,7 +1213,26 @@ func (f *fullReconciler) execUpload(ctx context.Context, a syncAction) error {
 	if err != nil || !current {
 		return err
 	}
-	if err := f.r.fs.Echo(client.WithExpectedStat(ctx, expectedStat), remotePath, data); err != nil {
+	var chunkSize int
+	var chunkHashes []string
+	publishCtx := client.WithExpectedStat(ctx, expectedStat)
+	if len(data) > f.r.chunkThreshold {
+		// Recovery can discover a new file before the watcher does. Publish
+		// the same chunk manifest as the event uploader so later edits retain
+		// delta uploads regardless of which path won that race.
+		chunkSize = f.r.chunkSize
+		chunkHashes = uploadChunkHashes(data, chunkSize)
+		chunks := make(map[int][]byte, len(chunkHashes))
+		for i := range chunkHashes {
+			start := i * chunkSize
+			chunks[i] = data[start:min(start+chunkSize, len(data))]
+		}
+		err = f.r.fs.WriteChunks(publishCtx, remotePath, chunks, chunkSize, int64(len(data)), chunkHashes)
+		hash = compositeHash(chunkHashes)
+	} else {
+		err = f.r.fs.Echo(publishCtx, remotePath, data)
+	}
+	if err != nil {
 		if errors.Is(err, client.ErrWriteConflict) {
 			f.r.requestFullSweep()
 		}
@@ -1241,6 +1260,8 @@ func (f *fullReconciler) execUpload(ctx context.Context, a syncAction) error {
 		LocalMtimeMs:  localInfo.ModTime().UnixMilli(),
 		RemoteMtimeMs: remoteStat.Mtime,
 		LastSyncedAt:  time.Now().UTC(),
+		ChunkSize:     chunkSize,
+		ChunkHashes:   chunkHashes,
 	})
 	return nil
 }
@@ -1390,21 +1411,15 @@ func (p *remoteSubscriptionPump) events() <-chan remoteEvent { return p.out }
 func (p *remoteSubscriptionPump) run(ctx context.Context, onReconnect func()) error {
 	p.log.Info("subscription pump started, listening for remote changes")
 
-	// Catch up from the durable change stream before subscribing to
-	// live pub/sub. This replays any events missed while we were offline.
-	// A missing cursor (first run or pre-journal state) is NOT an error —
-	// the initial reconcile already ran. Only trigger full reconcile when
-	// we had a cursor but it was trimmed (stream retention exceeded).
-	p.catchUpFromStream(ctx)
-
 	handler := func(ev client.InvalidateEvent) {
 		p.dispatchInvalidateEvent(ev)
 	}
 
-	// Use the reconnect-aware subscriber so we can replay the stream
-	// after each pub/sub connection drop.
+	// Recover only after Redis confirms the live subscription. Catching up
+	// first leaves a gap where a final remote publication can be lost forever.
 	return p.fs.SubscribeInvalidationsWithReconnect(ctx, handler, func() {
-		p.log.Info("pub/sub reconnected, replaying change stream")
+		p.log.Info("pub/sub connected, replaying change stream")
+		p.fs.InvalidateCache()
 		if !p.catchUpFromStream(ctx) {
 			if onReconnect != nil {
 				onReconnect()
@@ -1420,9 +1435,9 @@ func (p *remoteSubscriptionPump) run(ctx context.Context, onReconnect func()) er
 func (p *remoteSubscriptionPump) catchUpFromStream(ctx context.Context) bool {
 	lastID := p.stateWriter.lastStreamID()
 	if lastID == "" {
-		// No cursor yet — first run or pre-journal state file. This is not
-		// an error; the initial reconcile already ran. Skip silently.
-		return true
+		// The initial scan can predate subscription confirmation, so a missing
+		// cursor requires a fresh scan even on the first connection.
+		return false
 	}
 	const batchSize int64 = 500
 	total := 0

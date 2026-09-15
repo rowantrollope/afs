@@ -89,9 +89,9 @@ type Client interface {
 	ReadChangeStream(ctx context.Context, lastID string, count int64) ([]ChangeStreamEntry, error)
 
 	// SubscribeInvalidationsWithReconnect is like SubscribeInvalidations
-	// but calls onReconnect each time the pub/sub connection is
-	// re-established after a drop, allowing callers to replay the change
-	// stream for events missed during the outage.
+	// but calls onReconnect after the initial subscription is confirmed and
+	// each time the pub/sub connection is re-established after a drop. This
+	// lets callers recover events missed before subscribing or during an outage.
 	SubscribeInvalidationsWithReconnect(ctx context.Context, handler func(InvalidateEvent), onReconnect func()) error
 
 	// SubscribeInvalidations runs a goroutine that listens on this FS key's

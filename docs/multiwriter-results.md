@@ -155,6 +155,47 @@ observation. Its supervisor recorded no timeout, cleanup errors or remaining
 owned processes. This check-in evidence supplements the earlier full matrix;
 remote CI runs the full core and four/eight-client native workloads again.
 
+### PR #4 CI follow-up
+
+The first GitHub runs passed all four native jobs: four/eight clients on both
+push and pull-request events, ten scenarios each, with no capture/cleanup
+errors or remaining owned processes. Two intermittent core failures remained:
+a remote deletion during startup and an unexpected conflict in a disjoint edit.
+
+A gated regression reproduced the deletion between initial reconciliation and
+subscription confirmation. Recovery now runs after the live subscription is
+confirmed, including its initial connection. It invalidates stale cached data,
+replays the durable stream, or requests a fresh scan when no cursor is available.
+
+Another regression reproduced the exact old-canonical/new-conflict outcome:
+an atomic replacement reused a deleted file's inode, so identity-based rename
+matching installed the deleted file's baseline at an already tracked path.
+The fix checks whether the destination is tracked before consuming any rename
+candidate. Existing files and symlinks retain their own baselines; new-path
+rename detection is unchanged. The regression also reproduces the silent full-
+recovery conflict ordering seen in CI, although historical inode reuse cannot
+be proven from the original artifacts. No deadline or byte oracle was weakened.
+
+The reliable initial recovery scan also exposed a large-file publication gap:
+recovery could win the watcher race and publish complete bytes without chunk
+metadata. Above the configured threshold, recovery now uses the existing
+guarded atomic chunk publication and records the matching composite hash and
+chunk baseline. A deterministic regression checks create, edit and truncate,
+then verifies that a later watcher update transfers only its changed chunk.
+The manual inbound-read cancellation fixture now isolates its queued downloader
+from automatic subscriptions and asserts the intercepted generation; its
+cancellation and local-edit preservation assertions are unchanged.
+
+The [final follow-up verification](../tests/multiwriter/artifacts/ci-fixes-final-20260915/go-final-2/report.json)
+passes build/vet, 654 unit and 654 race test/subtest cases with real Array and
+zero failures/skips, 109 CLI cases, 14 dependency regressions and 16 harness
+tests. Source hashes stayed unchanged and the owned Array process exited cleanly.
+The rebuilt Go 1.22 Linux image also passes
+[all ten core scenarios](../tests/multiwriter/artifacts/ci-fixes-final-20260915/run-20260915T234220Z-ffbe3b7d5b1a4992a955e38ce3a6147f/report.json)
+with four clients, eight files, two rounds, seed 1 and the unchanged 45-second
+assertion deadline. Earlier failed reports remain retained; PR #4 records
+the updated commit's remote CI result.
+
 ## Earlier lab findings — before native integration
 
 The eight-writer run described below had a conflict-publication failure: a

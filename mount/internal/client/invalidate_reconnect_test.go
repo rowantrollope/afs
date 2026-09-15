@@ -18,6 +18,11 @@ func TestInvalidationReconnectReportsRealResubscription(t *testing.T) {
 	}
 	channel := reader.keys.invalidateChannel()
 	waitForSubscriber(t, rdb, channel)
+	select {
+	case <-reconnected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial subscription did not report confirmation")
+	}
 	verifyMessage := func() {
 		t.Helper()
 		payload, _ := encodeInvalidate(InvalidateEvent{Origin: "test-peer", Op: InvalidateOpInode, Paths: []string{"/file"}})
@@ -36,7 +41,7 @@ func TestInvalidationReconnectReportsRealResubscription(t *testing.T) {
 	verifyMessage()
 	select {
 	case <-reconnected:
-		t.Fatal("initial subscription reported reconnect")
+		t.Fatal("initial subscription reported more than once")
 	default:
 	}
 	for i := 0; i < 2; i++ {

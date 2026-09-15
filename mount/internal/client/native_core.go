@@ -234,8 +234,9 @@ func (c *nativeClient) ReadChangeStream(ctx context.Context, lastID string, coun
 }
 
 // SubscribeInvalidationsWithReconnect is like SubscribeInvalidations but
-// calls onReconnect each time the underlying pub/sub connection is
-// re-established after a drop.
+// calls onReconnect after the initial subscription and each time the underlying
+// pub/sub connection is re-established. The initial callback closes the gap
+// between a caller's starting snapshot and the confirmed live subscription.
 func (c *nativeClient) SubscribeInvalidationsWithReconnect(ctx context.Context, handler func(InvalidateEvent), onReconnect func()) error {
 	if handler == nil {
 		handler = func(InvalidateEvent) {}
@@ -246,7 +247,6 @@ func (c *nativeClient) SubscribeInvalidationsWithReconnect(ctx context.Context, 
 }
 
 func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Context, channel string, handler func(InvalidateEvent), onReconnect func()) {
-	firstConnect := true
 	backoff := 100 * time.Millisecond
 	const maxBackoff = 5 * time.Second
 
@@ -273,10 +273,9 @@ func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Contex
 			continue
 		}
 		backoff = 100 * time.Millisecond
-		if !firstConnect && onReconnect != nil {
+		if onReconnect != nil {
 			onReconnect()
 		}
-		firstConnect = false
 		// go-redis reconnects inside Channel without closing the channel. Keep
 		// subscription confirmations so those internal reconnects are visible;
 		// the first confirmation was already consumed by Receive above.
