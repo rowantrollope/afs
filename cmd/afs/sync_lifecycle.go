@@ -140,7 +140,7 @@ func (a *app) mount(args []string) error {
 		return err
 	}
 	release()
-	return a.output(map[string]any{"workspace": meta.Name, "directory": localRoot, "status": "syncing", "pid": pid})
+	return a.output(map[string]any{"workspace": meta.Name, "directory": localRoot, "status": "syncing", "pid": pid}, fmt.Sprintf("Syncing workspace %q at %q (PID %d).\n", meta.Name, localRoot, pid))
 }
 
 func removeFinishedMount(rec mountRecord) {
@@ -476,7 +476,7 @@ func (a *app) unmount(args []string) error {
 		if err = saveMountRegistry(reg); err != nil {
 			return err
 		}
-		return a.output(map[string]any{"directory": root, "detached": true, "synchronized": false})
+		return a.output(map[string]any{"directory": root, "detached": true, "synchronized": false}, formatUnmount(root, true))
 	}
 	op := syncControlOpShutdown
 	if *force {
@@ -504,7 +504,7 @@ func (a *app) unmount(args []string) error {
 	if err = saveMountRegistry(reg); err != nil {
 		return err
 	}
-	return a.output(map[string]any{"directory": root, "unmounted": true, "synchronized": !*force, "save": result.Save})
+	return a.output(map[string]any{"directory": root, "unmounted": true, "synchronized": !*force, "save": result.Save}, formatUnmount(root, *force))
 }
 func (a *app) status(args []string) error {
 	if len(args) > 1 {
@@ -547,7 +547,7 @@ func (a *app) status(args []string) error {
 		}
 		out = append(out, row)
 	}
-	return a.output(out)
+	return a.output(out, formatMountStatus(out, len(args) == 1))
 }
 func (a *app) localWorkspaceMounts(ctx context.Context, workspace string) ([]mountRecord, error) {
 	meta, err := a.service.GetWorkspace(ctx, workspace)

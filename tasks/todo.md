@@ -1,5 +1,20 @@
 # AFS extraction
 
+## Default output correction
+
+- [x] Reproduce JSON-default regression and inspect prior readable output.
+- [x] Restore text confirmations, tables and details; preserve explicit JSON.
+- [x] Verify both output modes through CLI contract and prior/current tests.
+- [x] Run build, vet, unit/race and process checks.
+- [ ] Publish through normal CI/PR.
+
+Scope: presentation only; `fs cat` keeps exact bytes. Unresolved questions: none.
+
+Review: default-output regressions fail on the preserved pre-fix binary; original
+CLI passes. Fresh derivative: 170 process passes and 12 prior/current comparison
+passes, zero skips. Explicit JSON shapes and binary/empty `cat` are preserved.
+Build/vet pass; unit/race each pass 401 cases with three optional Array skips.
+
 Baseline: redis/agent-filesystem `c3897ac05265444568a3819c21728a38a4ed254b`.
 Target: rowantrollope/afs, private; existing initial commit `a91598c` preserved.
 

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -585,5 +586,76 @@ func TestMountPreservesPreexistingIgnoredFiles(t *testing.T) {
 		if !ok && prior {
 			t.Fatal("original CLI ignored-file behavior failed; comparison needs a verified baseline")
 		}
+	}
+}
+
+func readableDefault(t *testing.T, label string, raw []byte, required ...[]string) {
+	t.Helper()
+	text := strings.ToLower(strings.TrimSpace(string(raw)))
+	if text == "" || json.Valid(raw) || strings.Contains(text, "map[") {
+		t.Errorf("%s must default to readable text, got %q", label, raw)
+	}
+	for _, alternatives := range required {
+		found := false
+		for _, token := range alternatives {
+			found = found || strings.Contains(text, strings.ToLower(token))
+		}
+		if !found {
+			t.Errorf("%s missing readable context %v:\n%s", label, alternatives, raw)
+		}
+	}
+}
+
+// Default terminal output is part of the retained CLI behavior. Machine
+// comparisons above deliberately request --json; cat remains byte-for-byte.
+func TestDefaultPresentationMatchesPrior(t *testing.T) {
+	source := t.TempDir()
+	content := []byte("{\"still\":\"exact file bytes\"}\n")
+	write(t, filepath.Join(source, "readme.txt"), content, 0o644)
+	for _, prior := range []bool{true, false} {
+		name := "current"
+		if prior {
+			name = "prior"
+		}
+		t.Run(name, func(t *testing.T) {
+			c := newCLI(t, prior)
+			empty := c.mapped([]string{"vol", "list"}, []string{"ws", "list"})
+			readableDefault(t, "empty workspace list", empty, []string{"no volumes", "no workspaces"})
+			created := c.mapped([]string{"vol", "create", "blank"}, []string{"ws", "create", "blank"})
+			readableDefault(t, "create confirmation", created, []string{"blank"}, []string{"created"})
+			imported := c.mapped([]string{"vol", "import", "corpus", source}, []string{"ws", "create", "corpus", "--from", source})
+			readableDefault(t, "import confirmation", imported, []string{"corpus"}, []string{"imported", "created"})
+			list := c.mapped([]string{"vol", "list"}, []string{"ws", "list"})
+			readableDefault(t, "workspace table", list, []string{"volume", "workspace", "name"}, []string{"blank"}, []string{"corpus"})
+			info := c.mapped([]string{"vol", "info", "corpus"}, []string{"ws", "info", "corpus"})
+			readableDefault(t, "workspace details", info, []string{"corpus"}, []string{"head"}, []string{"initial"})
+			files := c.mapped([]string{"fs", "corpus", "ls"}, []string{"fs", "ls", "corpus"})
+			readableDefault(t, "file table", files, []string{"name"}, []string{"type"}, []string{"size", "bytes"}, []string{"readme.txt"}, []string{"file"})
+			noFiles := c.mapped([]string{"fs", "blank", "ls"}, []string{"fs", "ls", "blank"})
+			readableDefault(t, "empty directory", noFiles, []string{"empty"})
+			equal(t, "cat bypasses presentation even for JSON file content", c.cat("corpus", "readme.txt"), content)
+			checkpoint := c.mapped([]string{"cp", "create", "--volume", "corpus", "before"}, []string{"cp", "create", "corpus", "--name", "before"})
+			readableDefault(t, "checkpoint confirmation", checkpoint, []string{"before"}, []string{"created"})
+			checkpoints := c.mapped([]string{"cp", "list", "corpus"}, []string{"cp", "list", "corpus"})
+			readableDefault(t, "checkpoint table", checkpoints, []string{"checkpoint", "name"}, []string{"created"}, []string{"size", "bytes"}, []string{"before"}, []string{"initial"})
+			detail := c.mapped([]string{"cp", "show", "corpus", "before"}, []string{"cp", "show", "corpus", "before"})
+			readableDefault(t, "checkpoint details", detail, []string{"before"}, []string{"files"}, []string{"folders", "directories", "dirs"}, []string{"size", "bytes"})
+			if !regexp.MustCompile(`(?im)^\s*files\s*:?\s+1\s*$`).Match(detail) {
+				t.Errorf("checkpoint detail must label its one-file count:\n%s", detail)
+			}
+			// Explicit JSON stays available alongside the human defaults.
+			equal(t, "explicit JSON workspace list", c.names(), []string{"blank", "corpus"})
+			equal(t, "explicit JSON checkpoint counts", c.checkpointInfo("before"), checkpointStats{Name: "before", Files: 1, Dirs: 0, Bytes: int64(len(content))})
+			mount := filepath.Join(c.root, "mount")
+			mounted := c.mapped([]string{"vol", "mount", "corpus", mount}, []string{"mount", "corpus", mount})
+			c.mounts[mount] = true
+			readableDefault(t, "mount confirmation", mounted, []string{"corpus"}, []string{mount}, []string{"mounted", "syncing"})
+			readableDefault(t, "status table", c.run("status"), []string{"corpus"}, []string{"mount", "path", "directory"})
+			unmounted := c.mapped([]string{"vol", "unmount", mount}, []string{"unmount", mount})
+			delete(c.mounts, mount)
+			readableDefault(t, "unmount confirmation", unmounted, []string{mount}, []string{"unmounted", "stopped"})
+			deleted := c.mapped([]string{"vol", "delete", "--no-confirmation", "blank"}, []string{"ws", "delete", "blank", "--yes"})
+			readableDefault(t, "delete confirmation", deleted, []string{"blank"}, []string{"deleted"})
+		})
 	}
 }

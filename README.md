@@ -104,6 +104,16 @@ sync; mounted clients receive their changes. `cat` writes exact bytes, including
 binary and empty files. It rejects `--json`; other commands accept `--json` for
 machine-readable results. Errors go to stderr.
 
+Commands print readable text by default: tables for lists, labeled details for
+`ws info`, `cp show` and `status <directory>`, and short confirmations for changes.
+Use `--json` explicitly when piping structured results into scripts:
+
+```sh
+afs ws list                 # readable table
+afs --json ws list          # JSON array
+afs status ./agent-a        # connection, pending work, conflicts and errors
+```
+
 ## Checkpoints and forks
 
 ```sh

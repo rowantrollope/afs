@@ -137,7 +137,7 @@ func TestGlobalOptionsAndBinaryJSON(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "does not support --json") {
 		t.Fatalf("cat JSON error = %v", err)
 	}
-	out, err := captureStdout(t, func() error { return a.output(map[string]any{"bytes": 3}) })
+	out, err := captureStdout(t, func() error { return a.output(map[string]any{"bytes": 3}, "Wrote 3 bytes.\n") })
 	if err != nil || !json.Valid([]byte(out)) {
 		t.Fatalf("invalid JSON: %q %v", out, err)
 	}

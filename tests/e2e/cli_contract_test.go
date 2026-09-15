@@ -96,7 +96,9 @@ func TestReducedCLIContract(t *testing.T) {
 				t.Fatalf("binary stdout changed: %x", raw)
 			}
 		}},
-		{"fs put empty stdin", []string{"fs", "put", "contract", "empty"}, nil, nil},
+		{"fs put empty stdin", []string{"fs", "put", "contract", "empty"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"path": "empty", "bytes": 0})
+		}},
 		{"fs cat empty exact stdout", []string{"fs", "cat", "contract", "empty"}, nil, func(t *testing.T, raw []byte) {
 			if len(raw) != 0 {
 				t.Fatalf("empty stdout contains bytes: %q", raw)
@@ -119,7 +121,9 @@ func TestReducedCLIContract(t *testing.T) {
 				t.Fatalf("listing metadata mismatch: got=%v want=%v", entry, want)
 			}
 		}},
-		{"fs mv", []string{"fs", "mv", "contract", "notes/today.txt", "documents/today.txt"}, nil, nil},
+		{"fs mv", []string{"fs", "mv", "contract", "notes/today.txt", "documents/today.txt"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"operation": "mv", "path": "notes/today.txt"})
+		}},
 		{"fs cat moved bytes", []string{"fs", "cat", "contract", "documents/today.txt"}, nil, func(t *testing.T, raw []byte) {
 			if string(raw) != "exact bytes\n" {
 				t.Fatalf("move changed bytes: %q", raw)
@@ -166,20 +170,28 @@ func TestReducedCLIContract(t *testing.T) {
 			jsonEqual(t, byID, show)
 		}},
 		{"uncheckpointed live update", []string{"fs", "put", "contract", "image.bin"}, []byte("uncheckpointed"), nil},
-		{"ws fork default latest checkpoint", []string{"ws", "fork", "contract", "latest-fork"}, nil, nil},
+		{"ws fork default latest checkpoint", []string{"ws", "fork", "contract", "latest-fork"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"workspace": "latest-fork", "forked_from": "contract"})
+		}},
 		{"default fork contains latest checkpoint bytes", []string{"fs", "cat", "latest-fork", "image.bin"}, nil, func(t *testing.T, raw []byte) {
 			if string(raw) != "second checkpoint" {
 				t.Fatalf("default fork must use latest checkpoint: %q", raw)
 			}
 		}},
-		{"ws fork explicit checkpoint", []string{"ws", "fork", "contract", "first-fork", "--checkpoint", "first"}, nil, nil},
+		{"ws fork explicit checkpoint", []string{"ws", "fork", "contract", "first-fork", "--checkpoint", "first"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"workspace": "first-fork", "forked_from": "contract"})
+		}},
 		{"explicit fork immutable bytes", []string{"fs", "cat", "first-fork", "image.bin"}, nil, func(t *testing.T, raw []byte) {
 			if !bytes.Equal(raw, binaryBytes) {
 				t.Fatalf("explicit fork changed bytes: %x", raw)
 			}
 		}},
-		{"fs rm file", []string{"fs", "rm", "contract", "empty"}, nil, nil},
-		{"fs rm recursive", []string{"fs", "rm", "contract", "documents", "--recursive"}, nil, nil},
+		{"fs rm file", []string{"fs", "rm", "contract", "empty"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"operation": "rm", "path": "empty"})
+		}},
+		{"fs rm recursive", []string{"fs", "rm", "contract", "documents", "--recursive"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"operation": "rm", "path": "documents"})
+		}},
 		{"cp restore confirmed", []string{"cp", "restore", "contract", "first", "--yes"}, nil, func(t *testing.T, raw []byte) {
 			result := jsonValue(t, raw).(map[string]any)
 			if result["restored"] != true || result["checkpoint_id"] != firstID || result["safety_checkpoint_created"] != true {
@@ -204,8 +216,12 @@ func TestReducedCLIContract(t *testing.T) {
 				t.Fatalf("unnamed checkpoint must receive usable identity: %s", raw)
 			}
 		}},
-		{"cp delete confirmed", []string{"cp", "delete", "contract", "second", "--yes"}, nil, nil},
-		{"ws delete confirmed", []string{"ws", "delete", "contract", "--yes"}, nil, nil},
+		{"cp delete confirmed", []string{"cp", "delete", "contract", "second", "--yes"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"deleted": "second", "workspace": "contract"})
+		}},
+		{"ws delete confirmed", []string{"ws", "delete", "contract", "--yes"}, nil, func(t *testing.T, raw []byte) {
+			jsonEqual(t, raw, map[string]any{"deleted": "contract"})
+		}},
 		{"fork survives source workspace deletion", []string{"fs", "cat", "latest-fork", "image.bin"}, nil, func(t *testing.T, raw []byte) {
 			if string(raw) != "second checkpoint" {
 				t.Fatalf("fork lost independent data: %q", raw)
@@ -236,7 +252,7 @@ func TestReducedCLIContract(t *testing.T) {
 		}
 	}
 	// IDs as well as names are valid references; source removal cannot invalidate forks.
-	if got := c.run(nil, "cp", "show", "first-fork", "latest"); !bytes.Contains(got, []byte("manifest")) {
+	if got := c.run(nil, "--json", "cp", "show", "first-fork", "latest"); !bytes.Contains(got, []byte("manifest")) {
 		t.Fatalf("fork checkpoint missing: %s", got)
 	}
 	c.mustFail("ws", "info", "contract")
@@ -328,7 +344,7 @@ func TestConfigurationFileSelection(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
 	// Omit the harness's --redis argument to verify the real file-only path.
-	for _, args := range [][]string{{"ws", "create", "configured"}, {"--json", "ws", "info", "configured"}} {
+	for _, args := range [][]string{{"--json", "ws", "create", "configured"}, {"--json", "ws", "info", "configured"}} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		cmd := exec.CommandContext(ctx, binary, append([]string{"--config", c.config}, args...)...)
 		cmd.Env = append(os.Environ(), "AFS_STATE_DIR="+c.state)
