@@ -422,7 +422,7 @@ func (d *syncDaemon) validateInitialSyncSafety(ctx context.Context) error {
 	}
 
 	return fmt.Errorf(
-		"Mount blocked for workspace %q: local path %q is already populated and the remote workspace is not empty.\nUse an empty directory, import the local directory into a new workspace, or rerun `afs ws mount --dry-run` to inspect the reconciliation plan and move overlapping files aside if needed.",
+		"Mount blocked for workspace %q: local path %q is already populated and the remote workspace is not empty.\nUse an empty directory, or import the local files into a new workspace with afs create <new-workspace> --from <directory>.",
 		d.cfg.Workspace,
 		d.cfg.LocalRoot,
 	)

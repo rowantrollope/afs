@@ -10,7 +10,6 @@ import (
 	"unicode"
 
 	"github.com/rowantrollope/afs/internal/controlplane"
-	"github.com/rowantrollope/afs/mount/client"
 )
 
 // Retain the original CLI's plain tables and labeled sections, using the
@@ -73,18 +72,6 @@ func formatWorkspace(ws controlplane.WorkspaceMeta) string {
 		{"Created:", textTime(ws.CreatedAt)}, {"Updated:", textTime(ws.UpdatedAt)},
 		{"Checkpoint head:", ws.HeadSavepoint}, {"Default checkpoint:", ws.DefaultSavepoint},
 	})
-}
-
-func formatFiles(entries []client.LsEntry) string {
-	if len(entries) == 0 {
-		return "(empty)\n"
-	}
-	rows := make([][]string, 0, len(entries))
-	for _, entry := range entries {
-		rows = append(rows, []string{entry.Name, entry.Type, fmt.Sprintf("%04o", entry.Mode&0o7777),
-			strconv.FormatInt(entry.Size, 10), textTime(time.UnixMilli(entry.Mtime))})
-	}
-	return textTable([]string{"NAME", "TYPE", "MODE", "BYTES", "MODIFIED"}, rows)
 }
 
 func formatCheckpoints(checkpoints []controlplane.SavepointMeta) string {

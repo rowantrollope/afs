@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/rowantrollope/afs/internal/controlplane"
 	"github.com/rowantrollope/afs/internal/version"
 	"github.com/rowantrollope/afs/internal/worktree"
-	"github.com/rowantrollope/afs/mount/client"
 )
 
 const rootUsage = `afs — Persistent agent workspaces backed by Redis.
@@ -29,8 +27,11 @@ Commands:
   mount <workspace> <directory>   Sync a workspace with a local folder
   unmount <directory>             Flush pending changes and stop syncing
   status [directory]              Show connection, sync progress, and errors
-  ws                             Create and manage workspaces
-  fs                             Read and modify workspace files
+  create <workspace>             Create a workspace or import a directory
+  list                           List workspaces
+  info <workspace>               Show workspace details
+  fork <source> <new-workspace>   Fork a workspace from a checkpoint
+  delete <workspace>             Delete a workspace
   cp                             Create and manage checkpoints
 
 Options:
@@ -44,23 +45,20 @@ Run 'afs <command> --help' for details.
 `
 
 var commandUsage = map[string]string{
-	"ws": `Usage:
-  afs ws create <workspace> [--from <directory>]
-  afs ws list
-  afs ws info <workspace>
-  afs ws fork <source> <new-workspace> [--checkpoint <id-or-name>]
-  afs ws delete <workspace> [--yes]
-`,
-	"fs": `Usage:
-  afs fs ls <workspace> [path]
-  afs fs cat <workspace> <path>
-  afs fs put <workspace> <path> [--from <file>]
-  afs fs mkdir <workspace> <path>
-  afs fs mv <workspace> <source> <destination>
-  afs fs rm <workspace> <path> [--recursive]
+	"create": `Usage: afs create <workspace> [--from <directory>]
 
-Paths are workspace-relative. put reads stdin by default. cat writes exact bytes
-and rejects --json. Mutations use the same Redis client as folder synchronization.
+Create an empty workspace, or import an existing local directory with --from.
+`,
+	"list": "Usage: afs list\n\nList workspaces in the selected Redis database.\n",
+	"info": "Usage: afs info <workspace>\n\nShow workspace details and checkpoint references.\n",
+	"fork": `Usage: afs fork <source> <new-workspace> [--checkpoint <id-or-name>]
+
+Create an independent workspace from a checkpoint. Without --checkpoint, use
+its most recently created checkpoint; uncheckpointed changes are excluded.
+`,
+	"delete": `Usage: afs delete <workspace> [--yes]
+
+Delete a workspace. Local mounts must be unmounted first; confirmation is required.
 `,
 	"cp": `Usage:
   afs cp create <workspace> [--name <name>]
@@ -77,7 +75,8 @@ Restore requires local mounts to be unmounted and creates a safety checkpoint.
 	"mount": `Usage: afs mount <workspace> <directory> [--foreground]
 
 Start folder synchronization in the background, or stay attached with --foreground.
-An unrelated populated directory is rejected. Use ws create --from to import it.
+An unrelated populated directory is rejected. Import it with:
+  afs create <new-workspace> --from <directory>
 `,
 	"unmount": `Usage: afs unmount <directory> [--force]
 
@@ -135,7 +134,7 @@ func runCLI(args []string) error {
 			return nil
 		}
 	}
-	if (args[0] == "ws" || args[0] == "fs" || args[0] == "cp") && len(args) == 1 {
+	if args[0] == "cp" && len(args) == 1 {
 		fmt.Print(usage)
 		return nil
 	}
@@ -150,10 +149,8 @@ func runCLI(args []string) error {
 		}
 	}()
 	switch args[0] {
-	case "ws":
-		return a.workspace(args[1:])
-	case "fs":
-		return a.files(args[1:])
+	case "create", "list", "info", "fork", "delete":
+		return a.workspace(args)
 	case "cp":
 		return a.checkpoints(args[1:])
 	case "mount":
@@ -301,7 +298,7 @@ func confirmDeletion(action string, yes bool) error {
 }
 
 func (a *app) workspace(args []string) error {
-	f := flag.NewFlagSet("ws", flag.ContinueOnError)
+	f := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	from := f.String("from", "", "import directory")
 	checkpoint := f.String("checkpoint", "", "fork checkpoint")
 	yes := f.Bool("yes", false, "confirm deletion")
@@ -315,7 +312,7 @@ func (a *app) workspace(args []string) error {
 	}
 	n := len(pos)
 	if (op == "list" && n != 0) || (op == "fork" && n != 2) || (op != "list" && op != "fork" && n != 1) {
-		return errors.New(commandUsage["ws"])
+		return errors.New(commandUsage[op])
 	}
 	switch op {
 	case "create", "list", "info", "fork", "delete":
@@ -382,195 +379,6 @@ func (a *app) workspace(args []string) error {
 			return e
 		}
 		return a.output(map[string]any{"deleted": pos[0]}, fmt.Sprintf("Deleted workspace %q.\n", pos[0]))
-	}
-	return nil
-}
-
-func workspacePath(s string) (string, error) {
-	if strings.ContainsRune(s, '\x00') || strings.Contains(s, "\\") {
-		return "", errors.New("path must be workspace-relative with forward slashes")
-	}
-	if strings.HasPrefix(s, "/") {
-		return "", errors.New("path must be workspace-relative")
-	}
-	for _, segment := range strings.Split(s, "/") {
-		if segment == ".." {
-			return "", errors.New("path cannot contain ..")
-		}
-	}
-	return path.Join("/", s), nil
-}
-
-func (a *app) files(args []string) error {
-	f := flag.NewFlagSet("fs", flag.ContinueOnError)
-	from := f.String("from", "", "input file")
-	recursive := f.Bool("recursive", false, "remove directory tree")
-	pos, err := parseCommandFlags(f, args[1:])
-	if err != nil {
-		return err
-	}
-	op := args[0]
-	if err := allowedFlags(f, map[string][]string{"put": {"from"}, "rm": {"recursive"}}[op]); err != nil {
-		return err
-	}
-	if (op == "ls" && (len(pos) < 1 || len(pos) > 2)) || (op == "mv" && len(pos) != 3) || (op != "ls" && op != "mv" && len(pos) != 2) {
-		return errors.New(commandUsage["fs"])
-	}
-	switch op {
-	case "ls", "cat", "put", "mkdir", "mv", "rm":
-	default:
-		return fmt.Errorf("unknown filesystem command %q", op)
-	}
-	if op == "cat" && a.options.json {
-		return errors.New("fs cat does not support --json; it writes exact file bytes")
-	}
-	ctx := context.Background()
-	if err = a.connect(ctx); err != nil {
-		return err
-	}
-	meta, err := a.service.GetWorkspace(ctx, pos[0])
-	if err != nil {
-		return err
-	}
-	generation, err := a.service.WorkspaceGeneration(ctx, meta.ID)
-	if err != nil {
-		return err
-	}
-	ctx = client.WithWorkspaceGeneration(ctx, generation)
-	fs := client.New(a.rdb, controlplane.WorkspaceFSKey(meta.ID))
-	p := "/"
-	if len(pos) > 1 {
-		p, err = workspacePath(pos[1])
-		if err != nil {
-			return err
-		}
-	}
-	switch op {
-	case "ls":
-		entries, e := fs.LsLong(ctx, p)
-		if e != nil {
-			return e
-		}
-		return a.output(entries, formatFiles(entries))
-	case "cat":
-		b, e := fs.Cat(ctx, p)
-		if e != nil {
-			return e
-		}
-		_, e = os.Stdout.Write(b)
-		return e
-	case "put":
-		observed, e := fs.Stat(ctx, p)
-		if e != nil && !isClientNotFound(e) {
-			return e
-		}
-		ctx = client.WithExpectedStat(ctx, observed)
-		var reader io.Reader = os.Stdin
-		if *from != "" {
-			file, e := os.Open(*from)
-			if e != nil {
-				return e
-			}
-			defer file.Close()
-			reader = file
-		}
-		b, e := io.ReadAll(reader)
-		if e != nil {
-			return e
-		}
-		if e = fs.Echo(ctx, p, b); e != nil {
-			return e
-		}
-		return a.output(map[string]any{"path": pos[1], "bytes": len(b)}, fmt.Sprintf("Wrote %d bytes to %q in workspace %q.\n", len(b), pos[1], pos[0]))
-	case "mkdir":
-		err = fs.Mkdir(ctx, p)
-	case "mv":
-		var dst string
-		dst, err = workspacePath(pos[2])
-		if err == nil {
-			err = fs.Mv(ctx, p, dst)
-		}
-	case "rm":
-		if p == "/" {
-			return errors.New("cannot remove the workspace root")
-		}
-		st, e := fs.Stat(ctx, p)
-		if e != nil {
-			return e
-		}
-		if st == nil {
-			return errors.New("path does not exist")
-		}
-		if st.Type == "dir" && !*recursive {
-			children, e := fs.Ls(ctx, p)
-			if e != nil {
-				return e
-			}
-			if len(children) > 0 {
-				return errors.New("directory is not empty; use --recursive")
-			}
-		}
-		if st.Type == "dir" && *recursive {
-			err = removeRemoteTree(ctx, fs, p, st)
-		} else {
-			err = fs.Rm(client.WithExpectedStat(ctx, st), p)
-		}
-	}
-	if err != nil {
-		return err
-	}
-	var message string
-	switch op {
-	case "mkdir":
-		message = fmt.Sprintf("Created directory %q in workspace %q.\n", pos[1], pos[0])
-	case "mv":
-		message = fmt.Sprintf("Moved %q to %q in workspace %q.\n", pos[1], pos[2], pos[0])
-	case "rm":
-		message = fmt.Sprintf("Removed %q from workspace %q.\n", pos[1], pos[0])
-	}
-	return a.output(map[string]any{"operation": op, "path": pos[1]}, message)
-}
-
-// Observe the whole tree before removing anything, then use the retained
-// conditional remove for each entry. A changed file or newly populated
-// directory stops the operation; recursive deletion is not a transaction.
-func removeRemoteTree(ctx context.Context, fs client.Client, root string, stat *client.StatResult) error {
-	type candidate struct {
-		path string
-		stat *client.StatResult
-	}
-	var entries []candidate
-	var collect func(string, *client.StatResult) error
-	collect = func(p string, st *client.StatResult) error {
-		if st == nil {
-			return fmt.Errorf("path disappeared during recursive removal: %s", p)
-		}
-		if st.Type == "dir" {
-			names, err := fs.Ls(ctx, p)
-			if err != nil {
-				return err
-			}
-			for _, name := range names {
-				child := path.Join(p, name)
-				observed, err := fs.Stat(ctx, child)
-				if err != nil {
-					return err
-				}
-				if err := collect(child, observed); err != nil {
-					return err
-				}
-			}
-		}
-		entries = append(entries, candidate{p, st})
-		return nil
-	}
-	if err := collect(root, stat); err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if err := fs.Rm(client.WithExpectedStat(ctx, entry.stat), entry.path); err != nil {
-			return fmt.Errorf("remove %s: %w", entry.path, err)
-		}
 	}
 	return nil
 }

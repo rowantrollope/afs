@@ -191,14 +191,6 @@ func (c *cli) run(args ...string) []byte {
 	}
 	return out
 }
-func (c *cli) requireFailure(args ...string) []byte {
-	c.t.Helper()
-	out, diagnostic, err := c.execute(20*time.Second, args...)
-	if err == nil {
-		c.t.Fatalf("CLI %v unexpectedly succeeded: %s", args, out)
-	}
-	return append(out, diagnostic...)
-}
 func (c *cli) mapped(prior, current []string) []byte {
 	c.t.Helper()
 	if c.prior {
@@ -215,10 +207,6 @@ func (c *cli) unmount(path string) {
 	c.t.Helper()
 	c.mapped([]string{"vol", "unmount", path}, []string{"unmount", path})
 	delete(c.mounts, path)
-}
-func (c *cli) cat(workspace, path string) []byte {
-	c.t.Helper()
-	return c.mapped([]string{"fs", workspace, "cat", path}, []string{"fs", "cat", workspace, path})
 }
 func (c *cli) checkpoint(name, mount string) {
 	c.t.Helper()
@@ -246,7 +234,7 @@ func (c *cli) names() []string {
 		decode(c.t, c.run("vol", "list", "--json"), &v)
 		rows = v.Items
 	} else {
-		decode(c.t, c.run("--json", "ws", "list"), &rows)
+		decode(c.t, c.run("--json", "list"), &rows)
 	}
 	names := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -254,37 +242,6 @@ func (c *cli) names() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-type listingEntry struct {
-	Name, Type string
-	Size       int64
-}
-
-func (c *cli) listing(workspace, path string) []listingEntry {
-	var rows []listingEntry
-	if c.prior {
-		var v struct {
-			Items []struct {
-				Name, Kind string
-				Size       int64
-			} `json:"items"`
-		}
-		decode(c.t, c.run("fs", workspace, "ls", "--json", path), &v)
-		for _, e := range v.Items {
-			rows = append(rows, listingEntry{e.Name, e.Kind, e.Size})
-		}
-	} else {
-		decode(c.t, c.run("--json", "fs", "ls", workspace, path), &rows)
-	}
-	// Directory inode size is internal bookkeeping, not directory contents.
-	for i := range rows {
-		if rows[i].Type == "dir" {
-			rows[i].Size = 0
-		}
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	return rows
 }
 
 type checkpointStats struct {
@@ -396,6 +353,15 @@ func write(t *testing.T, path string, data []byte, mode os.FileMode) {
 	}
 }
 
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 // The fixture covers regular and empty files, binary bytes, executable modes,
 // empty directories, hidden paths, and a relative symbolic link.
 func corpus(t *testing.T) string {
@@ -417,27 +383,49 @@ func corpus(t *testing.T) string {
 
 func TestOfflineHelpAndVersion(t *testing.T) {
 	for _, prior := range []bool{true, false} {
-		name := "current"
-		binary := currentBinary
+		name, binary := "current", currentBinary
 		if prior {
-			name = "prior"
-			binary = baselineBinary
+			name, binary = "prior", baselineBinary
 		}
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			env := []string{"HOME=" + dir, "PATH=" + os.Getenv("PATH")}
-			for _, args := range [][]string{{"--help"}, {"--version"}} {
+			run := func(args ...string) ([]byte, error) {
 				command := exec.Command(binary, append([]string{"--config", filepath.Join(dir, "missing.json")}, args...)...)
-				command.Env = env
-				out, err := command.CombinedOutput()
-				if err != nil {
-					t.Fatalf("offline %v: %v\n%s", args, err, out)
+				command.Env = []string{"HOME=" + dir, "PATH=" + os.Getenv("PATH")}
+				return command.CombinedOutput()
+			}
+			help, err := run("--help")
+			if err != nil || !bytes.Contains(help, []byte("Usage:")) {
+				t.Fatalf("offline help: %v\n%s", err, help)
+			}
+			version, err := run("--version")
+			if err != nil || !strings.HasPrefix(string(version), "afs ") {
+				t.Fatalf("offline version: %v\n%s", err, version)
+			}
+			if !prior {
+				for _, action := range []string{"create", "list", "info", "fork", "delete", "mount", "unmount", "status", "cp"} {
+					if !regexp.MustCompile(`(?m)^\s+` + action + `(?:\s|$)`).Match(help) {
+						t.Errorf("root help missing %s:\n%s", action, help)
+					}
+					out, err := run(action, "--help")
+					if err != nil || !bytes.Contains(out, []byte("Usage:")) {
+						t.Errorf("offline %s help: %v\n%s", action, err, out)
+					}
 				}
-				if args[0] == "--help" && !bytes.Contains(out, []byte("Usage:")) {
-					t.Fatal("missing usage")
-				}
-				if args[0] == "--version" && !strings.HasPrefix(string(out), "afs ") {
-					t.Fatalf("unexpected version %q", out)
+			}
+			for _, removed := range []string{"ws", "fs"} {
+				out, err := run(removed, "--help")
+				if prior {
+					if err != nil {
+						t.Errorf("original %s help: %v\n%s", removed, err, out)
+					}
+				} else {
+					if err == nil || !bytes.Contains(bytes.ToLower(out), []byte("unknown command")) {
+						t.Errorf("removed %s must be rejected before config access: %v\n%s", removed, err, out)
+					}
+					if regexp.MustCompile(`(?m)^\s+` + removed + `(?:\s|$)`).Match(help) {
+						t.Errorf("root help still advertises removed %s", removed)
+					}
 				}
 			}
 		})
@@ -448,10 +436,9 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 	source := corpus(t)
 	imported := snapshot(t, source)
 	type observation struct {
-		Names                                        []string
-		InitialListing, NestedListing, EditedListing []listingEntry
-		Before, After                                checkpointStats
-		Imported, Edited, Forked, Restored           map[string]fileState
+		Names                              []string
+		Before, After                      checkpointStats
+		Imported, Edited, Forked, Restored map[string]fileState
 	}
 	var priorResult observation
 	for _, prior := range []bool{true, false} {
@@ -462,25 +449,13 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 		ok := t.Run(name, func(t *testing.T) {
 			c := newCLI(t, prior)
 			var result observation
-			c.mapped([]string{"vol", "create", "blank"}, []string{"ws", "create", "blank"})
-			c.mapped([]string{"vol", "import", "corpus", source}, []string{"ws", "create", "corpus", "--from", source})
+			c.mapped([]string{"vol", "create", "blank"}, []string{"create", "blank"})
+			c.mapped([]string{"vol", "import", "corpus", source}, []string{"create", "corpus", "--from", source})
 			result.Names = c.names()
 			equal(t, "created workspace names", result.Names, []string{"blank", "corpus"})
-			info := c.mapped([]string{"vol", "info", "corpus"}, []string{"--json", "ws", "info", "corpus"})
+			info := c.mapped([]string{"vol", "info", "corpus"}, []string{"--json", "info", "corpus"})
 			if !bytes.Contains(info, []byte("corpus")) || !bytes.Contains(info, []byte("initial")) {
 				t.Fatalf("workspace info missing name/head: %s", info)
-			}
-			result.InitialListing = c.listing("corpus", ".")
-			result.NestedListing = c.listing("corpus", "nested")
-			equal(t, "text cat", c.cat("corpus", "text.txt"), []byte("first line\nsecond line\n"))
-			equal(t, "empty cat length", len(c.cat("corpus", "empty")), 0)
-			if prior {
-				failure := c.requireFailure("fs", "corpus", "cat", "blob.bin")
-				if !bytes.Contains(bytes.ToLower(failure), []byte("binary")) {
-					t.Fatalf("unexpected binary cat failure: %s", failure)
-				}
-			} else {
-				equal(t, "binary cat required improvement", c.cat("corpus", "blob.bin"), []byte{0, 255, 129, 0, 10, 13})
 			}
 			c.checkpoint("before", "")
 			result.Before = c.checkpointInfo("before")
@@ -488,11 +463,14 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 			if !bytes.Contains(cps, []byte("before")) || !bytes.Contains(cps, []byte("initial")) {
 				t.Fatalf("checkpoint list missing names: %s", cps)
 			}
-			c.mapped([]string{"vol", "fork", "corpus", "forked"}, []string{"ws", "fork", "corpus", "forked"})
+			c.mapped([]string{"vol", "fork", "corpus", "forked"}, []string{"fork", "corpus", "forked"})
 			mount := filepath.Join(c.root, "mount")
 			c.mount("corpus", mount)
 			result.Imported = snapshot(t, mount)
 			equal(t, "imported filesystem", result.Imported, imported)
+			equal(t, "mounted text bytes", readFile(t, filepath.Join(mount, "text.txt")), []byte("first line\nsecond line\n"))
+			equal(t, "mounted empty file", len(readFile(t, filepath.Join(mount, "empty"))), 0)
+			equal(t, "mounted binary bytes", readFile(t, filepath.Join(mount, "blob.bin")), []byte{0, 255, 129, 0, 10, 13})
 			write(t, filepath.Join(mount, "text.txt"), []byte("edited through the real folder mount\n"), 0644)
 			if err := os.Rename(filepath.Join(mount, "nested", "run.sh"), filepath.Join(mount, "nested", "renamed.sh")); err != nil {
 				t.Fatal(err)
@@ -506,8 +484,6 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 			write(t, filepath.Join(mount, "newdir", "large.bin"), bytes.Repeat([]byte{0, 255, 128, 65, 10}, 430001), 0644)
 			c.checkpoint("after", mount)
 			result.After = c.checkpointInfo("after")
-			equal(t, "published edit", c.cat("corpus", "text.txt"), []byte("edited through the real folder mount\n"))
-			result.EditedListing = c.listing("corpus", "nested")
 			result.Edited = snapshot(t, mount)
 			c.unmount(mount)
 			equal(t, "unmount preserves local bytes and modes", snapshot(t, mount), result.Edited)
@@ -516,6 +492,7 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 			verify := filepath.Join(c.root, "verify")
 			c.mount("corpus", verify)
 			equal(t, "published tree after remount", snapshot(t, verify), result.Edited)
+			equal(t, "published edit", readFile(t, filepath.Join(verify, "text.txt")), []byte("edited through the real folder mount\n"))
 			c.unmount(verify)
 			fork := filepath.Join(c.root, "fork")
 			c.mount("forked", fork)
@@ -528,7 +505,7 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 			result.Restored = snapshot(t, restored)
 			equal(t, "restored checkpoint", result.Restored, imported)
 			c.unmount(restored)
-			c.mapped([]string{"vol", "delete", "--no-confirmation", "forked"}, []string{"ws", "delete", "forked", "--yes"})
+			c.mapped([]string{"vol", "delete", "--no-confirmation", "forked"}, []string{"delete", "forked", "--yes"})
 			equal(t, "workspace deletion", c.names(), []string{"blank", "corpus"})
 			if prior {
 				priorResult = result
@@ -555,7 +532,7 @@ func TestMountPreservesPreexistingIgnoredFiles(t *testing.T) {
 		}
 		ok := t.Run(name, func(t *testing.T) {
 			c := newCLI(t, prior)
-			c.mapped([]string{"vol", "import", "corpus", source}, []string{"ws", "create", "corpus", "--from", source})
+			c.mapped([]string{"vol", "import", "corpus", source}, []string{"create", "corpus", "--from", source})
 			mount := filepath.Join(c.root, "mount")
 			write(t, filepath.Join(mount, ".afsignore"), []byte("private/\n"), 0o644)
 			write(t, filepath.Join(mount, "private", "local.txt"), []byte("private local bytes must survive\n"), 0o600)
@@ -564,11 +541,11 @@ func TestMountPreservesPreexistingIgnoredFiles(t *testing.T) {
 
 			c.mount("corpus", mount)
 			equal(t, "mount preserves ignore file and ignored local bytes", snapshot(t, mount), want)
-			equal(t, "published public file", c.cat("corpus", "public.txt"), public)
+			equal(t, "published public file", readFile(t, filepath.Join(mount, "public.txt")), public)
 			// A completed save/checkpoint proves the exclusion survives a full
 			// scan, rather than merely checking before the daemon can upload.
 			c.checkpoint("ignored-preserved", mount)
-			equal(t, "ignored paths stay out of Redis", c.listing("corpus", "."), []listingEntry{{Name: "public.txt", Type: "file", Size: int64(len(public))}})
+			equal(t, "ignored paths stay out of checkpoint", c.checkpointInfo("ignored-preserved"), checkpointStats{Name: "ignored-preserved", Files: 1, Dirs: 0, Bytes: int64(len(public))})
 			c.unmount(mount)
 			got := snapshot(t, mount)
 			equal(t, "unmount preserves ignored local bytes", got, want)
@@ -607,7 +584,7 @@ func readableDefault(t *testing.T, label string, raw []byte, required ...[]strin
 }
 
 // Default terminal output is part of the retained CLI behavior. Machine
-// comparisons above deliberately request --json; cat remains byte-for-byte.
+// comparisons above deliberately request --json; file reads use real mounts.
 func TestDefaultPresentationMatchesPrior(t *testing.T) {
 	source := t.TempDir()
 	content := []byte("{\"still\":\"exact file bytes\"}\n")
@@ -619,21 +596,16 @@ func TestDefaultPresentationMatchesPrior(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			c := newCLI(t, prior)
-			empty := c.mapped([]string{"vol", "list"}, []string{"ws", "list"})
+			empty := c.mapped([]string{"vol", "list"}, []string{"list"})
 			readableDefault(t, "empty workspace list", empty, []string{"no volumes", "no workspaces"})
-			created := c.mapped([]string{"vol", "create", "blank"}, []string{"ws", "create", "blank"})
+			created := c.mapped([]string{"vol", "create", "blank"}, []string{"create", "blank"})
 			readableDefault(t, "create confirmation", created, []string{"blank"}, []string{"created"})
-			imported := c.mapped([]string{"vol", "import", "corpus", source}, []string{"ws", "create", "corpus", "--from", source})
+			imported := c.mapped([]string{"vol", "import", "corpus", source}, []string{"create", "corpus", "--from", source})
 			readableDefault(t, "import confirmation", imported, []string{"corpus"}, []string{"imported", "created"})
-			list := c.mapped([]string{"vol", "list"}, []string{"ws", "list"})
+			list := c.mapped([]string{"vol", "list"}, []string{"list"})
 			readableDefault(t, "workspace table", list, []string{"volume", "workspace", "name"}, []string{"blank"}, []string{"corpus"})
-			info := c.mapped([]string{"vol", "info", "corpus"}, []string{"ws", "info", "corpus"})
+			info := c.mapped([]string{"vol", "info", "corpus"}, []string{"info", "corpus"})
 			readableDefault(t, "workspace details", info, []string{"corpus"}, []string{"head"}, []string{"initial"})
-			files := c.mapped([]string{"fs", "corpus", "ls"}, []string{"fs", "ls", "corpus"})
-			readableDefault(t, "file table", files, []string{"name"}, []string{"type"}, []string{"size", "bytes"}, []string{"readme.txt"}, []string{"file"})
-			noFiles := c.mapped([]string{"fs", "blank", "ls"}, []string{"fs", "ls", "blank"})
-			readableDefault(t, "empty directory", noFiles, []string{"empty"})
-			equal(t, "cat bypasses presentation even for JSON file content", c.cat("corpus", "readme.txt"), content)
 			checkpoint := c.mapped([]string{"cp", "create", "--volume", "corpus", "before"}, []string{"cp", "create", "corpus", "--name", "before"})
 			readableDefault(t, "checkpoint confirmation", checkpoint, []string{"before"}, []string{"created"})
 			checkpoints := c.mapped([]string{"cp", "list", "corpus"}, []string{"cp", "list", "corpus"})
@@ -649,12 +621,13 @@ func TestDefaultPresentationMatchesPrior(t *testing.T) {
 			mount := filepath.Join(c.root, "mount")
 			mounted := c.mapped([]string{"vol", "mount", "corpus", mount}, []string{"mount", "corpus", mount})
 			c.mounts[mount] = true
+			equal(t, "JSON-looking mounted file keeps exact bytes", readFile(t, filepath.Join(mount, "readme.txt")), content)
 			readableDefault(t, "mount confirmation", mounted, []string{"corpus"}, []string{mount}, []string{"mounted", "syncing"})
 			readableDefault(t, "status table", c.run("status"), []string{"corpus"}, []string{"mount", "path", "directory"})
 			unmounted := c.mapped([]string{"vol", "unmount", mount}, []string{"unmount", mount})
 			delete(c.mounts, mount)
 			readableDefault(t, "unmount confirmation", unmounted, []string{mount}, []string{"unmounted", "stopped"})
-			deleted := c.mapped([]string{"vol", "delete", "--no-confirmation", "blank"}, []string{"ws", "delete", "blank", "--yes"})
+			deleted := c.mapped([]string{"vol", "delete", "--no-confirmation", "blank"}, []string{"delete", "blank", "--yes"})
 			readableDefault(t, "delete confirmation", deleted, []string{"blank"}, []string{"deleted"})
 		})
 	}

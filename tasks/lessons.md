@@ -24,3 +24,12 @@ User noticed that structured CLI responses became JSON by default.
   merely change JSON indentation unless that contract is explicitly requested.
 - Preserve readable default output when simplifying command wiring. Test both
   default terminal presentation and explicit JSON, not just normalized results.
+
+## 2026-09-14 — Keep the CLI centered on workspace lifecycle
+
+- File access belongs to ordinary mounted directories; remove the public `fs`
+  group without deleting the shared native client needed by synchronization.
+- Workspace actions live at the root. Keep `cp` as the separate checkpoint
+  group so create/delete operations have an unambiguous object.
+- When removing commands, move behavioral acceptance to the retained public
+  workflow rather than silently dropping synchronization or byte/metadata checks.

@@ -313,9 +313,9 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 		return errors.New("empty local directory would delete remote files; preserve this directory and mount into a new directory")
 	}
 	// Existing exact-tree check safely permits a populated identical tree. All
-	// other first-mount merges need explicit import through ws create --from.
+	// other first-mount merges need explicit import through afs create --from.
 	if plan.requiresConfirmation() && !knownMount {
-		return errors.New("mount would merge or upload an existing populated directory; use an empty directory or ws create --from")
+		return errors.New("mount would merge or upload an existing populated directory; use an empty directory or afs create <new-workspace> --from <directory>")
 	}
 	if plan.ConflictCount > 0 && !knownMount {
 		return fmt.Errorf("mount has %d conflict(s); preserve local edits before mounting", plan.ConflictCount)

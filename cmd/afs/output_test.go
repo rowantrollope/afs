@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/rowantrollope/afs/internal/controlplane"
-	"github.com/rowantrollope/afs/mount/client"
 )
 
 func TestOutputModeIsExplicit(t *testing.T) {
@@ -30,12 +29,12 @@ func TestOutputModeIsExplicit(t *testing.T) {
 
 func TestTextOutputPreservesRowBoundaries(t *testing.T) {
 	name := "one\nsecond\t\x1b[2J.txt"
-	out := formatFiles([]client.LsEntry{{Name: name, Type: "file", Mode: 0o644, Size: 3}})
+	out := textTable([]string{"DIRECTORY", "STATE"}, [][]string{{name, "running"}})
 	if strings.Contains(out, name) || strings.ContainsRune(out, '\x1b') || strings.Count(out, "\n") != 2 {
 		t.Fatalf("filename changed terminal rows or control state: %q", out)
 	}
-	if !strings.Contains(out, `one\nsecond\t\x1b[2J.txt`) || !strings.Contains(out, "0644") {
-		t.Fatalf("filename or permissions lost: %q", out)
+	if !strings.Contains(out, `one\nsecond\t\x1b[2J.txt`) || !strings.Contains(out, "running") {
+		t.Fatalf("directory name or state lost: %q", out)
 	}
 }
 
