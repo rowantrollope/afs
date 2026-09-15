@@ -93,13 +93,18 @@ func TestSyncSaveDrainDiscardsQueuedUpload(t *testing.T) {
 func TestSyncSaveDrainDeadlineStillJoinsUpload(t *testing.T) {
 	env := newSyncTestEnv(t)
 	entered, cancelled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	var releaseOnce sync.Once
+	retried := make(chan struct{})
+	var enteredOnce, cancelledOnce, retriedOnce, releaseOnce sync.Once
 	defer releaseOnce.Do(func() { close(release) })
+	var attempts atomic.Int32
 	gate := &syncSaveDrainClient{Client: env.fsClient}
 	gate.echo = func(ctx context.Context, path string, data []byte) error {
-		close(entered)
+		if attempts.Add(1) > 1 {
+			retriedOnce.Do(func() { close(retried) })
+		}
+		enteredOnce.Do(func() { close(entered) })
 		<-ctx.Done()
-		close(cancelled)
+		cancelledOnce.Do(func() { close(cancelled) })
 		// Simulate bounded client cleanup after cancellation is observed.
 		<-release
 		return ctx.Err()
@@ -152,6 +157,13 @@ func TestSyncSaveDrainDeadlineStillJoinsUpload(t *testing.T) {
 	}
 	if service.active == nil || service.active == d {
 		t.Fatal("save did not resume with a new generation after joining")
+	}
+	// Failed saves resume recovery. The persistent cancellation fault also
+	// applies to that retry, and its notifications must be safe to repeat.
+	select {
+	case <-retried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("resumed sync did not retry the upload callback")
 	}
 	if env.remoteExists(t, "active") {
 		t.Fatal("expired save applied a new write")

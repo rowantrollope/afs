@@ -160,6 +160,13 @@ rejection without a receipt, the remote tree before recovery, and convergence
 after releasing recovery. Production save behavior is unchanged.
 The corrected test passed 100 race-detector repetitions; the related save suite
 also passed with the race detector.
+The same audit reproduced timeout and inbound-conflict assertions racing resumed
+recovery; test-only barriers now verify the save boundary and subsequent byte
+preservation separately. The deadline-drain fixture keeps its cancellation fault
+active across retries and sends each channel notification once, preventing a
+reproduced double-close panic when recovery retries the upload.
+All three related cases passed 30 race-detector repetitions; the full save group
+passed 84 test/subtest cases with the race detector.
 
 Linux CI passed build, vet, unit, race and real-Redis process acceptance on
 implementation commit `826b052`:

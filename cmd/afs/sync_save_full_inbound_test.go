@@ -55,6 +55,7 @@ func TestSyncSaveStopsFullInboundReadBeforeLocalMutation(t *testing.T) {
 					service.active.Stop()
 				}
 			})
+			recovery := gateSyncSaveRecovery(t, d)
 			gate.armed.Store(true)
 			env.writeRemoteFile(t, "file", "remote planned B")
 			d.reconciler.requestFullSweep()
@@ -89,11 +90,28 @@ func TestSyncSaveStopsFullInboundReadBeforeLocalMutation(t *testing.T) {
 				t.Fatalf("save changed the remote conflict: %q", got)
 			}
 			if conflict {
-				if result.Success || !strings.Contains(result.Error, "conflict") {
+				if result.Success || result.Save != nil || !strings.Contains(result.Error, "conflict") {
 					t.Fatalf("true conflict accepted: %+v", result)
 				}
+				recovery.awaitRecovery(t)
 			} else if !result.Success {
 				t.Fatalf("equal local and remote tree rejected: %+v", result)
+			}
+			recovery.resume()
+			if conflict {
+				assertEventually(t, 3*time.Second, "resumed conflict recovery to preserve both versions", func() bool {
+					data, err := os.ReadFile(filepath.Join(env.localRoot, "file"))
+					if err != nil || string(data) != "remote planned B" {
+						return false
+					}
+					copies, _ := filepath.Glob(filepath.Join(env.localRoot, "file.conflict-*"))
+					for _, copy := range copies {
+						if data, err := os.ReadFile(copy); err == nil && string(data) == want {
+							return true
+						}
+					}
+					return false
+				})
 			}
 		})
 	}
