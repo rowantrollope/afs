@@ -153,6 +153,14 @@ report. The affected test then passed 30 repetitions and the full race suite
 passed with Redis startup logs captured; the original timeout's cause was not
 established. No timeout or fixture behavior was changed.
 
+Linux CI passed build, vet, unit, race and real-Redis process acceptance on
+implementation commit `826b052`:
+[verification run](https://github.com/rowantrollope/afs/actions/runs/34919890029).
+The installed slim AFS executable was atomically updated to that commit after
+checking its module identity; all 109 process cases also passed against the
+actual installed binary. The original agent-filesystem installation was not
+replaced.
+
 ### Default output correction (before file-command removal)
 
 The initial extraction incorrectly emitted JSON for structured responses even

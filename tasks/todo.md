@@ -7,7 +7,7 @@
 - [x] Update help/docs and adapt process/compatibility tests to mounted files.
 - [x] Fix demonstrated parent-directory deletion retry/order issue.
 - [x] Verify all retained behavior, readable defaults and explicit JSON.
-- [ ] Publish through normal CI/PR and update the installed derivative.
+- [x] Publish through normal CI/PR and update the installed derivative.
 
 Decision: user selected root workspace actions with `cp` retained. File access
 uses ordinary mounted directories. Internal storage/sync/Array support remains.
@@ -22,6 +22,9 @@ planner now retries it safely, including protection for a newer peer edit.
 Focused race cases pass 30 repetitions. An initial disposable Redis startup
 timeout did not recur in 30 focused repetitions or the full race rerun; captured
 server logs showed no startup errors. Original checkout remains unchanged.
+Published in PR #3. Linux build/vet/unit/race/process checks passed on `826b052`
+in run `34919890029`. The installed slim AFS binary now uses that implementation
+and passed all 109 process cases directly through its installed path.
 
 ## Default output correction
 
