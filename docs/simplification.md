@@ -122,6 +122,26 @@ old commands to the reduced surface and records intentional differences.
 
 ## Verification
 
+### Default output correction
+
+The initial extraction incorrectly emitted JSON for structured responses even
+without `--json`. The shared serializer now requires an explicit human rendering
+at each call site: plain tables, labeled details or a short confirmation.
+Explicit `--json` retains its payloads and encoder; `fs cat` still writes exact
+bytes. Storage, sync and lifecycle operations are unchanged.
+
+New real-Redis command tests reproduce the default-output failure against the
+saved pre-fix binary and pass with the correction. The paired prior/current
+suite now checks meaningful default presentation as well as explicit JSON and
+file behavior. It passes 12 test/subtest cases; the full process suite passes
+170, with no skips in either suite. See [the comparison](cli-compatibility.md).
+Build and vet pass. Unit and race suites each pass 401 test/subtest cases;
+three optional Redis Array tests are skipped because no Array server is configured.
+Linux build, vet, unit, race and real-Redis process checks passed on `ed59c1e`:
+[verification run](https://github.com/rowantrollope/afs/actions/runs/34917706289).
+
+### Extraction baseline
+
 Baseline on macOS arm64, Go 1.26.1, isolated Redis/miniredis:
 
 - `go test ./cmd/afs ./internal/controlplane ./internal/worktree`: passed.
@@ -131,7 +151,7 @@ Baseline on macOS arm64, Go 1.26.1, isolated Redis/miniredis:
   passes. Five optional feature/environment tests skipped; these are not claimed
   as verification. Raw logs: `/private/tmp/afs-baseline-results`.
 
-Derivative checks on the final production code, macOS arm64 / Go 1.26.1 /
+Original extraction checks at `e983f4d`, macOS arm64 / Go 1.26.1 /
 disposable Redis 7.0.15:
 
 - `go build ./...` and `go vet ./...`: passed.
@@ -156,7 +176,8 @@ disposable Redis 7.0.15:
   No skipped optional test is counted as a pass.
 
 Production Go source fell from 258 files / 91,591 physical lines in the immutable
-baseline archive to 64 files / 18,400 lines, approximately an 80% reduction.
+baseline archive to 65 files / 18,579 lines, approximately an 80% reduction,
+including the default-output correction.
 The comparison includes comments and excludes test files. The original checkout
 still has commit `c3897ac` and only its pre-existing untracked work.
 

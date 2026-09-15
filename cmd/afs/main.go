@@ -271,14 +271,14 @@ func (a *app) connect(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) output(v any) error {
+// Both output modes share the same result. Human presentation is explicit at
+// each call site; JSON keeps the existing machine-readable schema.
+func (a *app) output(v any, text string) error {
 	if a.options.json {
 		return json.NewEncoder(os.Stdout).Encode(v)
 	}
-	// Compact JSON also makes unstructured detail responses useful at a terminal.
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+	_, err := io.WriteString(os.Stdout, text)
+	return err
 }
 
 func confirmDeletion(action string, yes bool) error {
@@ -353,24 +353,24 @@ func (a *app) workspace(args []string) error {
 		if err != nil {
 			return err
 		}
-		return a.output(meta)
+		return a.output(meta, fmt.Sprintf("Created workspace %q.\n", meta.Name))
 	case "list":
 		v, e := a.service.ListWorkspaces(ctx)
 		if e != nil {
 			return e
 		}
-		return a.output(v)
+		return a.output(v, formatWorkspaces(v))
 	case "info":
 		v, e := a.service.GetWorkspace(ctx, pos[0])
 		if e != nil {
 			return e
 		}
-		return a.output(v)
+		return a.output(v, formatWorkspace(v))
 	case "fork":
 		if e := a.service.ForkWorkspace(ctx, pos[0], pos[1], *checkpoint); e != nil {
 			return e
 		}
-		return a.output(map[string]any{"workspace": pos[1], "forked_from": pos[0]})
+		return a.output(map[string]any{"workspace": pos[1], "forked_from": pos[0]}, fmt.Sprintf("Forked workspace %q from %q.\n", pos[1], pos[0]))
 	case "delete":
 		if e := a.requireUnmounted(ctx, pos[0]); e != nil {
 			return e
@@ -381,7 +381,7 @@ func (a *app) workspace(args []string) error {
 		if e := a.service.DeleteWorkspace(ctx, pos[0]); e != nil {
 			return e
 		}
-		return a.output(map[string]any{"deleted": pos[0]})
+		return a.output(map[string]any{"deleted": pos[0]}, fmt.Sprintf("Deleted workspace %q.\n", pos[0]))
 	}
 	return nil
 }
@@ -451,7 +451,7 @@ func (a *app) files(args []string) error {
 		if e != nil {
 			return e
 		}
-		return a.output(entries)
+		return a.output(entries, formatFiles(entries))
 	case "cat":
 		b, e := fs.Cat(ctx, p)
 		if e != nil {
@@ -481,7 +481,7 @@ func (a *app) files(args []string) error {
 		if e = fs.Echo(ctx, p, b); e != nil {
 			return e
 		}
-		return a.output(map[string]any{"path": pos[1], "bytes": len(b)})
+		return a.output(map[string]any{"path": pos[1], "bytes": len(b)}, fmt.Sprintf("Wrote %d bytes to %q in workspace %q.\n", len(b), pos[1], pos[0]))
 	case "mkdir":
 		err = fs.Mkdir(ctx, p)
 	case "mv":
@@ -519,7 +519,16 @@ func (a *app) files(args []string) error {
 	if err != nil {
 		return err
 	}
-	return a.output(map[string]any{"operation": op, "path": pos[1]})
+	var message string
+	switch op {
+	case "mkdir":
+		message = fmt.Sprintf("Created directory %q in workspace %q.\n", pos[1], pos[0])
+	case "mv":
+		message = fmt.Sprintf("Moved %q to %q in workspace %q.\n", pos[1], pos[2], pos[0])
+	case "rm":
+		message = fmt.Sprintf("Removed %q from workspace %q.\n", pos[1], pos[0])
+	}
+	return a.output(map[string]any{"operation": op, "path": pos[1]}, message)
 }
 
 // Observe the whole tree before removing anything, then use the retained
@@ -598,19 +607,19 @@ func (a *app) checkpoints(args []string) error {
 		if e != nil {
 			return e
 		}
-		return a.output(v)
+		return a.output(v, fmt.Sprintf("Created checkpoint %q (%s) in workspace %q.\n", v.Name, v.ID, pos[0]))
 	case "list":
 		v, e := a.service.ListCheckpoints(ctx, pos[0])
 		if e != nil {
 			return e
 		}
-		return a.output(v)
+		return a.output(v, formatCheckpoints(v))
 	case "show":
 		meta, m, e := a.service.GetCheckpoint(ctx, pos[0], pos[1])
 		if e != nil {
 			return e
 		}
-		return a.output(map[string]any{"checkpoint": meta, "manifest": m})
+		return a.output(map[string]any{"checkpoint": meta, "manifest": m}, formatCheckpoint(pos[0], meta, m))
 	case "restore":
 		if err = a.requireUnmounted(ctx, pos[0]); err != nil {
 			return err
@@ -622,7 +631,7 @@ func (a *app) checkpoints(args []string) error {
 		if e != nil {
 			return e
 		}
-		return a.output(v)
+		return a.output(v, formatRestore(v))
 	case "delete":
 		if err = confirmDeletion("Delete checkpoint "+pos[1]+" in "+pos[0], *yes); err != nil {
 			return err
@@ -630,7 +639,7 @@ func (a *app) checkpoints(args []string) error {
 		if err = a.service.DeleteCheckpoint(ctx, pos[0], pos[1]); err != nil {
 			return err
 		}
-		return a.output(map[string]any{"deleted": pos[1], "workspace": pos[0]})
+		return a.output(map[string]any{"deleted": pos[1], "workspace": pos[0]}, fmt.Sprintf("Deleted checkpoint %q from workspace %q.\n", pos[1], pos[0]))
 	default:
 		return fmt.Errorf("unknown checkpoint command %q", op)
 	}
