@@ -150,8 +150,10 @@ disposable Redis 7.0.15:
   ./tests/compat`: both actual CLI binaries passed the paired workflow; nine
   test/subtest passes, zero skips. The recorded package run took 4.997 seconds.
   [Command mapping and reproduction](cli-compatibility.md).
-- No skipped optional test is counted as a pass. Linux CI results are attached
-  to [PR #1](https://github.com/rowantrollope/afs/pull/1).
+- Linux CI passed build, vet, unit, race and the real-Redis process suite on
+  production commit `e983f4d`:
+  [verification run](https://github.com/rowantrollope/afs/actions/runs/34916337513).
+  No skipped optional test is counted as a pass.
 
 Production Go source fell from 258 files / 91,591 physical lines in the immutable
 baseline archive to 64 files / 18,400 lines, approximately an 80% reduction.
@@ -199,8 +201,8 @@ the existing manifest scanner; its default is the available CPU count. Redis's
 own storage limits still apply. The optional Redis Array backend is retained but
 not verified without its dedicated server. No original config file is read.
 
-- macOS is locally verified. Linux is covered by the included CI workflow; its
-  actual run status is reported separately when observed. Windows is unsupported.
+- macOS is locally verified. Linux passed the CI verification recorded above.
+  Windows is unsupported.
 - Sync retains regular files, directories, symlinks, mode handling, `.afsignore`
   and the original built-in ignores. It does not capture every transient write.
 - A file publication is atomic; recursive CLI deletion is a sequence of

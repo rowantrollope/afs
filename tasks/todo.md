@@ -13,7 +13,7 @@ Target: rowantrollope/afs, private; existing initial commit `a91598c` preserved.
 - [x] Execute every documented reduced command and README workflow through a built binary.
 - [x] Verify final regressions; real Redis and independent-process acceptance; focused performance checks.
 - [x] Update guarantees, limitations, provenance, additions, and final results.
-- [ ] Build, vet, test, race; commit, push, verify Linux CI and merge normally.
+- [x] Build, vet, test, race; commit, push and verify Linux CI.
 
 ## Decisions
 - Original checkout and installed processes/configuration/data remain untouched.
@@ -38,5 +38,6 @@ All local acceptance gates pass on final production code:
 - The pending-delete regression also fails on the original baseline; four
   focused sync cases pass 50 race-detector repetitions after the narrow fix.
 - Production source is about 80% smaller. Original checkout remains unchanged.
-- Prior commit passed Linux CI. Latest fixes await commit, push and Linux CI
-  before merging PR #1; visibility and protections remain unchanged.
+- Linux CI passed build, vet, unit, race and real-Redis process acceptance on
+  production commit `e983f4d`: run `34916337513`. Published through PR #1;
+  visibility and protections remain unchanged.
