@@ -63,7 +63,14 @@ func TestSyncSaveRetainsInflightUploadBeforeLocalRename(t *testing.T) {
 			}
 			var release sync.Once
 			defer release.Do(func() { close(gate.release) })
-			d := env.startDaemon(t, func(cfg *syncDaemonConfig) { cfg.FS = gate })
+			// Drive this generation only through the queued upload below.
+			// Subscription recovery could otherwise settle both paths before
+			// save and legitimately accept the deliberately injected peer edit.
+			d := env.startDaemon(t, func(cfg *syncDaemonConfig) {
+				cfg.FS = &syncManualSaveClient{Client: gate}
+			})
+			// Save's replacement generation retains ordinary live recovery.
+			d.cfg.FS = gate
 			if err := d.watcher.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -86,6 +93,12 @@ func TestSyncSaveRetainsInflightUploadBeforeLocalRename(t *testing.T) {
 			}
 			if scenario == "real_remote_edit" {
 				env.writeRemoteFile(t, "old", "peer intent")
+			}
+			if _, exists := d.Snapshot().Entries["old"]; exists {
+				t.Fatal("fixture acknowledged the upload before releasing its completion gate")
+			}
+			if _, err := os.Lstat(old); !os.IsNotExist(err) {
+				t.Fatalf("fixture reconciled the renamed source before explicit save: %v", err)
 			}
 			done := make(chan syncControlResult, 1)
 			go func() { done <- service.save(saveRequestForDaemon(d, 5*time.Second)) }()

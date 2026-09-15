@@ -186,7 +186,21 @@ The manual inbound-read cancellation fixture now isolates its queued downloader
 from automatic subscriptions and asserts the intercepted generation; its
 cancellation and local-edit preservation assertions are unchanged.
 
-The [final follow-up verification](../tests/multiwriter/artifacts/ci-fixes-final-20260915/go-final-2/report.json)
+A subsequent race run exposed the same scheduling assumption in two manual
+checkpoint fixtures. A controlled schedule proved that startup recovery could
+publish before the timeout fixture's write gate, or finish reconciling both
+the local rename and peer edit before the in-flight fixture requested a save.
+The controlled generations now disable automatic notifications alongside their
+already disabled watchers. Replacement generations retain ordinary recovery.
+Conflict, byte-preservation, drain and timeout assertions remain strict; the
+fixtures also fail early if the intended in-flight state was not established.
+These follow-up changes affect tests only. The complete checkpoint test group
+passes ten repetitions each normally and under the race detector: 930
+test/subtest passes per mode, with no failures or skips. Controlled failure
+reproductions and passing logs are retained in
+[`ci-save-fixtures-20260915`](../tests/multiwriter/artifacts/ci-save-fixtures-20260915/summary.json).
+
+The [final follow-up verification](../tests/multiwriter/artifacts/ci-fixtures-final-20260915/go-final-2/report.json)
 passes build/vet, 654 unit and 654 race test/subtest cases with real Array and
 zero failures/skips, 109 CLI cases, 14 dependency regressions and 16 harness
 tests. Source hashes stayed unchanged and the owned Array process exited cleanly.

@@ -8,6 +8,8 @@
 - [x] Isolate the manually queued inbound-read fixture from automatic recovery.
 - [x] Preserve large-file chunk metadata when recovery wins the initial upload race.
 - [x] Pass final local checks before updating the PR.
+- [x] Isolate controlled checkpoint write fixtures from automatic startup recovery; retain conflict and timeout assertions.
+- [x] Pass final fixture verification before publishing the PR update.
 
 The original PR CI runs passed all four/eight-client native suites. One unit run
 missed a remote deletion before subscription confirmation; the other run's core
@@ -22,6 +24,10 @@ regressions and 16 harness tests. All ten core scenarios also pass with Go 1.22
 in isolated Linux processes. Source hashes stayed unchanged and owned cleanup
 completed. GitHub PR #4 tracks publication and the merge gate; merge and pull
 main only after the updated commit's CI checks pass.
+The controlled checkpoint fixtures retain their safety assertions and normal
+recovery on restart. Their complete group also passes ten repetitions per mode
+(930 normal and 930 race test/subtest passes); final full verification still
+passes all 654 unit/race and 109 CLI cases after the fixture-only changes.
 
 ## Check in native mounts and concurrency fixes
 
