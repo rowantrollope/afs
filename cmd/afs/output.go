@@ -131,6 +131,10 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 	}
 	rows := make([][]string, 0, len(mounts))
 	for _, mount := range mounts {
+		backend, _ := mount["backend"].(string)
+		if backend == "" {
+			backend = "sync"
+		}
 		connection, queued, uploads, entries, conflicts := "unknown", "-", "-", "-", "-"
 		lastError, _ := mount["error"].(string)
 		if status, ok := mount["sync"].(*syncStatus); ok && status != nil {
@@ -142,7 +146,20 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 			conflicts = strconv.FormatUint(status.Conflicts, 10)
 			lastError = status.LastError
 		}
+		if status, ok := mount["native"].(map[string]any); ok {
+			connection = "disconnected"
+			if status["connected"] == true {
+				connection = "connected"
+			}
+		}
 		if detailed {
+			if backend, ok := mount["backend"].(string); ok && (backend == "fuse" || backend == "nfs") {
+				return textTable(nil, [][]string{
+					{"Workspace:", fmt.Sprint(mount["workspace"])}, {"Directory:", fmt.Sprint(mount["directory"])},
+					{"Backend:", backend}, {"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
+					{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"Redis:", fmt.Sprint(mount["redis"])},
+				})
+			}
 			return textTable(nil, [][]string{
 				{"Workspace:", fmt.Sprint(mount["workspace"])}, {"Directory:", fmt.Sprint(mount["directory"])},
 				{"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
@@ -151,7 +168,7 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 			})
 		}
 		rows = append(rows, []string{fmt.Sprint(mount["workspace"]), fmt.Sprint(mount["directory"]),
-			fmt.Sprint(mount["state"]), connection, queued, uploads, conflicts, lastError})
+			backend, fmt.Sprint(mount["state"]), connection, queued, uploads, conflicts, lastError})
 	}
-	return textTable([]string{"WORKSPACE", "DIRECTORY", "STATE", "CONNECTION", "QUEUED", "UPLOADS", "CONFLICTS", "ERROR"}, rows)
+	return textTable([]string{"WORKSPACE", "DIRECTORY", "BACKEND", "STATE", "CONNECTION", "QUEUED", "UPLOADS", "CONFLICTS", "ERROR"}, rows)
 }

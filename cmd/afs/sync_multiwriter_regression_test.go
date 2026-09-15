@@ -83,6 +83,9 @@ func TestSyncQueuedRemoteDeletePreservesNewLocalEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored := d.Snapshot().Entries["shared.txt"]
+	if err := env.fsClient.Rm(context.Background(), "/shared.txt"); err != nil {
+		t.Fatal(err)
+	}
 	env.writeLocalFile(t, "shared.txt", "edited after remote deletion queued")
 	results := make(chan downloadResult, 1)
 	d.downloader.results = results

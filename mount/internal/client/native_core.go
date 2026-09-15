@@ -277,8 +277,37 @@ func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Contex
 			onReconnect()
 		}
 		firstConnect = false
-		ch := sub.Channel()
-		c.consumeInvalidationChannel(ctx, ch, handler)
+		// go-redis reconnects inside Channel without closing the channel. Keep
+		// subscription confirmations so those internal reconnects are visible;
+		// the first confirmation was already consumed by Receive above.
+		ch := sub.ChannelWithSubscriptions()
+	consume:
+		for {
+			select {
+			case <-ctx.Done():
+				break consume
+			case message, ok := <-ch:
+				if !ok {
+					break consume
+				}
+				switch msg := message.(type) {
+				case *redis.Subscription:
+					if msg.Kind == "subscribe" && msg.Channel == channel && onReconnect != nil {
+						onReconnect()
+					}
+				case *redis.Message:
+					ev, err := decodeInvalidate([]byte(msg.Payload))
+					if err != nil {
+						log.Printf("afs-lite: invalidate decode failed: %v (payload=%q)", err, msg.Payload)
+						continue
+					}
+					if ev.Origin != c.originID {
+						c.applyRemoteInvalidation(ev)
+						handler(*ev)
+					}
+				}
+			}
+		}
 		_ = sub.Close()
 		if ctx.Err() != nil {
 			return
@@ -411,14 +440,16 @@ func (c *nativeClient) applyRemoteInvalidation(ev *InvalidateEvent) {
 }
 
 func (c *nativeClient) Stat(ctx context.Context, p string) (*StatResult, error) {
-	resolved, inode, err := c.resolvePath(ctx, p, false)
+	_, inode, err := c.resolvePath(ctx, p, false)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	c.cachePath(resolved, inode)
+	// resolvePath caches Redis reads. Re-caching its result here would renew
+	// hits indefinitely, so a missed invalidation could retain a retired inode
+	// for as long as callers keep polling it.
 	return inode.toStat(), nil
 }
 
@@ -524,6 +555,10 @@ func (c *nativeClient) CreateFile(ctx context.Context, p string, mode uint32, ex
 }
 
 func (c *nativeClient) Mkdir(ctx context.Context, p string) error {
+	return c.MkdirMode(ctx, p, 0o755)
+}
+
+func (c *nativeClient) MkdirMode(ctx context.Context, p string, mode uint32) error {
 	p = normalizePath(p)
 	if p == "/" {
 		return c.ensureRoot(ctx)
@@ -541,7 +576,7 @@ func (c *nativeClient) Mkdir(ctx context.Context, p string) error {
 		}
 		return ErrAlreadyExists
 	}
-	if err := c.createDir(ctx, p, 0o755); err != nil {
+	if err := c.createDir(ctx, p, mode); err != nil {
 		return err
 	}
 	return c.markRootDirty(ctx)

@@ -620,6 +620,27 @@ func TestDeleteAndRenameVersusPausedWriter(t *testing.T) {
 	a.run(nil, "create", "mutations")
 	root := filepath.Join(t.TempDir(), "peer")
 	pid := b.mount("mutations", root)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		out, diagnostic, err := b.runTimeout(5*time.Second, nil, "--json", "status", root)
+		t.Logf("paused-writer status: %s; diagnostic=%s; error=%v", out, diagnostic, err)
+		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err == nil && entry.Type().IsRegular() {
+				data, readErr := os.ReadFile(path)
+				t.Logf("paused-writer local %s: %q; error=%v", path, data, readErr)
+			}
+			return nil
+		})
+		_ = filepath.WalkDir(b.state, func(path string, entry os.DirEntry, err error) error {
+			if err == nil && filepath.Base(filepath.Dir(path)) == "sync" && filepath.Ext(path) == ".json" {
+				data, readErr := os.ReadFile(path)
+				t.Logf("paused-writer baseline %s: %s; error=%v", path, data, readErr)
+			}
+			return nil
+		})
+	})
 	p, _ := os.FindProcess(pid)
 	for _, op := range []string{"delete", "rename"} {
 		a.put("mutations", op, []byte("base"))

@@ -798,6 +798,12 @@ func (r *reconciler) handleLocalDelete(ctx context.Context, rel, kindHint string
 		fmt.Fprintf(os.Stderr, "afs sync: handleLocalDelete %s: not in state, skipping\n", rel)
 		return
 	}
+	if stored.Deleted {
+		// Watcher and sweep notifications may describe the same removal.
+		// Keep its version so the pending acknowledgment can clear it.
+		r.state.mu.Unlock()
+		return
+	}
 	fmt.Fprintf(os.Stderr, "afs sync: handleLocalDelete %s: setting tombstone, queuing upload delete\n", rel)
 	prior := stored
 	// Tombstone immediately — buildPlan sees this before upload completes.
@@ -809,11 +815,12 @@ func (r *reconciler) handleLocalDelete(ctx context.Context, rel, kindHint string
 	r.state.mu.Unlock()
 	r.state.markDirty()
 	deleteOp := uploadOp{
-		Kind:        opUploadDelete,
-		Path:        rel,
-		AbsPath:     filepath.Join(r.root, filepath.FromSlash(rel)),
-		StoredEntry: prior,
-		HasStored:   true,
+		Kind:          opUploadDelete,
+		Path:          rel,
+		AbsPath:       filepath.Join(r.root, filepath.FromSlash(rel)),
+		StoredEntry:   prior,
+		HasStored:     true,
+		DeleteVersion: stored.Version,
 	}
 	candidateKey := renameCandidateKey(prior)
 	if candidateKey == "" {
@@ -884,7 +891,7 @@ func (r *reconciler) handleRemoteEvent(ctx context.Context, ev remoteEvent) {
 	abs := filepath.Join(r.root, filepath.FromSlash(rel))
 
 	stat, err := r.fs.Stat(ctx, absoluteRemotePath(rel))
-	if err != nil && !isClientNotFound(err) {
+	if err != nil && !isSyncRemoteMissingError(err) {
 		fmt.Fprintf(os.Stderr, "afs sync: stat remote %s: %v\n", rel, err)
 		return
 	}
@@ -896,6 +903,11 @@ func (r *reconciler) handleRemoteEvent(ctx context.Context, ev remoteEvent) {
 			// concluding the file was deleted.
 			r.fs.InvalidateCache()
 			stat2, err2 := r.fs.Stat(ctx, absoluteRemotePath(rel))
+			if err2 != nil && !isSyncRemoteMissingError(err2) {
+				r.log.Err("confirm remote deletion "+rel, err2.Error())
+				r.requestFullSweep()
+				return
+			}
 			if err2 == nil && stat2 != nil {
 				// File exists after cache flush — not actually deleted.
 				// Treat as an update instead.
@@ -908,12 +920,19 @@ func (r *reconciler) handleRemoteEvent(ctx context.Context, ev remoteEvent) {
 				// until the downloader removes it. A tombstone while that file
 				// still exists looks like a local recreation to a full sweep.
 				r.state.mu.Lock()
-				if entry, ok := r.state.state.Entries[rel]; ok && !entry.Deleted {
-					entry.Version = r.state.nextVersion()
-					entry.LastSyncedAt = time.Now().UTC()
-					r.state.state.Entries[rel] = entry
-					r.state.dirty = true
+				entry, ok := r.state.state.Entries[rel]
+				if !ok || entry.Deleted || entry.Version != stored.Version {
+					// The missing reads belong to the original baseline, never
+					// to a newer local upload or recovery result.
+					r.state.mu.Unlock()
+					r.requestFullSweep()
+					return
 				}
+				entry.Version = r.state.nextVersion()
+				entry.LastSyncedAt = time.Now().UTC()
+				r.state.state.Entries[rel] = entry
+				r.state.dirty = true
+				stored = entry
 				r.state.mu.Unlock()
 
 				fmt.Fprintf(os.Stderr, "afs sync: handleRemoteEvent %s: stat nil confirmed after retry → downloadDelete\n", rel)
@@ -1055,9 +1074,11 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 	}
 	if res.Err != nil {
 		r.log.Err("upload "+res.Op.Path, res.Err.Error())
-		if res.Op.Kind == opUploadDelete && errors.Is(res.Err, client.ErrDirNotEmpty) {
-			// Watcher delivery can put a removed directory before its children.
-			// The retained recovery planner orders deletes and rechecks edits.
+		if !errors.Is(res.Err, context.Canceled) {
+			// The watcher may never emit another event for these bytes, and
+			// reconnect stream replay covers remote changes only. Keep local
+			// work pending through the existing recovery loop, whose failed
+			// scans retry with a one-second delay while Redis is unavailable.
 			r.requestFullSweep()
 		}
 		return
@@ -1079,8 +1100,19 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 		// Remote diverged. The remote-wins resolution is to download the
 		// remote version, push the local copy aside, and create an
 		// auto-checkpoint.
+		kind := opDownloadFile
+		if res.Op.Kind == opUploadSymlink {
+			stat, err := r.fs.Stat(ctx, absoluteRemotePath(res.Op.Path))
+			if err != nil || stat == nil || stat.Type == "dir" {
+				r.requestFullSweep()
+				return
+			}
+			if stat.Type == "symlink" {
+				kind = opDownloadSymlink
+			}
+		}
 		r.queueDownload(downloadOp{
-			Kind:        opDownloadFile,
+			Kind:        kind,
 			Path:        res.Op.Path,
 			AbsPath:     res.Op.AbsPath,
 			StoredEntry: res.Op.StoredEntry,
@@ -1139,12 +1171,16 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 			Version:      r.state.nextVersion(),
 		}
 	case opUploadDelete:
-		// Tombstone was already set in handleLocalDelete. Just update LastSyncedAt.
+		// Only outstanding deletions need a tombstone. Retaining it after
+		// acknowledgment would ignore or erase a later remote recreation.
 		r.forgetRenameCandidate(res.Op.StoredEntry)
-		if entry, ok := r.state.state.Entries[res.Op.Path]; ok {
-			entry.LastSyncedAt = now
-			r.state.state.Entries[res.Op.Path] = entry
+		if entry, ok := r.state.state.Entries[res.Op.Path]; ok && entry.Deleted &&
+			res.Op.DeleteVersion != 0 && entry.Version == res.Op.DeleteVersion {
+			delete(r.state.state.Entries, res.Op.Path)
 		}
+		// A recreation event may have arrived while this acknowledgment
+		// was queued and been suppressed by the outstanding tombstone.
+		r.requestFullSweep()
 	case opUploadRename:
 		delete(r.state.state.Entries, res.Op.PrevPath)
 		entry := res.Op.StoredEntry
@@ -1185,6 +1221,13 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 }
 
 func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResult) {
+	if res.ConflictPath != "" {
+		// The preserved copy is new local work independently of whether the
+		// canonical download result can still be adopted. Its rename may not
+		// produce a separate watcher event, so keep publication scheduled even
+		// when a newer local deletion causes the result below to be discarded.
+		r.requestFullSweep()
+	}
 	if res.Skipped {
 		r.requestFullSweep()
 		return
@@ -1197,15 +1240,29 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 		r.log.Err("download "+res.Op.Path, err.Error())
 		return
 	}
-	// If a local tombstone exists for this path, discard the download
-	// result — the file was written to disk by the downloader but the user
-	// already deleted it. Remove the re-created file immediately so it does
-	// not reappear, and let the pending upload carry the delete to Redis.
+	if res.Op.Kind == opDownloadDelete {
+		// The worker removed the completed inbound baseline atomically with
+		// the local entry. A delayed result must not mutate a newer local
+		// write or convert this remote deletion into an outbound tombstone.
+		if res.ConflictPath != "" {
+			r.log.Conflict(res.Op.Path, res.ConflictPath)
+			r.requestFullSweep()
+			go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+		}
+		r.log.Delete(res.Op.Path, "download")
+		return
+	}
+	// A pending local deletion can discard the worker's own candidate. An
+	// application may already have edited or recreated that path while this
+	// acknowledgment waited, so match its identity and content before removal.
 	r.state.mu.Lock()
 	if entry, ok := r.state.state.Entries[res.Op.Path]; ok && entry.Deleted {
 		r.state.mu.Unlock()
 		abs := filepath.Join(r.root, filepath.FromSlash(res.Op.Path))
-		_ = os.Remove(abs)
+		if res.localCandidateUnchanged(abs) {
+			_ = os.Remove(abs)
+		}
+		r.requestFullSweep()
 		return
 	}
 	r.state.mu.Unlock()
@@ -1248,13 +1305,6 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 			Version:      r.state.nextVersion(),
 		}
 		r.state.state.Entries[res.Op.Path] = entry
-	case opDownloadDelete:
-		if entry, ok := r.state.state.Entries[res.Op.Path]; ok {
-			entry.Deleted = true
-			entry.Version = r.state.nextVersion()
-			entry.LastSyncedAt = now
-			r.state.state.Entries[res.Op.Path] = entry
-		}
 	case opDownloadChmod:
 		if entry, ok := r.state.state.Entries[res.Op.Path]; ok {
 			entry.Mode = res.Mode

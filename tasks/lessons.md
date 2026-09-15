@@ -33,3 +33,19 @@ User noticed that structured CLI responses became JSON by default.
   group so create/delete operations have an unambiguous object.
 - When removing commands, move behavioral acceptance to the retained public
   workflow rather than silently dropping synchronization or byte/metadata checks.
+
+## 2026-09-14 — Native mounting needs kernel acceptance
+
+User required implementation to continue until the concurrent tests pass.
+
+- Reuse the core's process lab with actual FUSE/NFS mounts and mixed sync peers.
+  Compilation and adapter mocks do not exercise kernel caches or mount cleanup.
+- Preserve independent byte and permission oracles through a fresh observer.
+  Diagnose failing assertions and add regressions before changing production code.
+- Bound the whole native run outside the workload process; a blocked filesystem
+  call can prevent an ordinary in-process timeout from firing.
+- Freeze production before the final full runs, and report the tested binary
+  hashes, cleanup outcome and platform limits.
+- Serialize macOS native mount lifecycle tests and suites using system-wide
+  open-file scans. An unrelated mount detaching during `lsof` can make that
+  scan uncertain; preserve the refusal and test the suites in isolation.

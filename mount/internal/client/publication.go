@@ -37,8 +37,24 @@ func WithWorkspaceGeneration(ctx context.Context, generation string) context.Con
 }
 
 func (c *nativeClient) checkGeneration(ctx context.Context) error {
+	if checked, _ := ctx.Value(nativeRequestCheckedKey{}).(bool); checked {
+		return nil
+	}
 	generation, ok := ctx.Value(workspaceGenerationKey{}).(string)
 	if !ok {
+		return nil
+	}
+	if lease := nativeLease(ctx); lease != "" {
+		values, err := c.rdb.MGet(ctx, c.keys.generation(), lease).Result()
+		if err != nil {
+			return err
+		}
+		if values[0] != generation || generation == "deleted" {
+			return ErrWorkspaceChanged
+		}
+		if values[1] == nil {
+			return ErrNativeSessionLost
+		}
 		return nil
 	}
 	actual, err := c.rdb.Get(ctx, c.keys.generation()).Result()
@@ -72,10 +88,11 @@ func checkWriteCondition(ctx context.Context, inode *inodeData, creating bool) e
 const publicationTTL = time.Hour
 
 var publishFileScript = redis.NewScript(`
+if ARGV[7] ~= '' and redis.call('GET', KEYS[7]) ~= ARGV[7] then return -2 end
+if KEYS[11] ~= KEYS[7] and redis.call('EXISTS',KEYS[11]) == 0 then return -5 end
 local current = redis.call('HGET', KEYS[1], 'revision') or ''
 local linked = redis.call('HGET', KEYS[3], ARGV[2])
 if current == ARGV[4] and linked == ARGV[1] then return 2 end
-if ARGV[7] ~= '' and redis.call('GET', KEYS[7]) ~= ARGV[7] then return -2 end
 local streamtype=redis.call('TYPE',KEYS[9]).ok
 if streamtype~='none' and streamtype~='stream' then return -4 end
 if redis.call('EXISTS', KEYS[6]) == 0 then return -1 end
@@ -113,6 +130,9 @@ return 1
 `)
 
 func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *inodeData, stage string, creating bool, extra map[string]interface{}) error {
+	if err := checkExpectedParent(ctx, p, inode.Parent); err != nil {
+		return err
+	}
 	if err := checkWriteCondition(ctx, inode, creating); err != nil {
 		return err
 	}
@@ -123,6 +143,12 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 		create = "1"
 	}
 	fields := mergeFieldMaps(c.inodeFieldsAtPath(inode, p, false), extra)
+	if _, ranged := ctx.Value(nativeRangeKey{}).(bool); ranged {
+		// An open handle's path is only an invalidation hint. A concurrent
+		// ancestor rename must not have its canonical path overwritten here.
+		delete(fields, "path")
+		delete(fields, "path_ancestors")
+	}
 	keys := make([]string, 0, len(fields))
 	for key := range fields {
 		keys = append(keys, key)
@@ -132,9 +158,9 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 	for _, key := range keys {
 		args = append(args, key, fields[key])
 	}
-	result, err := publishFileScript.Run(ctx, c.rdb, []string{
-		c.keys.inode(inode.ID), stage, c.keys.dirents(inode.Parent), c.keys.content(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(),
-	}, args...).Int()
+	result, err := c.runMutationScript(ctx, publishFileScript, false, []string{
+		c.keys.inode(inode.ID), stage, c.keys.dirents(inode.Parent), c.keys.content(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx),
+	}, args...)
 	if err != nil {
 		// A response can be lost after Redis committed. Resolve that uncertainty
 		// from the operation token, without replaying the candidate over new data.
@@ -152,10 +178,14 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 			return errors.New("staged file expired before publication")
 		case -4:
 			return errors.New("workspace change journal has wrong Redis type")
+		case -5:
+			return ErrNativeSessionLost
 		}
 	}
 	inode.Revision = revision
-	c.cachePath(p, inode)
+	if _, ranged := ctx.Value(nativeRangeKey{}).(bool); !ranged {
+		c.cachePath(p, inode)
+	}
 	return nil
 }
 
@@ -344,6 +374,7 @@ func (c *nativeClient) publishChunks(ctx context.Context, p string, chunks map[i
 
 var deleteInodeScript = redis.NewScript(`
 if ARGV[4] ~= '' and redis.call('GET',KEYS[7]) ~= ARGV[4] then return -2 end
+if KEYS[11] ~= KEYS[7] and redis.call('EXISTS',KEYS[11]) == 0 then return -5 end
 local streamtype=redis.call('TYPE',KEYS[9]).ok
 if streamtype~='none' and streamtype~='stream' then return -4 end
 local linked = redis.call('HGET',KEYS[3],ARGV[2])
@@ -374,11 +405,14 @@ return 1
 `)
 
 func (c *nativeClient) deletePublishedInode(ctx context.Context, p string, inode *inodeData) error {
+	if err := checkExpectedParent(ctx, p, inode.Parent); err != nil {
+		return err
+	}
 	if err := checkWriteCondition(ctx, inode, false); err != nil {
 		return err
 	}
 	generation, _ := ctx.Value(workspaceGenerationKey{}).(string)
-	code, err := deleteInodeScript.Run(ctx, c.rdb, []string{c.keys.inode(inode.ID), c.keys.content(inode.ID), c.keys.dirents(inode.Parent), c.keys.dirents(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel()}, inode.ID, inode.Name, inode.Revision, generation, nowMs(), c.keys.inodePrefix(), c.invalidationPayload(InvalidateOpInode, p)).Int()
+	code, err := c.runMutationScript(ctx, deleteInodeScript, false, []string{c.keys.inode(inode.ID), c.keys.content(inode.ID), c.keys.dirents(inode.Parent), c.keys.dirents(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, inode.ID, inode.Name, inode.Revision, generation, nowMs(), c.keys.inodePrefix(), c.invalidationPayload(InvalidateOpInode, p))
 	if err != nil {
 		return err
 	}
@@ -391,12 +425,15 @@ func (c *nativeClient) deletePublishedInode(ctx context.Context, p string, inode
 		return ErrDirNotEmpty
 	case -4:
 		return errors.New("workspace change journal has wrong Redis type")
+	case -5:
+		return ErrNativeSessionLost
 	}
 	return nil
 }
 
 var updateInodeScript = redis.NewScript(`
 if ARGV[4] ~= '' and redis.call('GET',KEYS[3]) ~= ARGV[4] then return -2 end
+if KEYS[6] ~= KEYS[3] and redis.call('EXISTS',KEYS[6]) == 0 then return -5 end
 local streamtype=redis.call('TYPE',KEYS[4]).ok
 if streamtype~='none' and streamtype~='stream' then return -4 end
 local current=redis.call('HGET',KEYS[1],'revision') or ''
@@ -414,6 +451,9 @@ return 1
 `)
 
 func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode *inodeData, fields map[string]interface{}) error {
+	if err := checkExpectedParent(ctx, p, inode.Parent); err != nil {
+		return err
+	}
 	if err := checkWriteCondition(ctx, inode, false); err != nil {
 		return err
 	}
@@ -428,7 +468,7 @@ func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode
 	for _, name := range names {
 		args = append(args, name, fields[name])
 	}
-	code, err := updateInodeScript.Eval(ctx, c.rdb, []string{c.keys.inode(inode.ID), c.keys.dirents(inode.Parent), c.keys.generation(), c.keys.changesStream(), c.keys.invalidateChannel()}, args...).Int()
+	code, err := c.runMutationScript(ctx, updateInodeScript, true, []string{c.keys.inode(inode.ID), c.keys.dirents(inode.Parent), c.keys.generation(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, args...)
 	if err != nil {
 		return err
 	}
@@ -439,6 +479,8 @@ func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode
 		return ErrWorkspaceChanged
 	case -4:
 		return errors.New("workspace change journal has wrong Redis type")
+	case -5:
+		return ErrNativeSessionLost
 	}
 	inode.Revision = revision
 	return nil

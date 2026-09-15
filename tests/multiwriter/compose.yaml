@@ -1,0 +1,39 @@
+services:
+  lab:
+    build:
+      context: ../..
+      dockerfile: tests/multiwriter/Dockerfile
+    user: "${AFS_LAB_UID:-1000}:${AFS_LAB_GID:-1000}"
+    init: true
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AFS_LAB_SCENARIOS: "${AFS_LAB_SCENARIOS:-}"
+    volumes:
+      - "${AFS_LAB_ARTIFACTS:-./artifacts}:/artifacts"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        run_id="$$(date -u +%Y%m%dT%H%M%SZ)-$$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+        run_dir="/tmp/run-$$run_id"
+        trap 'result=$$?; trap - EXIT; if [ -d "$$run_dir" ]; then cp -a "$$run_dir" /artifacts/ || exit 1; printf "Exported artifacts: %s\n" "/artifacts/run-$$run_id"; fi; exit "$$result"' EXIT
+        set --
+        for scenario in $$AFS_LAB_SCENARIOS; do
+          set -- "$$@" --scenario "$$scenario"
+        done
+        python3 /lab/scripts/multiwriter_lab.py \
+          --binary /usr/local/bin/afs \
+          --output "$$run_dir" \
+          --clients "${AFS_LAB_CLIENTS:-4}" \
+          --files "${AFS_LAB_FILES:-20}" \
+          --rounds "${AFS_LAB_ROUNDS:-3}" \
+          --seed "${AFS_LAB_SEED:-1}" \
+          --timeout "${AFS_LAB_TIMEOUT:-45}" \
+          --latency-ms "${AFS_LAB_LATENCY_MS:-0}" \
+          "$$@"

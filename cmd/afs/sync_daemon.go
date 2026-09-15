@@ -128,7 +128,13 @@ func newSyncDaemon(cfg syncDaemonConfig) (*syncDaemon, error) {
 	d.uploader.rootIdentity = d.reconciler.rootIdentity
 	d.downloader = newDownloader(cfg.FS, d.reconciler.downloadOut(), cfg.LocalRoot, conflict, echo, cfg.Readonly, log)
 	d.downloader.state = stateWriter
-	d.pump = newRemoteSubscriptionPump(cfg.FS, log, stateWriter)
+	d.pump = newRemoteSubscriptionPump(cfg.FS, log, stateWriter, func(ev remoteEvent) {
+		if ev.RootReplace {
+			d.reconciler.requestRootReplace()
+		} else {
+			d.reconciler.requestFullSweep()
+		}
+	})
 	return d, nil
 }
 

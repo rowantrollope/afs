@@ -1,5 +1,128 @@
 # AFS extraction
 
+## Check in native mounts and concurrency fixes
+
+- [x] Verify the final source against retained acceptance evidence and review the diff.
+- [x] Fix the close-time FUSE lock-owner regression found during check-in review.
+- [x] Record the macOS FUSE approval blocker and run final repository checks.
+- [x] Commit the tested implementation on a new branch for pull-request publication.
+
+Scope: check in the tested implementation, harness, regressions and documentation.
+The latest live macOS FUSE probe failed before readiness because kernelmanagerd
+reported that macFUSE was not approved to load. Both test mounts timed out after
+30 seconds; cleanup completed with no remaining owned processes. macOS FUSE
+kernel acceptance remains pending user approval in System Settings. No unresolved
+design questions remain.
+
+Review: the final check-in source passes build/vet, 645 unit and 645 race
+test/subtest cases (real Array enabled, zero skips), 109 CLI process cases,
+14 vendored dependency regressions and 16 harness tests. The real Linux FUSE
+lock scenario passes both second-descriptor POSIX close and same-session flock
+wait/fsync/final-close checks. Cleanup reports no remaining owned processes.
+The earlier integrated 68-scenario matrix is retained separately; the final
+check-in also fixes the lock owner and sleeping-waiter admission issues found
+in review. Source stayed unchanged during final verification. Publication uses
+branch rtwork/native-mounts; GitHub CI reruns core and four/eight-client native
+acceptance. See docs/multiwriter-results.md for evidence and platform limits.
+
+## Native mount implementation and complete concurrency acceptance
+
+- [x] Restore guarded inode I/O and lock interfaces in the shared Redis client.
+- [x] Encapsulate retained FUSE/NFS adapters in an optional native helper.
+- [x] Integrate root mount/unmount/status and checkpoint lifecycle across backends.
+- [x] Resolve the known eight-writer conflict publication failure with a regression.
+- [x] Extend concurrent acceptance to native and mixed mounts; run on available kernels.
+- [x] Pass build, vet, unit/race, CLI compatibility and concurrent acceptance; document evidence.
+
+Spec: keep folder sync as the default; add explicit `--backend=fuse|nfs`.
+The native helper shares the current Redis client, Array detection, revision and
+workspace generation guards. Keep protocol dependencies out of the CLI binary,
+control state outside mountpoints, and native mounts visible to checkpoint and
+restore/delete safeguards. Reuse original adapters without cloud/search glue.
+Use disposable infrastructure only; preserve unrelated work and the original
+installation. Completion requires passing tests, not only a successful build.
+Review: all required local gates pass on final binaries. Build/vet, 635 unit and
+635 race tests (including real Array, zero skips), 109 CLI cases, 12 prior/current
+comparisons and 20 paused-writer repetitions pass. Core four/eight-client runs
+pass all ten scenarios each on macOS and Linux; mixed FUSE/NFS/sync four/eight
+client runs pass all ten each on Linux; macOS NFS passes all eight applicable
+scenarios. Total concurrent acceptance: 68/68, with no setup/capture/cleanup
+errors. Vendor race checks pass nine; harness checks pass 16; Linux native
+package and FUSE cancellation checks pass 16 and five respectively.
+
+Regressions cover directory modes, stale deletion/download results, local edits
+during staging, checkpoint conflict moves, native startup/cancellation, parent
+identity, generation/session fencing, cache recovery and crash cleanup. The final
+eight-writer CREATE failure was false global WATCH contention; a deterministic
+four-operation regression proves the narrow parent-guard fix. An occupied-port
+RPC fixture now retries only EADDRINUSE; full Go checks run after native macOS
+mount cleanup so their lsof scan has a stable mount table. Failed earlier reports
+remain retained. Final source and binary hashes were verified after all runs.
+
+Results and exact configurations: docs/multiwriter-results.md. Built binaries
+are bin/afs and bin/afsmount. Native drivers stay out of the CLI dependency graph.
+Tests used owned Redis and local Linux containers; original installations remain
+untouched. macOS FUSE kernel testing needs an active driver; real Linux FUSE and
+macOS/Linux NFS passed. Actual customer microVMs and remote CI were not exercised.
+No product questions remain.
+
+## Native mount encapsulation study
+
+- [x] Inspect original driver layout and current retained client boundary.
+- [x] Trace NFS/FUSE dependencies, write/flush behavior and lifecycle coupling.
+- [x] Verify a minimal extraction boundary in a disposable copy where practical.
+- [x] Recommend package/module layout, integration steps and acceptance gates.
+
+Scope: architectural investigation; current production and original installation
+stay unchanged. Unresolved questions: none required for the investigation.
+Review: recommendation delivered; user subsequently authorized implementation.
+
+## Multi-writer microVM workload lab
+
+- [x] Inspect current CLI, sync guarantees, existing process tests and available runtimes.
+- [x] Build configurable isolated clients, disposable Redis, fault injection and retained reports.
+- [x] Exercise concurrent hydration/disjoint/shared writes, rename/delete, chunked files, partitions and crash recovery.
+- [x] Reproduce findings; fix confirmed bugs with focused regressions where practical.
+- [x] Run build, vet, unit/race and real-Redis process checks; document measured results and limits.
+
+Spec: each simulated VM owns a local tree, HOME/config/state and an AFS daemon.
+Only a disposable Redis server is shared. Use per-client TCP proxies for network
+faults. Synchronize contenders before same-path mutations; check exact candidate
+bytes, convergence and cold hydration rather than queue counts. Record seed,
+versions, timings, status, logs and manifests; return failure on violated checks.
+Provide a Linux container runner. Local process/container runs do not validate
+microVM kernels, guest boot, KVM, production latency or customer scale.
+Default: four clients; allow scale and seed overrides. Validate an eight-client
+run as well. Customer target concurrency remains unspecified; the default is
+a test setting, not a deployment capacity claim.
+
+Historical review before native integration: lab reproduced remote-queue overflow dropping recovery requests,
+abandoned uploads after EOF, unpublished startup conflict copies, stale renames
+erasing peer edits, symlink conflict/recovery failures, unnecessary symlink
+replacement on save, and completed inbound/outbound deletion markers suppressing
+identical recreations. Focused regressions failed before the fixes. The final
+four-client delete/recreate case passed. That eight-client folder-sync run had nine of
+ten scenarios pass; one shared-creation candidate remains only as a local
+conflict file on its origin while every queue is empty. This publication defect
+was retained and documented; the later native integration work added regressions
+and fixes for missed conflict-copy publication. See the current review above.
+Bulk runs also exposed convergence and checkpoint costs; see
+docs/multiwriter-results.md for exact parameters and retained evidence.
+Docker Desktop host-bind flock failed an independent probe; the Linux runner
+uses native tmpfs for workload execution and exports retained artifacts. That
+environment ran, but final Linux validation is blocked by an unresponsive Docker
+engine. Final build/vet pass; unit and race each pass 441 cases with three optional
+Array skips; real-Redis CLI/process tests pass 109 cases; harness tests pass four.
+Docker's graceful stop timed out. One lab-owned client remained in an OS exit
+state after SIGKILL; its cleanup remains unconfirmed. No existing user Redis or
+installed AFS binary was used or modified.
+
+Customer-readiness follow-ups exposed by the lab:
+- [x] Resolve the eight-writer live conflict-copy publication defect.
+- [ ] Profile remote verification scans and repeated notification work.
+- [x] Rerun final source on a healthy Linux runtime.
+- [ ] Validate actual customer microVMs with their deployment environment.
+
 ## Remove file commands and flatten workspace actions
 
 - [x] Delete public `fs` commands and their CLI-only helpers.

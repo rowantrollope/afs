@@ -1,0 +1,45 @@
+services:
+  native:
+    build:
+      context: ../..
+      dockerfile: tests/multiwriter/Dockerfile.native
+    init: true
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      AFS_LAB_SCENARIOS: "${AFS_LAB_SCENARIOS:-}"
+      AFS_LAB_NATIVE_DEBUG: "${AFS_LAB_NATIVE_DEBUG:-}"
+    volumes:
+      - "${AFS_LAB_ARTIFACTS:-./artifacts}:/artifacts"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        run_id="$$(date -u +%Y%m%dT%H%M%SZ)-$$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+        run_dir="/tmp/native-$$run_id"
+        trap 'result=$$?; trap - EXIT; if [ -d "$$run_dir" ]; then cp -a "$$run_dir" /artifacts/ || exit 1; if [ -f "$$run_dir.supervisor.log" ]; then cp "$$run_dir.supervisor.log" "/artifacts/native-$$run_id/supervisor.log" || exit 1; fi; printf "Exported artifacts: %s\n" "/artifacts/native-$$run_id"; fi; exit "$$result"' EXIT
+        set --
+        for scenario in $$AFS_LAB_SCENARIOS; do
+          set -- "$$@" --scenario "$$scenario"
+        done
+        python3 /lab/scripts/native_lab_supervisor.py \
+          --binary /usr/local/bin/afs \
+          --helper /usr/local/bin/afsmount \
+          --output "$$run_dir" \
+          --clients "${AFS_LAB_CLIENTS:-4}" \
+          --backends "${AFS_LAB_BACKENDS:-fuse,nfs,sync}" \
+          --files "${AFS_LAB_FILES:-8}" \
+          --rounds "${AFS_LAB_ROUNDS:-3}" \
+          --seed "${AFS_LAB_SEED:-17}" \
+          --timeout "${AFS_LAB_TIMEOUT:-90}" \
+          --latency-ms "${AFS_LAB_LATENCY_MS:-0}" \
+          --overall-timeout "${AFS_LAB_OVERALL_TIMEOUT:-1200}" \
+          --cleanup-timeout "${AFS_LAB_CLEANUP_TIMEOUT:-20}" \
+          "$$@"

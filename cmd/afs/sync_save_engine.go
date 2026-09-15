@@ -507,7 +507,9 @@ func planSyncSave(local, remote syncSaveTree, baseline *SyncState) (remove, writ
 				return nil, nil, fmt.Errorf("save conflict at %s: Redis differs from the stored baseline", rel)
 			}
 		}
-		if intended.Type != observed.Type || intended.Type == "symlink" {
+		// Retain the inode for mode-only changes. Removing an unchanged
+		// symlink target exposes a false deletion to concurrent mounts.
+		if intended.Type != observed.Type || (intended.Type == "symlink" && intended.Target != observed.Target) {
 			remove = append(remove, rel)
 		}
 		write = append(write, rel)

@@ -4,3 +4,5 @@
 /coverage.out
 *.log
 .DS_Store
+/tests/multiwriter/artifacts/
+__pycache__/
