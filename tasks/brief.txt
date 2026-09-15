@@ -1,0 +1,312 @@
+AFS: slim down the existing agent-filesystem project
+Objective
+Create a lightweight version of redis/agent-filesystem in rowantrollope/afs.
+This is an extraction and simplification project, not a reimplementation.
+Start from the existing Go code. Copy the relevant implementation, preserve working behavior, and remove unnecessary features, commands, dependencies, and abstractions. Starting with a copy of the original repository and deleting code is an acceptable—and likely preferable—approach.
+The goal is substantially less product and architectural complexity while retaining the useful filesystem and synchronization functionality we already built.
+Do not modify the original repository or interfere with its existing installations or Redis data.
+1. Working principles
+Follow these priorities, in order:
+1. Reuse the existing implementation.
+2. Delete functionality outside the reduced scope.
+3. Simplify the remaining interfaces and wiring.
+4. Write fresh code only where necessary to connect retained components, remove an abstraction, or fix a demonstrated problem.
+Do not replace existing synchronization, storage, checkpointing, filesystem scanning, or recovery mechanisms simply because you would design them differently.
+In particular:
+- Keep Go and Redis. Do not introduce a Python implementation.
+- Inspect existing code before choosing an architecture.
+- Preserve useful existing tests.
+- Preserve working performance optimizations when removing them would create regressions.
+- Do not replace the existing sync engine with a newly written polling loop.
+- Do not introduce a new storage format, conflict algorithm, journal, daemon framework, or plugin system without a concrete need.
+- Do not mistake correctness mechanisms for unnecessary features. Retry handling, conflict detection, atomic publication, and recovery may be essential even when they are not user-facing.
+- Prefer small, reviewable changes over a broad rewrite.
+For each substantial addition, be able to explain why retaining or adapting existing code was insufficient.
+2. Product scope
+AFS provides Redis-backed workspaces synchronized with ordinary local directories.
+Two agents on two different machines must be able to mount the same workspace, write to their respective local directories, and automatically receive one another’s changes.
+Multiple writable clients are a core requirement. Do not introduce a single-writer restriction.
+For this version:
+- One workspace presents one file tree.
+- Folder synchronization is the only mount method.
+- Users access files through ordinary local filesystem tools or a small CLI.
+- Redis is selected through a command-line parameter or configuration file.
+- Checkpoints and workspace forks remain available.
+“Mount” means starting Dropbox-style folder synchronization. It does not mean an operating-system filesystem mount.
+3. What stays and what goes
+Area	Direction
+Existing Go implementation	Retain and adapt
+Redis-backed file storage	Retain
+Bidirectional folder synchronization	Retain
+Multiple writable clients	Retain
+Existing conflict and recovery mechanisms	Retain and verify
+Workspaces	Retain
+Checkpoints and forks	Retain
+Basic remote file operations	Retain
+Local mount lifecycle and status	Retain, simplify
+User-facing volumes	Remove
+Workspace composition from multiple volumes	Remove
+NFS and FUSE access modes	Remove from this version
+Cloud provisioning and account management	Exclude
+MCP servers and agent-framework integrations	Exclude from the core
+Search/query features and rich file-editing commands	Exclude
+Unneeded services, dependencies, examples, and packaging	Remove
+Plugin/provider frameworks for hypothetical future features	Do not introduce
+
+
+Some existing code may support both folder sync and native mounts. Inspect dependencies before deleting it. A directory named mount is not necessarily disposable.
+Volumes
+Users should not have to understand or manage both workspaces and volumes.
+The exposed model is:
+A workspace owns one file tree and its checkpoints.
+
+Remove vol commands and multi-volume configuration.
+Collapse the internal volume abstraction where that is straightforward. However, do not rewrite proven storage code merely to eliminate an internal type name. A temporarily retained private storage primitive or one-to-one adapter is acceptable if it materially reduces implementation risk.
+Document any such retained machinery and why it remains. Do not preserve a general volume-management subsystem behind the smaller CLI.
+Future tools
+Native mounting or cloud management could later become separate tools such as afsmount and afscloud.
+Do not implement or scaffold those tools now. Do not add extension frameworks in anticipation of them.
+4. Proposed CLI
+Use this as the target root help screen:
+afs — Persistent agent workspaces backed by Redis.
+
+Usage:
+  afs [options] <command>
+
+Commands:
+  mount <workspace> <directory>   Sync a workspace with a local folder
+  unmount <directory>             Flush pending changes and stop syncing
+  status [directory]              Show connection, sync progress, and errors
+  ws                             Create and manage workspaces
+  fs                             Read and modify workspace files
+  cp                             Create and manage checkpoints
+
+Options:
+  --redis <url>                   Redis URL; overrides configuration
+  --config <file>                 Configuration file
+  --json                         Print machine-readable output
+  -h, --help                     Show help
+  --version                     Show version
+
+Run 'afs <command> --help' for details.
+Reuse existing command implementations wherever possible. Simplifying command names is not a reason to rewrite their underlying operations.
+Workspace commands
+afs ws create <workspace> [--from <directory>]
+afs ws list
+afs ws info <workspace>
+afs ws fork <source> <new-workspace> [--checkpoint <id-or-name>]
+afs ws delete <workspace>
+Intended behavior:
+- create creates an empty workspace.
+- create --from imports an existing local directory using the existing import machinery where available.
+- info shows useful workspace details without exposing internal volume concepts.
+- fork creates an independent workspace from a checkpoint.
+- If no checkpoint is specified, use the latest checkpoint. If none exists, explain that one must be created.
+- delete follows the existing safe deletion and confirmation conventions, adapted to the simplified model.
+Do not add a separate import/export command family if existing behavior can fit these commands.
+File commands
+afs fs ls <workspace> [path]
+afs fs cat <workspace> <path>
+afs fs put <workspace> <path> [--from <file>]
+afs fs mkdir <workspace> <path>
+afs fs mv <workspace> <source> <destination>
+afs fs rm <workspace> <path> [--recursive]
+Requirements:
+- Paths are workspace-relative.
+- cat returns exact file bytes.
+- put reads stdin unless --from is supplied.
+- Direct file mutations propagate to mounted clients.
+- These operations use the existing storage and concurrency mechanisms.
+- Do not implement a separate, weaker write path for CLI mutations.
+- Keep rich patching, line editing, and search out of the CLI.
+For binary cat, either retain an existing sensible JSON convention or reject --json clearly. Never mix diagnostics with file bytes on stdout.
+Checkpoint commands
+afs cp create <workspace> [--name <name>]
+afs cp list <workspace>
+afs cp show <workspace> <id-or-name>
+afs cp restore <workspace> <id-or-name>
+afs cp delete <workspace> <id-or-name>
+Retain the existing checkpoint implementation and supported safety rules where possible.
+Do not invent a new snapshot engine to fit this command spelling.
+cp create should use the existing flush/save mechanism for relevant local mounts before checkpointing, where supported. Clearly define its scope:
+- It must report a failed local flush.
+- It must not claim to include another machine’s unuploaded changes.
+- It must not promise application-consistent distributed snapshots while applications continue writing.
+- With no local mount, it can checkpoint the published remote state.
+Keep required existing restrictions around restore. Do not turn the slimming exercise into a distributed snapshot redesign.
+Mount lifecycle
+afs mount <workspace> <directory> [--foreground]
+afs unmount <directory>
+afs status [directory]
+- Use the existing folder-sync implementation.
+- Background operation should be the normal experience; retain foreground operation for debugging and supervisors.
+- Normal unmount should flush pending changes before stopping.
+- A failed flush must not be reported as successful synchronization.
+- Unmount leaves local files intact.
+- Status should show connection state, pending work, errors, and conflicts where supported.
+- Preserve safeguards against attaching unrelated populated directories.
+- Prevent conflicting ownership of the same local root.
+- Preserve safe daemon identification and cleanup; stale process metadata must not terminate unrelated processes.
+Retain an existing explicit forced-detach option if useful, but make its unsynchronized-data implications clear.
+Configuration
+Support a small configuration file, for example:
+{
+  "redis": "redis://localhost:6379/0"
+}
+--redis takes precedence.
+Reuse existing configuration parsing where practical, removing unnecessary settings and profiles.
+Keep authentication, TLS, credential redaction, and other connection behavior needed by the retained Redis client. Do not build an authentication wizard or provisioning workflow.
+Help and version must work without a Redis connection.
+5. Inspect the original before editing
+First establish what already exists.
+1. Read applicable AGENTS.md files.
+2. Record the original repository commit used as the baseline.
+3. Find the implementations for:
+   - CLI entry points.
+   - Workspace and volume management.
+   - Folder synchronization.
+   - Redis storage and file publication.
+   - Local scanning and change detection.
+   - Conflict handling.
+   - Mount processes and local state.
+   - Save/flush, checkpoints, restore, and forks.
+4. Identify dependencies shared with NFS/FUSE.
+5. Identify the relevant unit, integration, and regression tests.
+6. Run the relevant baseline tests before significant deletion.
+Create a short inventory:
+Component	Existing location	Action	Reason
+Folder sync engine	Actual source path	Retain/adapt	Core behavior
+Native mount driver	Actual source path	Remove	Out of scope
+Volume command group	Actual source path	Remove/collapse	Redundant user concept
+
+
+Fill this with actual findings, not guessed paths.
+Historical notes about races or bugs are not proof of an unfixed defect. Reproduce problems before describing them as current bugs.
+6. Implementation approach
+Use a separate working copy for afs.
+A reasonable sequence is:
+Phase A: Establish the derivative
+- Copy the original repository or extract its relevant Go modules.
+- Preserve required license notices and attribution.
+- Set the new repository/module identity where necessary.
+- Get the retained code building with minimal behavioral changes.
+- Keep provenance clear.
+Phase B: Remove unwanted functionality
+- Remove NFS/FUSE-specific entry points, dependencies, packaging, and tests that no longer apply.
+- Remove unrelated integrations and services.
+- Remove obsolete CLI commands.
+- Remove dead code after tracing shared dependencies.
+- Keep the project building after each meaningful deletion.
+Phase C: Simplify the retained surface
+- Adapt existing commands to the proposed CLI.
+- Remove user-facing volume management.
+- Simplify workspace configuration and command wiring.
+- Remove unnecessary options and modes.
+- Retain existing internal mechanisms unless simplifying them has a clear benefit and manageable risk.
+Phase D: Verify and finish
+- Run preserved tests.
+- Add focused tests for changed wiring, removed abstractions, and uncovered correctness risks.
+- Fix demonstrated regressions.
+- Update documentation and packaging.
+- Commit and publish the completed derivative.
+Do not reorganize every package for aesthetic consistency. A smaller, recognizable derivative is preferable to a newly designed framework.
+7. Synchronization requirements
+Preserve the existing multi-writer behavior and establish what it actually guarantees.
+At minimum, verify:
+- Independent edits to different files converge automatically.
+- Concurrent changes to the same path follow a documented conflict policy.
+- Retrying after a lost connection does not silently overwrite newer state or repeatedly duplicate an operation.
+- Reconnecting clients reconcile local and remote changes.
+- Missing or unreadable local roots are not interpreted as mass deletions.
+- Remote updates do not casually overwrite local changes discovered during reconciliation.
+- Interrupted publication does not expose incomplete file contents.
+- Restore and workspace deletion do not allow stale clients to silently republish invalid old state.
+Reuse the existing mechanisms that provide these properties.
+Do not invent a replacement conflict algorithm during extraction. If testing exposes silent loss of competing file versions or another material safety defect, reproduce it, add a regression test, and make the smallest justified fix.
+Document limitations honestly. Folder synchronization does not provide arbitrary POSIX transaction semantics or capture every transient application write.
+Preserve existing file-type and metadata support unless removing a capability is clearly necessary. Do not introduce new symlink, ignore, size-limit, or permission policies merely because they seem easier to implement from scratch.
+8. Tests and acceptance criteria
+Use the existing test harness wherever practical. Adapt it to the smaller project.
+Tests must include real Redis and at least two independent client processes with separate local state and directories. Mocks alone do not establish shared-folder correctness.
+Use disposable Redis instances or isolated test infrastructure. Never run destructive tests against the owner’s existing data.
+Scenario	Required evidence
+Basic file operations	Exact round-trip bytes for text, binary, empty, and nested files
+Supported metadata	Existing supported permissions and file types survive extraction
+Two writable clients	Both can publish changes to one workspace
+Concurrent disjoint edits	Both changes reach both clients automatically
+Concurrent same-path edits	Existing policy is verified; competing data is not silently lost
+Delete versus edit	Outcome is documented and modified content is protected
+Rename versus edit	Existing semantics remain safe and predictable
+Direct CLI mutations	Changes appear in mounted directories
+Disconnect and reconnect	Pending changes recover and reconcile
+Lost publication acknowledgement	Retry does not duplicate or incorrectly replay effects
+Client crash and restart	Persisted state recovers correctly
+Local edit during remote application	Existing protection against clobbering is exercised
+Missing/unreadable root	Remote tree is not deleted
+Initial populated mount	Existing safety checks remain effective
+Normal unmount during outage	Failed flush is reported accurately
+Checkpoint and fork	Captured content remains stable and forks are independent
+Restore with other clients	Existing restrictions and stale-client protections work
+Workspace/checkpoint deletion	Other live references remain readable
+Mount lifecycle	Background startup, status, shutdown, and stale-state handling work
+Configuration and output	Precedence, help, JSON, binary stdout, and credential redaction work
+
+
+Use barriers or fault injection where necessary to make races reproducible. Avoid relying solely on fixed sleeps.
+Run the applicable equivalents of:
+go build ./...
+go vet ./...
+go test ./...
+go test -race ./...
+Also run the retained integration/end-to-end commands. If integration tests require tags, scripts, multiple Go modules, or separately built binaries, document and execute those commands explicitly.
+Do not report skipped Redis tests as successful verification. Distinguish locally executed tests, CI results, and untested platform support.
+Add focused performance smoke checks for:
+- Initial synchronization of a representative tree.
+- A small change in a large tree.
+- Two idle mounts.
+- Checkpoint creation after synchronization.
+Compare against the retained baseline where practical. The simplification should not accidentally remove an optimization and cause a major regression.
+9. Isolation and compatibility
+The original project must remain usable and untouched.
+- Work in a separate repository/directory.
+- Do not alter its running processes or local registry.
+- Do not accidentally reuse its local state files.
+- Do not write incompatible data into its Redis namespace.
+- Prefer a minimally invasive namespace/configuration separation over a storage-format redesign.
+- Do not add automatic migration unless it is already safely supported and needed.
+Inspect the target repository before writing. Preserve any work already present.
+10. Deliverables
+Deliver:
+1. A working Go implementation in rowantrollope/afs.
+2. The reduced CLI and updated help.
+3. Retained and adapted tests, plus focused regression coverage.
+4. CI that builds and runs meaningful tests with Redis.
+5. A short README covering installation, configuration, two-client sync, checkpoints, and recovery.
+6. A simplification report explaining:
+   - Original baseline commit.
+   - Code retained substantially unchanged.
+   - Code adapted.
+   - Code deleted.
+   - Fresh code added and why it was necessary.
+   - Remaining private abstractions, including any volume-related storage primitive.
+   - Tests actually run and their results.
+   - Known limitations and performance observations.
+When verified, commit and push to rowantrollope/afs using the owner’s available authorization and normal repository workflow. Preserve repository visibility and branch protections; do not force-push.
+If publication is blocked, leave the completed local work and commit intact and report the exact blocker.
+Success means a smaller, clearer version of the existing agent-filesystem—not a replacement implementation that happens to share its name and features.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ChatGPT can make mistakes. Workspace data isn't used to train models.

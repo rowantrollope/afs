@@ -1,0 +1,7 @@
+AFS is a derivative of Redis Agent Filesystem:
+https://github.com/redis/agent-filesystem
+Baseline commit: c3897ac05265444568a3819c21728a38a4ed254b
+
+Original source and required notices are retained under the GNU Affero General
+Public License, version 3. See LICENSE. Changes in this derivative are described
+in docs/simplification.md.
