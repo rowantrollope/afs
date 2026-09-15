@@ -153,6 +153,14 @@ report. The affected test then passed 30 repetitions and the full race suite
 passed with Redis startup logs captured; the original timeout's cause was not
 established. No timeout or fixture behavior was changed.
 
+A later Linux run exposed a race in the save-rejection test: failed saves resume
+ordinary synchronization, so recovery could publish the preserved edit before
+the test inspected remote bytes. A test-only barrier now separately verifies
+rejection without a receipt, the remote tree before recovery, and convergence
+after releasing recovery. Production save behavior is unchanged.
+The corrected test passed 100 race-detector repetitions; the related save suite
+also passed with the race detector.
+
 Linux CI passed build, vet, unit, race and real-Redis process acceptance on
 implementation commit `826b052`:
 [verification run](https://github.com/rowantrollope/afs/actions/runs/34919890029).
