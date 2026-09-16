@@ -1,5 +1,74 @@
 # AFS extraction
 
+## Implement upstream audit follow-ups — 2026-09-16
+
+- [x] Restore import caching with bounded memory and skip scans for a fresh namespace.
+- [x] Restore per-mount read-only behavior through sync/native startup and lifecycle.
+- [x] Restore FUSE uid/gid/allow-other options with validation and acceptance.
+- [x] Fix live directory chmod propagation, including after rename and under peer changes.
+- [x] Explain standalone verified-save value and assess clean optional per-file history.
+- [x] Run focused regressions, build/vet/unit/race, isolated process and applicable native checks.
+
+User authorized implementation of audit findings 1–3 and the inherited directory
+chmod defect. Findings 4 (standalone save) and 5 (per-file history) are analysis
+only in this task. Reuse retained storage/publication/recovery; preserve the
+original installation, user Redis and unrelated work. Root owns integration/docs,
+with independent import, mount/lifecycle and sync-engine work.
+
+Implementation and evidence: [follow-up results](../docs/audit-followup-results.md).
+Final build/vet, 722 unit/race cases (four optional Array skips), 116 CLI cases,
+12 compatibility cases, 34 harness tests and native dependency race checks pass.
+Linux FUSE ownership/access/readonly acceptance passes. Final paired-process sync
+passes all 12 scenarios, with pre-existing fixture metadata/bytes preserved.
+Additional mixed-native acceptance passes 9/10; NFS reconnect fails to
+discover a peer-created file while both FUSE and sync observe it. Focused rerun
+and pristine `ac31fda` baseline reproduce the identical failure on LinuxKit 5.15.49;
+this predates the current changes. All owned cleanup completes. No changes to the
+installed binaries or user Redis data.
+
+User subsequently authorized committing and pushing the tested implementation
+and reports. Publication uses `codex/upstream-parity-fixes` from the audited
+`ac31fda` base; the source fingerprint still matches the final verification run.
+
+- [ ] Fix the separately reproduced [NFS reconnect directory-discovery issue](../docs/nfs-reconnect-followup.md); preserve the current 90-second oracle and compare baseline/fixed kernel behavior.
+
+## Upstream completeness audit — 2026-09-16
+
+- [x] Resolve current published revisions and compare with extraction provenance.
+- [x] Inspect retained sync, storage/checkpoints, native adapters and CLI in parallel.
+- [x] Verify suspected omissions against upstream behavior and explicit scope decisions.
+- [x] Run fresh build/vet/unit/race and isolated process/prior-current acceptance.
+- [x] Record prioritized findings, retained capabilities and verification limits.
+
+Scope: compare upstream `c3897ac05265444568a3819c21728a38a4ed254b` with AFS
+`ac31fda403bcc1bfd0733968954dc1679f603d76`. Both match their published HEADs at
+audit start. Review and documentation only; do not change production behavior,
+the original installation or existing Redis data. Use a disposable upstream clone
+and test-owned Redis instances for reproductions.
+
+Review: [upstream completeness audit](../docs/upstream-completeness-audit.md).
+Confirmed lost import optimization (64 redundant blob GETs and five SCANs in a
+64-file probe), unreachable read-only mounts, and missing FUSE uid/gid/allow-other
+wiring. Standalone save/timeout/receipt and default-off automatic per-file history
+need explicit scope decisions. Directory chmod regression fails on both AFS and
+upstream; this is inherited and remains tracked below. No newer upstream commits
+or other demonstrated extraction-related data-corruption defect were found.
+
+Fresh validation: build/vet pass; unit and final race runs each pass 665 cases,
+with four optional Array skips. Initial race run hit a test-owned Redis port
+collision; full rerun passes without race reports. Isolated CLI process suite
+passes 113 cases; paired prior/current suite passes 12. Native adapter/helper and
+portable vendor race checks pass. Five upstream history checks pass. No new OS
+mount, two-system, microVM or WAN performance acceptance is claimed.
+
+Recommended follow-ups (implementation status updated by the subsequent task):
+- [x] Restore or replace the import provider/skip-reset optimization with an explicit memory tradeoff.
+- [x] Expose retained read-only mounting with correct save/unmount handling.
+- [x] Restore FUSE ownership/access options and validate a non-root workload.
+- [ ] Decide standalone verified-save and configurable deadline/receipt scope.
+- [ ] Decide and document automatic file history/undelete/retention scope.
+- [ ] Restore isolated Array root-materialization coverage when a dedicated test server is available.
+
 ## Two-system synchronization acceptance
 
 - [x] Add a coordinated macOS/Linux runner with isolated state and directories.
@@ -29,7 +98,7 @@ The existing ten-scenario lab passed nine; its rename/delete candidate-preservat
 check timed out once and passed a focused rerun. Retain that intermittent result.
 See docs/two-system-sync.md for run instructions and local findings.
 
-- [ ] Investigate/fix live directory chmod propagation after directory rename.
+- [x] Investigate/fix live directory chmod propagation after directory rename.
 - [ ] Investigate intermittent existing-lab rename/delete candidate loss.
 
 ## Align root help columns

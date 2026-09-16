@@ -136,6 +136,10 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 			backend = "sync"
 		}
 		connection, queued, uploads, entries, conflicts := "unknown", "-", "-", "-", "-"
+		access := "read-write"
+		if mount["read_only"] == true {
+			access = "read-only"
+		}
 		lastError, _ := mount["error"].(string)
 		if status, ok := mount["sync"].(*syncStatus); ok && status != nil {
 			connection = "disconnected"
@@ -156,13 +160,13 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 			if backend, ok := mount["backend"].(string); ok && (backend == "fuse" || backend == "nfs") {
 				return textTable(nil, [][]string{
 					{"Workspace:", fmt.Sprint(mount["workspace"])}, {"Directory:", fmt.Sprint(mount["directory"])},
-					{"Backend:", backend}, {"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
+					{"Backend:", backend}, {"Access:", access}, {"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
 					{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"Redis:", fmt.Sprint(mount["redis"])},
 				})
 			}
 			return textTable(nil, [][]string{
 				{"Workspace:", fmt.Sprint(mount["workspace"])}, {"Directory:", fmt.Sprint(mount["directory"])},
-				{"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
+				{"Access:", access}, {"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
 				{"Queued:", queued}, {"Uploads:", uploads}, {"Entries:", entries}, {"Conflicts:", conflicts},
 				{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"Redis:", fmt.Sprint(mount["redis"])},
 			})

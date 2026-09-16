@@ -441,7 +441,19 @@ func (n *FSNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.SetAttr
 
 	n.attrCache.Invalidate(n.currentPath())
 
-	return n.Getattr(ctx, fh, out)
+	status := n.Getattr(ctx, fh, out)
+	if status == 0 {
+		// go-fuse applies the mount's ownership defaults after GETATTR and
+		// LOOKUP, but passes SETATTR replies through unchanged. Match those
+		// replies so chmod/truncate cannot cache Redis's default 0:0 owner.
+		if out.Uid == 0 {
+			out.Uid = n.opts.UID
+		}
+		if out.Gid == 0 {
+			out.Gid = n.opts.GID
+		}
+	}
+	return status
 }
 
 // GetOwnership returns the calling process's uid/gid, the default owner for

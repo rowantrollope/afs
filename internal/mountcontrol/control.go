@@ -27,17 +27,20 @@ const (
 )
 
 type Bootstrap struct {
-	RedisURL    string `json:"redis_url"`
-	Backend     string `json:"backend"`
-	WorkspaceID string `json:"workspace_id"`
-	RedisKey    string `json:"redis_key"`
-	Generation  string `json:"generation"`
-	Mountpoint  string `json:"mountpoint"`
-	RuntimeDir  string `json:"runtime_dir"`
-	Token       string `json:"token"`
-	ReadyPath   string `json:"ready_path"`
-	ReadOnly    bool   `json:"read_only,omitempty"`
-	DetachOnly  bool   `json:"detach_only,omitempty"`
+	RedisURL    string  `json:"redis_url"`
+	Backend     string  `json:"backend"`
+	WorkspaceID string  `json:"workspace_id"`
+	RedisKey    string  `json:"redis_key"`
+	Generation  string  `json:"generation"`
+	Mountpoint  string  `json:"mountpoint"`
+	RuntimeDir  string  `json:"runtime_dir"`
+	Token       string  `json:"token"`
+	ReadyPath   string  `json:"ready_path"`
+	ReadOnly    bool    `json:"read_only,omitempty"`
+	UID         *uint32 `json:"uid,omitempty"`
+	GID         *uint32 `json:"gid,omitempty"`
+	AllowOther  bool    `json:"allow_other,omitempty"`
+	DetachOnly  bool    `json:"detach_only,omitempty"`
 }
 
 type Ready struct {

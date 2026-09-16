@@ -148,6 +148,21 @@ It leaves local files intact. A failed flush returns an error and keeps the daem
 running. `unmount --force` detaches without a flush; pending content may exist only
 in the local directory. Ctrl-C in foreground mode also attempts a flush.
 
+For a client that only receives workspace changes:
+
+```sh
+afs mount shared ~/observer --readonly
+```
+
+A read-only sync mount receives remote updates and never publishes local edits,
+deletions or permission changes. Downloaded regular files have their write bits
+removed while retaining read and execute bits. The local directory remains
+usable by the synchronizer; this is not a host permission or Redis authorization
+boundary. Local-only files stay local, and recovery preserves divergent file
+contents as local conflict copies. Normal unmount stops the reader without a
+save receipt; checkpoints skip its local contents. Remount with the same
+`--readonly` setting, or use a new directory to change access mode.
+
 ## Files and command output
 
 ### Optional native mounts
@@ -162,6 +177,20 @@ make native
 ./bin/afs status ./live
 ./bin/afs unmount ./live
 ```
+
+Native mounts also accept `--readonly`, which denies writes through the native
+filesystem. FUSE can present files as a chosen user/group and admit other local
+users, useful when a privileged helper serves a non-root workload:
+
+```sh
+afs mount shared ./live --backend fuse --uid 1000 --gid 1000 --allow-other
+```
+
+These three options require FUSE. Omitted ownership values use the invoking
+user's ownership defaults; zero is an explicit root override. Access by other
+users remains disabled unless `--allow-other` is supplied and permitted by the
+system's FUSE configuration. Native read-only unmount does not report an upload
+receipt.
 
 Native mountpoints must be empty. FUSE requires the platform's installed FUSE
 driver; NFS requires `mount_nfs` on macOS or `mount.nfs` on Linux and OS mount

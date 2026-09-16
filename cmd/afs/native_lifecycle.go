@@ -94,7 +94,11 @@ func validateNativeMountpoint(root string) error {
 	return nil
 }
 
-func (a *app) mountNative(workspace, directory, backend string, foreground bool) error {
+func (a *app) mountNative(workspace, directory, backend string, foreground bool, choices ...mountOptions) error {
+	var opts mountOptions
+	if len(choices) > 0 {
+		opts = choices[0]
+	}
 	helper, err := findNativeHelper()
 	if err != nil {
 		return err
@@ -142,6 +146,7 @@ func (a *app) mountNative(workspace, directory, backend string, foreground bool)
 	id := sha256Hex([]byte(redisIdentity(a.config) + "\x00" + meta.ID + "\x00" + root + "\x00" + backend))[:32]
 	runtimeDir := filepath.Join(baseStateDir(), "native", id)
 	rec := mountRecord{Backend: backend, ID: id, Workspace: meta.Name, WorkspaceID: meta.ID,
+		ReadOnly: opts.ReadOnly, UID: opts.UID, GID: opts.GID, AllowOther: opts.AllowOther,
 		LocalPath: root, Redis: redisDisplay(a.config), RedisIdentity: redisIdentity(a.config),
 		RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation, Token: token,
 		RuntimeDir: runtimeDir, SyncLog: filepath.Join(runtimeDir, "native.log"), StartedAt: time.Now().UTC()}
@@ -175,7 +180,7 @@ func (a *app) mountNative(workspace, directory, backend string, foreground bool)
 	if !foreground {
 		_ = cmd.Process.Release()
 		return a.output(map[string]any{"workspace": meta.Name, "directory": root, "backend": backend,
-			"status": "mounted", "pid": rec.PID}, fmt.Sprintf("Mounted workspace %q at %q using %s (PID %d).\n", meta.Name, root, backend, rec.PID))
+			"status": "mounted", "pid": rec.PID, "read_only": rec.ReadOnly}, fmt.Sprintf("Mounted workspace %q at %q using %s (PID %d).\n", meta.Name, root, backend, rec.PID))
 	}
 	fmt.Fprintf(os.Stderr, "Mounted workspace %q at %q using %s; Ctrl-C flushes and stops.\n", meta.Name, root, backend)
 	signals := make(chan os.Signal, 2)
@@ -217,7 +222,8 @@ func startNativeHelper(helper string, cfg config, rec mountRecord, detachOnly bo
 	defer os.Remove(ready)
 	boot := mountcontrol.Bootstrap{RedisURL: cfg.Redis, Backend: rec.Backend, WorkspaceID: rec.WorkspaceID,
 		RedisKey: rec.RedisKey, Generation: rec.Generation, Mountpoint: rec.LocalPath,
-		RuntimeDir: rec.RuntimeDir, Token: rec.Token, ReadyPath: ready, DetachOnly: detachOnly}
+		RuntimeDir: rec.RuntimeDir, Token: rec.Token, ReadyPath: ready, DetachOnly: detachOnly,
+		ReadOnly: rec.ReadOnly, UID: rec.UID, GID: rec.GID, AllowOther: rec.AllowOther}
 	raw, err := json.Marshal(boot)
 	if err != nil {
 		return nil, err
@@ -334,13 +340,17 @@ func (a *app) unmountNative(rec mountRecord, reg *mountRegistry, force bool) err
 	text := fmt.Sprintf("Unmounted %q (%s); pending writes flushed.\n", rec.LocalPath, rec.Backend)
 	if force {
 		text = fmt.Sprintf("Detached %q (%s) without a flush guarantee.\n", rec.LocalPath, rec.Backend)
+	} else if rec.ReadOnly {
+		text = fmt.Sprintf("Unmounted read-only %s mount at %q.\n", rec.Backend, rec.LocalPath)
 	}
 	return a.output(map[string]any{"directory": rec.LocalPath, "backend": rec.Backend,
-		"unmounted": true, "synchronized": !force}, text)
+		"unmounted": true, "synchronized": !force && !rec.ReadOnly, "read_only": rec.ReadOnly}, text)
 }
 
 func nativeMountStatus(rec mountRecord, row map[string]any) {
 	row["backend"] = rec.Backend
+	row["read_only"] = rec.ReadOnly
+	row["uid"], row["gid"], row["allow_other"] = rec.UID, rec.GID, rec.AllowOther
 	owned, err := mountOwned(rec)
 	if err != nil {
 		row["state"], row["error"] = "unavailable", err.Error()

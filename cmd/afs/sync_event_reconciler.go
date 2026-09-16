@@ -205,7 +205,7 @@ func (r *reconciler) run(ctx context.Context, local <-chan LocalEvent, remote <-
 // file from disk, computes the hash, looks up the stored entry, and decides
 // whether to enqueue an upload, drop as echo, or trigger conflict resolution.
 func (r *reconciler) handleLocalEvent(ctx context.Context, ev LocalEvent) {
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || r.readonly {
 		return
 	}
 	if err := r.checkLocalRoot(); err != nil {
@@ -245,6 +245,9 @@ func (r *reconciler) handleLocalEvent(ctx context.Context, ev LocalEvent) {
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "afs sync: lstat %s: %v\n", abs, err)
+		return
+	}
+	if r.echo.matchesTemporaryDirectory(ev.Path, info) {
 		return
 	}
 
@@ -296,7 +299,7 @@ func (r *reconciler) echoMatches(abs string, info fs.FileInfo, exp echoExpectati
 		}
 		return target == exp.hash
 	case "dir":
-		return info.IsDir()
+		return info.IsDir() && uint32(info.Mode().Perm()) == exp.mode && exp.identity == localFileIdentity(info)
 	case "delete":
 		return false // shouldn't happen — file present means no delete echo
 	}
@@ -732,11 +735,19 @@ func (r *reconciler) handleLocalDir(ctx context.Context, rel, abs string, info f
 	stored, hasStored := r.state.state.Entries[rel]
 	r.state.mu.Unlock()
 	r.reconcileLocalDirDeletes(ctx, rel)
-	if hasStored && stored.Type == "dir" {
+	mode := uint32(info.Mode().Perm())
+	kind := opUploadMkdir
+	if hasStored && stored.Type == "dir" && !stored.Deleted {
+		if stored.Mode == mode {
+			return
+		}
+		kind = opUploadChmod
+	}
+	if r.readonly {
 		return
 	}
 	r.enqueueTrackedUpload(uploadOp{
-		Kind:        opUploadMkdir,
+		Kind:        kind,
 		Path:        rel,
 		AbsPath:     abs,
 		Mode:        uint32(info.Mode() & fs.ModePerm),
@@ -790,6 +801,9 @@ func (r *reconciler) sweepMissingLocalSymlinks(ctx context.Context) {
 }
 
 func (r *reconciler) handleLocalDelete(ctx context.Context, rel, kindHint string) {
+	if r.readonly {
+		return
+	}
 	if err := r.checkLocalRoot(); err != nil {
 		r.log.Err("local deletion", err.Error())
 		return
@@ -1216,6 +1230,9 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 		r.log.Symlink(res.Op.Path, res.Op.Symlink, "upload")
 	case opUploadMkdir:
 		r.log.Mkdir(res.Op.Path, "upload")
+		if res.RemoteStat != nil && res.RemoteStat.Mode != res.Op.Mode {
+			r.handleRemoteEvent(ctx, remoteEvent{Path: absoluteRemotePath(res.Op.Path)})
+		}
 	case opUploadDelete:
 		r.log.Delete(res.Op.Path, "upload")
 	case opUploadRename:
@@ -1250,7 +1267,9 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 		if res.ConflictPath != "" {
 			r.log.Conflict(res.Op.Path, res.ConflictPath)
 			r.requestFullSweep()
-			go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+			if !r.readonly {
+				go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+			}
 		}
 		r.log.Delete(res.Op.Path, "download")
 		return
@@ -1271,7 +1290,9 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 	r.state.mu.Unlock()
 	if res.ConflictPath != "" {
 		r.log.Conflict(res.Op.Path, res.ConflictPath)
-		go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+		if !r.readonly {
+			go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+		}
 	}
 	now := time.Now().UTC()
 	r.state.mu.Lock()

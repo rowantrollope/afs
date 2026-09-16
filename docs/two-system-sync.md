@@ -208,3 +208,11 @@ bytes. Build, vet, unit/race and CLI integration checks passed. An additional
 run of the existing local lab had one rename/delete candidate-preservation
 timeout; its focused rerun passed. That intermittent result remains unresolved.
 No real cross-host run or connection to the user's remote Redis was performed.
+
+The subsequent upstream-audit follow-up fixes live directory chmod. Two fresh
+paired-process runs pass all 12 scenarios, including the unchanged `mutations`
+assertion; the final run uses the final follow-up binary with the workload and
+deadlines above. Both peers exit 0, cleanup completes, and the pre-existing
+fixture retains its metadata and cold-hydrated bytes. See
+[follow-up implementation results](audit-followup-results.md) for binary hashes,
+additional regressions and platform limits.

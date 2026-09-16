@@ -98,6 +98,8 @@ func (s *Service) CreateWorkspaceStreaming(ctx context.Context, name string, bui
 	}
 	now := time.Now().UTC()
 	writer := NewBlobWriter(s.store.rdb, id, now)
+	writer.enableImportCache(BlobWriterMaxBytes)
+	defer writer.discardImportCache()
 	m, err := build(id, writer)
 	if err != nil {
 		return WorkspaceMeta{}, err
@@ -119,9 +121,13 @@ func (s *Service) CreateWorkspaceStreaming(ctx context.Context, name string, bui
 	if err = s.store.PutSavepoint(ctx, cp, m); err != nil {
 		return WorkspaceMeta{}, err
 	}
-	if err = SyncWorkspaceRoot(ctx, s.store, id, m); err != nil {
+	if err = SyncWorkspaceRootWithOptions(ctx, s.store, id, m, SyncOptions{
+		BlobProvider:       writer.cachedBlob,
+		SkipNamespaceReset: true, // id was freshly allocated and has no live tree.
+	}); err != nil {
 		return WorkspaceMeta{}, err
 	}
+	writer.discardImportCache()
 	if err = lock.Lost(); err != nil {
 		return WorkspaceMeta{}, err
 	}

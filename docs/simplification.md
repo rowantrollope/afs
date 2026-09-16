@@ -269,6 +269,14 @@ microbenchmarks and their staging-memory tradeoff are in [publication.md](public
 
 ## Retained tuning and limitations
 
+Import reuses a bounded cache of up to 8 MiB of blob payloads and 2,048 entries
+while initializing the live tree. Cached contents avoid reading freshly uploaded
+blobs back from Redis; larger uncached contents use the retained Redis fallback.
+Fresh imports skip the namespace reset scan because their opaque workspace ID
+has no existing tree. The cache is released on completion or failure. This keeps
+the upstream import optimization for cached data without retaining an unbounded
+copy of the imported corpus in memory.
+
 Optional configuration retains the original sync file-size cap and watcher queue:
 
 ```json

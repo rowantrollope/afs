@@ -3,11 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // A full reconcile may create or update children of a read-only directory.
@@ -17,11 +17,11 @@ import (
 type syncDirectoryModes struct {
 	r        *reconciler
 	prepared map[string]bool
-	changed  map[string]fs.FileInfo
+	changed  map[string]*temporaryDirectoryMode
 }
 
 func newSyncDirectoryModes(r *reconciler) *syncDirectoryModes {
-	return &syncDirectoryModes{r: r, prepared: make(map[string]bool), changed: make(map[string]fs.FileInfo)}
+	return &syncDirectoryModes{r: r, prepared: make(map[string]bool), changed: make(map[string]*temporaryDirectoryMode)}
 }
 
 func (m *syncDirectoryModes) prepare(abs string) error {
@@ -49,11 +49,13 @@ func (m *syncDirectoryModes) prepare(abs string) error {
 		return fmt.Errorf("sync directory %s is not a directory", rel)
 	}
 	if info.Mode().Perm()&0o700 != 0o700 {
-		m.r.echo.markDir(filepath.ToSlash(rel))
+		marker := m.r.echo.holdDirectoryMode(filepath.ToSlash(rel), info)
+		m.r.echo.markDir(filepath.ToSlash(rel), uint32(info.Mode().Perm()|0o700), info)
 		if err := os.Chmod(abs, info.Mode()|0o700); err != nil {
+			m.r.echo.releaseDirectoryMode(filepath.ToSlash(rel), marker)
 			return fmt.Errorf("prepare sync directory %s: %w", rel, err)
 		}
-		m.changed[abs] = info
+		m.changed[abs] = marker
 	}
 	m.prepared[abs] = true
 	return nil
@@ -68,26 +70,66 @@ func (m *syncDirectoryModes) restore() error {
 	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
 	var result error
 	for _, abs := range paths {
-		before := m.changed[abs]
-		now, err := os.Lstat(abs)
-		if os.IsNotExist(err) {
-			continue // The plan may have deleted this directory.
-		}
-		if err != nil {
-			result = errors.Join(result, fmt.Errorf("stat sync directory %s: %w", abs, err))
-			continue
-		}
-		if !os.SameFile(before, now) || now.Mode() != before.Mode()|0o700 {
-			// Preserve application chmods and replacement directories. Their
-			// new metadata belongs to a subsequent reconciliation pass.
-			m.r.requestFullSweep()
-			continue
-		}
 		rel, _ := filepath.Rel(m.r.root, abs)
-		m.r.echo.markDir(filepath.ToSlash(rel))
-		if err := os.Chmod(abs, before.Mode()); err != nil {
-			result = errors.Join(result, fmt.Errorf("restore sync directory %s: %w", rel, err))
+		changed, err := m.r.echo.restoreDirectoryMode(filepath.ToSlash(rel), abs, m.changed[abs])
+		if changed {
+			m.r.requestFullSweep()
 		}
+		result = errors.Join(result, err)
+	}
+	return result
+}
+
+// Keep failed restoration markers alive: event and queued-upload paths must
+// not publish leftover temporary permissions before the next recovery retry.
+func (e *echoSuppressor) restoreDirectoryMode(rel, abs string, marker *temporaryDirectoryMode) (bool, error) {
+	fail := func(err error) (bool, error) {
+		e.mu.Lock()
+		if e.temporaryDirs[rel] == marker {
+			marker.retry = true
+		}
+		e.mu.Unlock()
+		return false, err
+	}
+	info, err := os.Lstat(abs)
+	if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+		e.releaseDirectoryMode(rel, marker)
+		return true, nil
+	}
+	if err != nil {
+		return fail(fmt.Errorf("stat sync directory %s: %w", abs, err))
+	}
+	if !os.SameFile(marker.before, info) || info.Mode() != marker.before.Mode()|0o700 {
+		// Application replacements and distinct chmods retain their new modes.
+		e.releaseDirectoryMode(rel, marker)
+		return true, nil
+	}
+	e.markDir(rel, uint32(marker.before.Mode().Perm()), marker.before)
+	if err := os.Chmod(abs, marker.before.Mode()); err != nil {
+		return fail(fmt.Errorf("restore sync directory %s: %w", rel, err))
+	}
+	e.releaseDirectoryMode(rel, marker)
+	return false, nil
+}
+
+func (e *echoSuppressor) retryDirectoryModes(root string) error {
+	e.mu.Lock()
+	pending := make(map[string]*temporaryDirectoryMode)
+	for rel, marker := range e.temporaryDirs {
+		if marker.retry {
+			pending[rel] = marker
+		}
+	}
+	e.mu.Unlock()
+	paths := make([]string, 0, len(pending))
+	for rel := range pending {
+		paths = append(paths, rel)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
+	var result error
+	for _, rel := range paths {
+		_, err := e.restoreDirectoryMode(rel, filepath.Join(root, filepath.FromSlash(rel)), pending[rel])
+		result = errors.Join(result, err)
 	}
 	return result
 }

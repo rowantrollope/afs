@@ -126,6 +126,7 @@ func newSyncDaemon(cfg syncDaemonConfig) (*syncDaemon, error) {
 	d.uploader = newUploader(cfg.FS, d.reconciler.uploadOut(), cfg.MaxFileBytes, cfg.Readonly, log)
 	d.uploader.localRoot = cfg.LocalRoot
 	d.uploader.rootIdentity = d.reconciler.rootIdentity
+	d.uploader.echo = echo
 	d.downloader = newDownloader(cfg.FS, d.reconciler.downloadOut(), cfg.LocalRoot, conflict, echo, cfg.Readonly, log)
 	d.downloader.state = stateWriter
 	d.pump = newRemoteSubscriptionPump(cfg.FS, log, stateWriter, func(ev remoteEvent) {
@@ -178,16 +179,8 @@ func (d *syncDaemon) start(ctx context.Context, onProgress ProgressFunc, skipRec
 			cancel()
 			return fmt.Errorf("initial reconcile: %w", err)
 		}
-		if d.cfg.Readonly {
-			// Lock down the mount root so user shells can't add new top-level
-			// files into a read-only workspace. We can't blanket-chmod the whole
-			// tree without breaking subsequent steady-state downloads into
-			// existing subdirs; locking the root catches the most common
-			// "echo > file.txt in a readonly mount" mistake.
-			if err := os.Chmod(d.cfg.LocalRoot, 0o555); err != nil {
-				fmt.Fprintf(os.Stderr, "afs sync: chmod read-only mount root %s: %v\n", d.cfg.LocalRoot, err)
-			}
-		}
+		// A reader still needs a writable root for incoming files and control
+		// state. Publication is disabled in its reconciler and uploader.
 	}
 
 	// Install the watcher AFTER the reconcile. The cold-start path calls

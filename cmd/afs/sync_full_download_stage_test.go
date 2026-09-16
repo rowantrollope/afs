@@ -76,14 +76,24 @@ func TestFullDownloadKeepsConflictAndReadonlySemantics(t *testing.T) {
 		mode                             uint32
 		readonly, conflict, wantConflict bool
 		wantMode                         os.FileMode
+		localMode                        os.FileMode
 	}{
 		{name: "default-mode", local: "old", wantMode: 0o644},
 		{name: "conflict", local: "local version", mode: 0o640, conflict: true, wantConflict: true, wantMode: 0o640},
 		{name: "identical-readonly", local: "remote version", mode: 0o644, readonly: true, conflict: true, wantMode: 0o444},
+		{name: "identical-bytes-writable-mode-conflict", local: "remote version", mode: 0o640, conflict: true, wantConflict: true, wantMode: 0o640},
+		{name: "identical-bytes-readonly-mode-conflict", local: "remote version", mode: 0o644, localMode: 0o600, readonly: true, conflict: true, wantConflict: true, wantMode: 0o444},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env, d := recoveryBaselineDiagnostic(t)
 			abs := env.writeLocalFile(t, "file", tc.local)
+			localMode := tc.localMode
+			if localMode == 0 {
+				localMode = 0o644
+			}
+			if err := os.Chmod(abs, localMode); err != nil {
+				t.Fatal(err)
+			}
 			env.writeRemoteFile(t, "file", "remote version")
 			d.reconciler.readonly = tc.readonly
 			if err := d.full.execDownload(context.Background(), syncAction{kind: "download", path: "file", absPath: abs, mode: tc.mode, conflict: tc.conflict}); err != nil {
@@ -109,6 +119,10 @@ func TestFullDownloadKeepsConflictAndReadonlySemantics(t *testing.T) {
 				got, err = os.ReadFile(copies[0])
 				if err != nil || string(got) != tc.local {
 					t.Fatalf("local conflict=%q,%v", got, err)
+				}
+				copyInfo, err := os.Stat(copies[0])
+				if err != nil || copyInfo.Mode().Perm() != localMode {
+					t.Fatalf("local conflict mode=%v,%v; want %o", copyInfo, err, localMode)
 				}
 			}
 			if entry := d.Snapshot().Entries["file"]; entry.RemoteHash != sha256Hex([]byte("remote version")) || entry.Mode != uint32(tc.wantMode) {

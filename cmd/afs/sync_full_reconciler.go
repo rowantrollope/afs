@@ -150,6 +150,7 @@ func (f *fullReconciler) replaceFromRemote(ctx context.Context, onProgress Progr
 		return data, nil
 	}, manifestMaterializeOptions{
 		preserveMetadata: true,
+		readonlyFiles:    f.r.readonly,
 		onProgress: func(p importStats) {
 			done = int64(p.Files + p.Dirs + p.Symlinks)
 			if onProgress != nil {
@@ -343,6 +344,7 @@ func (f *fullReconciler) coldStart(ctx context.Context, onProgress ProgressFunc)
 		return data, nil
 	}, manifestMaterializeOptions{
 		preserveMetadata: true,
+		readonlyFiles:    f.r.readonly,
 		onProgress: func(p importStats) {
 			done = int64(p.Files + p.Dirs + p.Symlinks)
 			if onProgress != nil {
@@ -388,6 +390,7 @@ func (f *fullReconciler) coldStart(ctx context.Context, onProgress ProgressFunc)
 			abs := filepath.Join(f.r.root, filepath.FromSlash(rel))
 			if fi, statErr := os.Stat(abs); statErr == nil {
 				se.LocalMtimeMs = fi.ModTime().UnixMilli()
+				se.Mode = uint32(fi.Mode().Perm())
 			}
 		case "symlink":
 			se.Target = entry.Target
@@ -408,6 +411,9 @@ func (f *fullReconciler) warmStart(ctx context.Context, onProgress ProgressFunc)
 		return err
 	}
 	if _, err := f.r.fs.Stat(ctx, "/"); err != nil {
+		return err
+	}
+	if err := f.r.echo.retryDirectoryModes(f.r.root); err != nil {
 		return err
 	}
 	local, err := f.scanLocalMeta()
@@ -454,6 +460,15 @@ func (f *fullReconciler) detectOfflineDeletes(local map[string]observedMeta) {
 	defer f.r.state.mu.Unlock()
 	now := time.Now().UTC()
 	for path, entry := range f.r.state.state.Entries {
+		if f.r.readonly {
+			if entry.Deleted {
+				entry.Deleted = false
+				entry.Version = f.r.state.nextVersion()
+				f.r.state.state.Entries[path] = entry
+				f.r.state.dirty = true
+			}
+			continue
+		}
 		if entry.Deleted {
 			continue
 		}
@@ -685,18 +700,26 @@ func (f *fullReconciler) buildPlan(ctx context.Context, local, remote map[string
 				plan = append(plan, f.planDownload(path, abs, r, stored, hasStored, false))
 			}
 		case lok && rok:
+			comparisonRemote := r
+			if f.r.readonly && comparisonRemote.kind == "file" {
+				comparisonRemote.mode &^= 0o222
+			}
 			// Both present. Check if they match using metadata (size+mtime
 			// for files, target for symlinks). Only go deeper if they differ.
-			if metaMatch(l, r, stored, hasStored) {
+			if metaMatch(l, comparisonRemote, stored, hasStored) {
 				f.refreshStateMeta(path, l, r, stored, hasStored)
 				continue
 			}
 			if hasStored && !stored.Deleted {
 				localChanged := observedChangedFromStored(l, stored, true) || l.mode != stored.Mode
-				remoteChanged := observedChangedFromStored(r, stored, false) || r.mode != stored.Mode
+				remoteChanged := observedChangedFromStored(comparisonRemote, stored, false) || comparisonRemote.mode != stored.Mode
 				switch {
 				case localChanged && !remoteChanged:
-					plan = append(plan, f.planUpload(path, abs, l, stored, hasStored)...)
+					if f.r.readonly {
+						plan = append(plan, f.planDownload(path, abs, r, stored, hasStored, true))
+					} else {
+						plan = append(plan, f.planUpload(path, abs, l, stored, hasStored)...)
+					}
 				case !localChanged && remoteChanged:
 					plan = append(plan, f.planDownload(path, abs, r, stored, hasStored, false))
 				case localChanged && remoteChanged:
@@ -724,6 +747,9 @@ func (f *fullReconciler) buildPlan(ctx context.Context, local, remote map[string
 }
 
 func (f *fullReconciler) planUpload(path, abs string, l observedMeta, stored SyncEntry, hasStored bool) []syncAction {
+	if f.r.readonly {
+		return nil
+	}
 	switch l.kind {
 	case "dir":
 		return []syncAction{{kind: "mkdir-remote", path: path, absPath: abs, mode: l.mode}}
@@ -934,6 +960,12 @@ func (f *fullReconciler) executeAction(ctx context.Context, a syncAction) error 
 	if !f.actionStillCurrent(a) {
 		return nil
 	}
+	if f.r.readonly {
+		switch a.kind {
+		case "mkdir-remote", "upload", "symlink-upload", "delete-remote":
+			return errors.New("sync mount is read-only")
+		}
+	}
 	switch a.kind {
 	case "mkdir-local":
 		return f.execMkdirLocal(a)
@@ -965,7 +997,11 @@ func (f *fullReconciler) execMkdirLocal(a syncAction) error {
 			return err
 		}
 	}
-	f.r.echo.markDir(a.path)
+	info, err := os.Lstat(a.absPath)
+	if err != nil {
+		return err
+	}
+	f.r.echo.markDir(a.path, a.mode, info)
 	f.updateActionState(a, SyncEntry{
 		Type:         "dir",
 		Mode:         a.mode,
@@ -1037,22 +1073,23 @@ func (f *fullReconciler) execDownload(ctx context.Context, a syncAction) error {
 	if !f.actionStillCurrent(a) {
 		return nil
 	}
-	localData, localErr := os.ReadFile(a.absPath)
-	localInfo, statErr := os.Lstat(a.absPath)
-	identical := localErr == nil && statErr == nil && localInfo.Mode().IsRegular() &&
-		sha256Hex(localData) == hash && uint32(localInfo.Mode().Perm()) == a.mode
-	if identical {
-		a.conflict = false
-	}
-
 	mode := a.mode
-	if mode == 0 {
+	if mode == 0 && !f.r.readonly {
 		mode = 0o644
 	}
 	if f.r.readonly {
-		mode = 0o444
+		mode &^= 0o222
 	}
-	if !identical || f.r.readonly {
+	localData, localErr := os.ReadFile(a.absPath)
+	localInfo, statErr := os.Lstat(a.absPath)
+	identicalContent := localErr == nil && statErr == nil && localInfo.Mode().IsRegular() && sha256Hex(localData) == hash
+	identical := identicalContent && uint32(localInfo.Mode().Perm()) == mode
+	// Removing write bits for a read-only mount does not create a local
+	// conflict. Preserve other mode differences, including equal-byte edits.
+	if identical || (identicalContent && f.r.readonly && uint32(localInfo.Mode().Perm()) == a.mode) {
+		a.conflict = false
+	}
+	if !identical {
 		conflictPath, err := f.stageDownload(ctx, a, mode, func(file *os.File) error {
 			_, err := file.Write(data)
 			return err
