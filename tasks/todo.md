@@ -1,5 +1,25 @@
 # AFS extraction
 
+## Friendly Redis connection errors
+
+- [x] Replace raw connection details with a friendly endpoint and --redis example.
+- [x] Share the message with sync startup and retain credential redaction.
+- [x] Verify exact CLI output in both modes and rebuild the installed binary.
+
+Build, vet, unit/race and focused isolated CLI tests pass, including credential
+redaction and the exact friendly error in normal and JSON modes.
+
+## Quiet Redis connection failures
+
+- [x] Reproduce extra Redis retry diagnostics through the installed CLI.
+- [x] Disable internal Redis logging at CLI startup; preserve the final AFS error.
+- [x] Pass build, vet, unit/race and isolated process checks; rebuild bin/afs.
+
+Regression asserts one stderr line, empty stdout and exit 1 in text and JSON modes.
+It fails on the prior binary and passes on the rebuilt installed binary. Build,
+vet, unit tests and the complete isolated CLI process suite pass. Race packages
+pass; afsfs required a rerun after its disposable Redis failed to become ready.
+
 ## Publish lightweight control-plane design
 
 - [x] Verify source, scope and current GitHub main; isolate from other work.

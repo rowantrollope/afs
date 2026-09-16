@@ -292,7 +292,7 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 	err = rdb.Ping(ping).Err()
 	cancelPing()
 	if err != nil {
-		return fmt.Errorf("connect to Redis: %s", redactConnectionError(err, boot.Config))
+		return redisConnectionError(boot.Config)
 	}
 	current, err := controlplane.NewStore(rdb).WorkspaceGeneration(ctx, rec.WorkspaceID)
 	if err != nil {

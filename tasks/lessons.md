@@ -1,5 +1,13 @@
 # Lessons
 
+## 2026-09-16 — Keep Redis connection failures concise
+
+User requested only the final `afs: connect to Redis ...` error when Redis is
+unreachable. Suppress library retry diagnostics; preserve the CLI error and
+nonzero exit status. Verify this through the built executable.
+Follow-up: use “Cannot connect to Redis on [url]” with a concrete --redis command
+example, omitting raw dial errors and credentials.
+
 ## 2026-09-16 — Honor an explicit publication target
 
 User requested the design Markdown directly on main, correcting a feature-branch

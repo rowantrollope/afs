@@ -930,3 +930,29 @@ func TestStaleRegistryDoesNotSignalUnrelatedProcess(t *testing.T) {
 		t.Fatalf("stale PID metadata terminated unrelated test process: %v", err)
 	}
 }
+
+func TestRedisConnectionFailureFriendlyError(t *testing.T) {
+	r := newRedis(t)
+	c := newCLI(t, r)
+	r.stop()
+	for _, mode := range []string{"text", "json"} {
+		t.Run(mode, func(t *testing.T) {
+			args := []string{"list"}
+			if mode == "json" {
+				args = append([]string{"--json"}, args...)
+			}
+			out, diagnostic, err := c.runTimeout(20*time.Second, nil, args...)
+			exitErr, ok := err.(*exec.ExitError)
+			if !ok || exitErr.ExitCode() != 1 {
+				t.Fatalf("expected exit 1, got %v", err)
+			}
+			if len(out) != 0 {
+				t.Fatalf("unexpected stdout: %s", out)
+			}
+			want := "afs: Cannot connect to Redis on " + r.url() + "\n\nPoint to your Redis server using \"afs --redis <url> list\".\n"
+			if string(diagnostic) != want {
+				t.Fatalf("connection error = %q, want %q", diagnostic, want)
+			}
+		})
+	}
+}

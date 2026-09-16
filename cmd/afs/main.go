@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/logging"
 	"github.com/rowantrollope/afs/internal/controlplane"
 	"github.com/rowantrollope/afs/internal/version"
 	"github.com/rowantrollope/afs/internal/worktree"
@@ -105,6 +106,8 @@ type app struct {
 }
 
 func main() {
+	// AFS reports operation errors itself; suppress duplicate Redis diagnostics.
+	logging.Disable()
 	if err := runCLI(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "afs:", err)
 		os.Exit(1)
@@ -267,7 +270,7 @@ func (a *app) connect(ctx context.Context) error {
 	defer cancel()
 	if err := rdb.Ping(pingCtx).Err(); err != nil {
 		_ = rdb.Close()
-		return fmt.Errorf("connect to Redis %s: %s", redisDisplay(a.config), redactConnectionError(err, a.config))
+		return redisConnectionError(a.config)
 	}
 	a.rdb = rdb
 	a.service = controlplane.NewService(controlplane.NewStore(rdb))

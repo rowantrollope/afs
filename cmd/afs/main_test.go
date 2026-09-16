@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +38,7 @@ func TestRedisConfigurationPrecedenceAndRedaction(t *testing.T) {
 	if got := redisDisplay(cfg); strings.Contains(got, "user") || strings.Contains(got, "secret") {
 		t.Fatalf("display leaked credentials: %s", got)
 	}
-	if got := redactConnectionError(errors.New("failed at "+cfg.Redis+" password secret"), cfg); strings.Contains(got, "secret") {
+	if got := redisConnectionError(cfg).Error(); strings.Contains(got, "secret") {
 		t.Fatalf("error leaked password: %s", got)
 	}
 	cfg, err = readConfig(file, "redis://localhost:12345/6")

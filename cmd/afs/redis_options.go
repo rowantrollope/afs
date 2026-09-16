@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -72,13 +71,6 @@ func redisDisplay(cfg config) string {
 	return u.String()
 }
 
-func redactConnectionError(err error, cfg config) string {
-	message := err.Error()
-	message = strings.ReplaceAll(message, cfg.Redis, redisDisplay(cfg))
-	if u, e := url.Parse(cfg.Redis); e == nil && u.User != nil {
-		if p, ok := u.User.Password(); ok && p != "" {
-			message = strings.ReplaceAll(message, p, "[redacted]")
-		}
-	}
-	return message
+func redisConnectionError(cfg config) error {
+	return fmt.Errorf("Cannot connect to Redis on %s\n\nPoint to your Redis server using \"afs --redis <url> list\".", redisDisplay(cfg))
 }
