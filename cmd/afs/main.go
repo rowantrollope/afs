@@ -25,23 +25,23 @@ Usage:
   afs [options] <command>
 
 Commands:
-  mount <workspace> <directory>   Connect a workspace using sync, FUSE, or NFS
-  unmount <directory>             Flush pending changes and disconnect
-  status [directory]              Show connection, sync progress, and errors
+  mount <workspace> <directory>  Connect a workspace using sync, FUSE, or NFS
+  unmount <directory>            Flush pending changes and disconnect
+  status [directory]             Show connection, sync progress, and errors
   create <workspace>             Create a workspace or import a directory
   list                           List workspaces
   info <workspace>               Show workspace details
-  fork <source> <new-workspace>   Fork a workspace from a checkpoint
+  fork <source> <new-workspace>  Fork a workspace from a checkpoint
   delete <workspace>             Delete a workspace
   cp                             Create and manage checkpoints
-  config set <key> <value>        Save a configuration setting
+  config set <key> <value>       Save a configuration setting
 
 Options:
-  --redis <url>                   Redis URL; overrides configuration
-  --config <file>                 Configuration file
+  --redis <url>                  Redis URL; overrides configuration
+  --config <file>                Configuration file
   --json                         Print machine-readable output
   -h, --help                     Show help
-  --version                     Show version
+  --version                      Show version
 
 Run 'afs <command> --help' for details.
 `

@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-16 — Align CLI help descriptions
+
+Keep command and option descriptions in one consistent column; check rendered
+help after changing command names or padding.
+
 ## 2026-09-16 — Keep installation in Makefile
 
 User clarified that CLI installation should live directly in `make install`,

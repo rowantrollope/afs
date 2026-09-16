@@ -1,5 +1,13 @@
 # AFS extraction
 
+## Align root help columns
+
+- [x] Align every command and option description to the same column.
+- [x] Rebuild and verify displayed help and repository checks.
+
+All 15 command/option descriptions start in column 34 in the built help.
+Build, vet, unit/race and isolated real-Redis process checks pass.
+
 ## Discoverable user configuration
 
 - [x] Add config.example.json with every supported setting and its default.
