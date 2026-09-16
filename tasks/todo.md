@@ -1,5 +1,25 @@
 # AFS extraction
 
+## Publish lightweight control-plane design
+
+- [x] Verify source, scope and current GitHub main; isolate from other work.
+- [x] Write proposed architecture, comparison, failure semantics and acceptance gates.
+- [x] Check Markdown, references and documentation-only diff.
+- [ ] Commit directly to main, push normally and verify the GitHub document.
+
+Spec: publish `docs/lightweight-control-plane.md` as a draft proposal.
+Reuse the existing engine, optional `afs serve`, one Redis backend, persistent
+access grants and direct Redis file I/O. Document permission/revocation limits;
+do not implement features. Use an isolated main checkout and preserve the
+shared checkout's branch. No unresolved publication questions; implementation
+questions belong in the design.
+
+Review: independent source audit passes against original `c3897ac` and slim
+main `09f1146`. GFM parsing validates three tables, 11 relative links/anchors,
+13 pinned source links and one Mermaid flowchart. All 11 original source paths
+exist in GitHub's pinned tree. Only the draft and task bookkeeping change;
+implementation and Redis tests are intentionally deferred. Publication pending.
+
 ## PR #4 CI follow-up
 
 - [x] Reproduce the missed startup deletion with a gated subscription regression.

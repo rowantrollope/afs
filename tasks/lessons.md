@@ -1,5 +1,16 @@
 # Lessons
 
+## 2026-09-16 — Honor an explicit publication target
+
+User requested the design Markdown directly on main, correcting a feature-branch
+suggestion.
+
+- Commit documentation to main when the user explicitly requests it; do not
+  substitute a feature branch or pull request.
+- If another task owns the checkout, use an isolated checkout of live main.
+  Stage only the requested documentation and required bookkeeping, then use a
+  normal push and verify the remote file.
+
 ## 2026-09-14 — CLI behavior is the acceptance boundary
 
 User clarified that completion is evaluated through the resulting `afs` command
