@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-16 — Keep installation in Makefile
+
+User clarified that CLI installation should live directly in `make install`,
+without a separate installer script. Keep this simple workflow in the Makefile.
+
 ## 2026-09-16 — Keep Redis connection failures concise
 
 User requested only the final `afs: connect to Redis ...` error when Redis is

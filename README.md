@@ -22,8 +22,32 @@ go build -o bin/afs ./cmd/afs
 ./bin/afs --help
 ```
 
-Use the binary directly or put it on your PATH. Do not replace an existing
-`agent-filesystem` installation unless you intend to do so.
+## Install
+
+From the checkout, build and install the command for your user:
+
+```sh
+make install
+afs --help
+```
+
+This creates `~/.local/bin/afs` as a symlink to this checkout's `bin/afs`, without
+sudo. Rebuilding with `make build` updates the command automatically. Keep the
+checkout in place; rerun `make install` after moving it, removing the old link first.
+
+For a custom destination, run `make install INSTALL_DIR=/your/bin`. Repeating
+`make install` is safe; it refuses to replace a different existing file,
+directory, or symlink.
+
+If `~/.local/bin` is not on your PATH, add this to `~/.zshrc` (zsh) or
+`~/.bashrc` (bash), then open a new terminal:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+To uninstall the default link, run `rm ~/.local/bin/afs`. You can also continue
+using `./bin/afs` directly. The original `agent-filesystem` installation is unchanged.
 
 ## Configure
 

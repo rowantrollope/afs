@@ -1,5 +1,21 @@
 # AFS extraction
 
+## Per-user CLI installation
+
+- [x] Link the current checkout's bin/afs into ~/.local/bin directly in make install.
+- [x] Add make install, custom destination support, and setup/removal documentation.
+- [x] Validate repeat installs, conflicting paths, PATH guidance, and CLI execution.
+- [x] Run repository build, vet, unit/race and isolated process checks.
+
+The Makefile recipe preserves existing unrelated commands and requires no sudo.
+User clarified that installation must use make install without a separate script. The
+existing local AFS link already points to this checkout.
+
+Validation: make install and installed CLI help pass. Temporary-directory checks
+cover default/custom destinations, spaces, repeat installs, PATH guidance, and
+preservation of conflicting files, directories, and dangling symlinks. Build,
+vet, unit/race and the isolated real-Redis process suite pass.
+
 ## Friendly Redis connection errors
 
 - [x] Replace raw connection details with a friendly endpoint and --redis example.

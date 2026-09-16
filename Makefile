@@ -1,7 +1,30 @@
-.PHONY: build native test race native-deps-test integration cli-test compat multiwriter multiwriter-native multiwriter-smoke check clean
+.PHONY: build install native test race native-deps-test integration cli-test compat multiwriter multiwriter-native multiwriter-smoke check clean
 
 build:
 	go build -o bin/afs ./cmd/afs
+
+# Override with make install INSTALL_DIR=/your/bin
+INSTALL_DIR ?= $(HOME)/.local/bin
+
+install: build
+	@set -eu; \
+	mkdir -p "$(INSTALL_DIR)"; \
+	install_dir=$$(cd "$(INSTALL_DIR)" && pwd -P); \
+	source_path="$(CURDIR)/bin/afs"; \
+	destination="$$install_dir/afs"; \
+	if [ -L "$$destination" ] && [ "$$(readlink "$$destination")" = "$$source_path" ]; then \
+		printf 'Already installed: %s -> %s\n' "$$destination" "$$source_path"; \
+	elif [ -e "$$destination" ] || [ -L "$$destination" ]; then \
+		printf 'Refusing to replace existing path: %s\n' "$$destination" >&2; \
+		exit 1; \
+	else \
+		ln -s "$$source_path" "$$destination"; \
+		printf 'Installed: %s -> %s\n' "$$destination" "$$source_path"; \
+	fi; \
+	case ":$$PATH:" in \
+		*":$$install_dir:"*) ;; \
+		*) printf 'Add this directory to PATH in your shell startup file: %s\n' "$$install_dir" ;; \
+	esac
 
 native: build
 	go build -o bin/afsmount ./cmd/afsmount
