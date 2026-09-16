@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -29,6 +30,9 @@ func readConfig(file, override string) (config, error) {
 			return cfg, fmt.Errorf("invalid configuration JSON in %s", file)
 		}
 	}
+	if environmentURL := os.Getenv("AFS_REDIS_URL"); environmentURL != "" {
+		cfg.Redis = environmentURL
+	}
 	if override != "" {
 		cfg.Redis = override
 	}
@@ -46,6 +50,10 @@ func buildRedisOptions(cfg config, poolSize int) *redis.Options {
 	if err != nil {
 		panic("buildRedisOptions called before Redis URL validation")
 	}
+	// Resolve only at client construction: config and daemon bootstrap stay unchanged.
+	if password, present := os.LookupEnv("AFS_REDIS_PASSWORD"); present {
+		opts.Password = password
+	}
 	opts.PoolSize = poolSize
 	opts.ContextTimeoutEnabled = true
 	opts.ReadTimeout = 30 * time.Second
@@ -57,6 +65,10 @@ func buildRedisOptions(cfg config, poolSize int) *redis.Options {
 }
 
 func redisDisplay(cfg config) string {
+	opts, err := redis.ParseURL(cfg.Redis)
+	if err != nil {
+		return "(invalid URL)"
+	}
 	u, err := url.Parse(cfg.Redis)
 	if err != nil {
 		return "(invalid URL)"
@@ -64,6 +76,13 @@ func redisDisplay(cfg config) string {
 	u.User = nil
 	u.RawQuery = ""
 	u.Fragment = ""
+	if opts.Network == "unix" {
+		u.RawQuery = "db=" + strconv.Itoa(opts.DB)
+	} else {
+		u.Host = opts.Addr
+		u.Path = "/" + strconv.Itoa(opts.DB)
+		u.RawPath = ""
+	}
 	return u.String()
 }
 

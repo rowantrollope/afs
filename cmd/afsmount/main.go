@@ -16,11 +16,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rowantrollope/afs/internal/display"
 	"github.com/rowantrollope/afs/internal/mountcontrol"
 	"github.com/rowantrollope/afs/mount/native"
 )
 
 func main() {
+	log.SetFlags(0)
+	log.SetOutput(display.LogWriter{Writer: os.Stderr})
 	if len(os.Args) > 1 {
 		fmt.Fprintln(os.Stderr, "afsmount is started by afs mount --backend fuse|nfs")
 		os.Exit(2)

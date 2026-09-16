@@ -16,6 +16,9 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/rowantrollope/afs/internal/display"
 )
 
 // These vars can be overridden at build time via
@@ -87,10 +90,15 @@ func Short() string {
 	return Get().Version
 }
 
-// String returns the long-form display string: "v0.5.2 (a1b2c3d, 2026-04-21)".
+// String returns the long-form version with a human-readable local build date.
 // Commit and build date are omitted if unknown, so `dev` just returns "dev".
 func String() string {
 	info := Get()
+	if stamp, err := time.Parse(time.RFC3339, info.BuildDate); err == nil {
+		info.BuildDate = display.Time(stamp)
+	} else if stamp, err := time.ParseInLocation("2006-01-02", info.BuildDate, time.Local); err == nil {
+		info.BuildDate = display.Time(stamp)
+	}
 	switch {
 	case info.Commit == "" && info.BuildDate == "":
 		return info.Version

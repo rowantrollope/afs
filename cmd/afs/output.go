@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,7 +11,16 @@ import (
 	"unicode"
 
 	"github.com/rowantrollope/afs/internal/controlplane"
+	"github.com/rowantrollope/afs/internal/display"
 )
+
+func (a *app) redisHeader(label, endpoint string) error {
+	if a.options.json {
+		return nil
+	}
+	_, err := fmt.Fprintf(os.Stdout, "%s: %s\n\n", label, textCell(endpoint))
+	return err
+}
 
 // Retain the original CLI's plain tables and labeled sections, using the
 // standard library in place of its styled UI dependencies.
@@ -49,10 +59,7 @@ func textCell(value string) string {
 }
 
 func textTime(value time.Time) string {
-	if value.IsZero() {
-		return "-"
-	}
-	return value.UTC().Format(time.RFC3339)
+	return display.Time(value)
 }
 
 func formatWorkspaces(workspaces []controlplane.WorkspaceMeta) string {
@@ -157,18 +164,18 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 				return textTable(nil, [][]string{
 					{"Workspace:", fmt.Sprint(mount["workspace"])}, {"Directory:", fmt.Sprint(mount["directory"])},
 					{"Backend:", backend}, {"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
-					{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"Redis:", fmt.Sprint(mount["redis"])},
+					{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"REDIS:", fmt.Sprint(mount["redis"])},
 				})
 			}
 			return textTable(nil, [][]string{
 				{"Workspace:", fmt.Sprint(mount["workspace"])}, {"Directory:", fmt.Sprint(mount["directory"])},
 				{"State:", fmt.Sprint(mount["state"])}, {"Connection:", connection},
 				{"Queued:", queued}, {"Uploads:", uploads}, {"Entries:", entries}, {"Conflicts:", conflicts},
-				{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"Redis:", fmt.Sprint(mount["redis"])},
+				{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"REDIS:", fmt.Sprint(mount["redis"])},
 			})
 		}
 		rows = append(rows, []string{fmt.Sprint(mount["workspace"]), fmt.Sprint(mount["directory"]),
-			backend, fmt.Sprint(mount["state"]), connection, queued, uploads, conflicts, lastError})
+			backend, fmt.Sprint(mount["state"]), connection, queued, uploads, conflicts, lastError, fmt.Sprint(mount["redis"])})
 	}
-	return textTable([]string{"WORKSPACE", "DIRECTORY", "BACKEND", "STATE", "CONNECTION", "QUEUED", "UPLOADS", "CONFLICTS", "ERROR"}, rows)
+	return textTable([]string{"WORKSPACE", "DIRECTORY", "BACKEND", "STATE", "CONNECTION", "QUEUED", "UPLOADS", "CONFLICTS", "ERROR", "REDIS"}, rows)
 }

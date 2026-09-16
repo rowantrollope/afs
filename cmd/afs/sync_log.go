@@ -136,7 +136,7 @@ func (l *syncLogger) Info(msg string) {
 	if !l.verbose {
 		return
 	}
-	ts := time.Now().Format("15:04:05")
+	ts := textTime(time.Now())
 	if colorTerm {
 		fmt.Fprintf(os.Stderr, "%s%s%s %s%s%s %s\n",
 			ansiDim, ts, ansiReset,
@@ -148,7 +148,7 @@ func (l *syncLogger) Info(msg string) {
 }
 
 func (l *syncLogger) emit(color, arrow, action, path string) {
-	ts := time.Now().Format("15:04:05")
+	ts := textTime(time.Now())
 	// Pad action to 12 chars for alignment.
 	padded := action
 	if len(padded) < 12 {

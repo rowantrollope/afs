@@ -1,5 +1,24 @@
 # Lessons
 
+## 2026-09-16 — Capitalize REDIS display labels
+
+Use `REDIS:` in CLI headers and detail labels, including `Configured REDIS:`.
+
+## 2026-09-16 — Credentials remain optional in JSON
+
+Keep URL passwords supported; provide an environment override rather than
+forbidding saved credentials. Add no dependencies for this feature. Apply the
+override at client construction so it never enters serialized bootstrap/config.
+Provide AFS_REDIS_URL alongside AFS_REDIS_PASSWORD for consistent environment
+configuration, with an explicit --redis taking precedence over the URL variable.
+
+## 2026-09-16 — Display date before 12-hour time
+
+User's final preference supersedes the earlier time-first request: put date first,
+`dd/mm/yyyy hh:mm:ss AM/PM`, in the system local timezone. Use AM/PM,
+not 24-hour time. Keep all display paths
+on the shared formatter and document this ordering consistently.
+
 ## 2026-09-16 — Installation must upgrade earlier AFS binaries
 
 An earlier installation used a regular executable, not a checkout symlink.

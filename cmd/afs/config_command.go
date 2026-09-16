@@ -74,7 +74,14 @@ func configCommand(opts cliOptions, args []string) error {
 		return err
 	}
 	a := app{options: opts}
-	return a.output(map[string]string{"key": key, "path": file}, fmt.Sprintf("Set %s in %s\n", key, file))
+	message := fmt.Sprintf("Set %s in %s\n", key, file)
+	if key == "redis" {
+		connection, _ := redis.ParseURL(value) // Validated above.
+		if connection.Password != "" {
+			message += "Password saved in config. Set AFS_REDIS_PASSWORD to override it at runtime.\n"
+		}
+	}
+	return a.output(map[string]string{"key": key, "path": file}, message)
 }
 
 func setConfigValue(file, key string, value json.RawMessage) error {

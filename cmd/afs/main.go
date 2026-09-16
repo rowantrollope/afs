@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/redis/go-redis/v9/logging"
 	"github.com/rowantrollope/afs/internal/controlplane"
+	"github.com/rowantrollope/afs/internal/display"
 	"github.com/rowantrollope/afs/internal/version"
 	"github.com/rowantrollope/afs/internal/worktree"
 )
@@ -42,6 +44,10 @@ Options:
   --json                         Print machine-readable output
   -h, --help                     Show help
   --version                      Show version
+
+Environment:
+  AFS_REDIS_URL                  Override the configured Redis URL
+  AFS_REDIS_PASSWORD             Override the selected Redis URL password
 
 Run 'afs <command> --help' for details.
 `
@@ -119,6 +125,8 @@ type app struct {
 }
 
 func main() {
+	log.SetFlags(0)
+	log.SetOutput(display.LogWriter{Writer: os.Stderr})
 	// AFS reports operation errors itself; suppress duplicate Redis diagnostics.
 	logging.Disable()
 	if err := runCLI(os.Args[1:]); err != nil {
@@ -290,7 +298,7 @@ func (a *app) connect(ctx context.Context) error {
 	}
 	a.rdb = rdb
 	a.service = controlplane.NewService(controlplane.NewStore(rdb))
-	return nil
+	return a.redisHeader("REDIS", redisDisplay(a.config))
 }
 
 // Both output modes share the same result. Human presentation is explicit at

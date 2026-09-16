@@ -481,6 +481,9 @@ func (a *app) unmount(args []string) error {
 	if !ok {
 		return errors.New("directory is not registered as mounted")
 	}
+	if err := a.redisHeader("REDIS", rec.Redis); err != nil {
+		return err
+	}
 	if isNativeMount(rec) {
 		return a.unmountNative(rec, &reg, *force)
 	}
@@ -577,6 +580,13 @@ func (a *app) status(args []string) error {
 			}
 		}
 		out = append(out, row)
+	}
+	label, endpoint := "Configured REDIS", redisDisplay(a.config)
+	if len(args) == 1 {
+		label, endpoint = "REDIS", reg.Mounts[0].Redis
+	}
+	if err := a.redisHeader(label, endpoint); err != nil {
+		return err
 	}
 	return a.output(out, formatMountStatus(out, len(args) == 1))
 }

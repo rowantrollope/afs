@@ -103,6 +103,9 @@ func start(ctx context.Context, cfg Config, exportOnly bool) (result *Session, e
 		return nil, fmt.Errorf("invalid Redis URL: %w", err)
 	}
 	opts.PoolSize = 16
+	if password, present := os.LookupEnv("AFS_REDIS_PASSWORD"); present {
+		opts.Password = password
+	}
 	s.rdb = redis.NewClient(opts)
 	lifetime, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel

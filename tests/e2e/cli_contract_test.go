@@ -273,7 +273,9 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 	for _, args := range invalid {
 		t.Run("reject-"+strings.Join(args, "-"), func(t *testing.T) {
 			out, diagnostic, err := c.runTimeout(5*time.Second, nil, args...)
-			if err == nil || len(out) != 0 || len(diagnostic) == 0 {
+			// Commands that reach Redis identify it before reporting operation errors.
+			body := strings.TrimPrefix(string(out), "REDIS: "+r.url()+"\n\n")
+			if err == nil || len(body) != 0 || len(diagnostic) == 0 {
 				t.Fatalf("invalid command must fail on stderr only: %v\nstdout=%q\nstderr=%q", err, out, diagnostic)
 			}
 		})

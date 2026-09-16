@@ -99,8 +99,34 @@ For a one-command override:
 afs --redis 'redis://localhost:6379/0' list
 ```
 
-`--redis` overrides the file for that command; it does not save the connection.
+Connection precedence is `--redis`, then nonempty `AFS_REDIS_URL`, then the
+config file, then `redis://localhost:6379/0`. An empty `AFS_REDIS_URL` is ignored.
+Neither environment overrides nor `--redis` change the saved configuration.
 URLs support username/password, a database number, and TLS via `rediss://`.
+Passwords in saved URLs remain supported. Set `AFS_REDIS_PASSWORD` to override
+the password in either the saved URL or `--redis`, without changing the file.
+An explicitly empty variable overrides with an empty password; unset it to use
+the URL password again. The username and endpoint still come from the URL.
+The override is read when connecting and inherited by newly started background
+sync/native mounts; changing your shell environment does not update running mounts.
+AFS never writes `AFS_REDIS_PASSWORD` into config or bootstrap files. Use a
+password-free `AFS_REDIS_URL` with this separate variable to keep the password
+out of mount bootstrap files as well.
+
+For example, in zsh, prompt without echoing the password or putting it in history:
+
+```zsh
+export AFS_REDIS_URL='rediss://default@HOST:PORT/0'
+read -rs 'AFS_REDIS_PASSWORD?Redis password: '; printf '\n'
+export AFS_REDIS_PASSWORD
+afs list
+unset AFS_REDIS_PASSWORD
+```
+
+Environment variables are not a secret vault; privileged processes and diagnostic
+tools may expose them. AFS cannot set variables in its parent shell. Saving a URL
+with a password prints a reminder about the override (human output only); this
+does not remove the saved password or any existing shell-history entry.
 Help, version, and config commands work without Redis.
 
 Redis keys use `afs-lite:`; local state uses `~/.afs-lite`. These do not reuse the
@@ -195,6 +221,14 @@ local flush. There is no separate remote-file command group.
 
 Commands print readable text by default: tables for lists, labeled details for
 `info`, `cp show` and `status <directory>`, and short confirmations for changes.
+Database commands show a credential-free Redis URL header, including the effective
+database number. `status` labels the configured endpoint and lists each mount's
+Redis endpoint; targeted status and unmount identify the mount's database.
+JSON output keeps its existing schema without a text header.
+Displayed timestamps use `dd/mm/yyyy hh:mm:ss AM/PM` (12-hour time) in the system's local timezone
+(including a `TZ` environment override). JSON and stored timestamps retain their
+machine-readable formats.
+
 Use `--json` explicitly when piping structured results into scripts:
 
 ```sh

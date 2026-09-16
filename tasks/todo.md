@@ -1,13 +1,52 @@
 # AFS extraction
 
+## Redis password environment override
+
+- [x] Add AFS_REDIS_PASSWORD at client construction for CLI, sync and native mounts.
+- [x] Document both environment variables and preserve URL passwords without new dependencies.
+- [x] Verify build, vet, unit/race and isolated Redis authentication/process tests.
+
+Design: --redis > nonempty AFS_REDIS_URL > JSON > default for the URL.
+A present AFS_REDIS_PASSWORD, even empty, overrides the password in
+the selected URL (JSON or --redis). Never serialize the environment password.
+Unset preserves existing URL behavior. No unresolved questions.
+
+Review: build, vet, full unit/race suites and focused real-Redis process test pass.
+Tests cover URL/flag/password precedence, explicit empty password, literal special
+characters, redaction, saved-password fallback, and authenticated background
+sync with unmount/remount persistence. Native NFS export authentication tested
+without an OS mount. Human config output suggests the password override; JSON
+output is preserved. No dependencies added or user Redis data accessed.
+Logs: /tmp/afs-env-{unit,race}.log.
+
+## Redis context in CLI output
+
+- [x] Add one credential-free database header to human database commands.
+- [x] Show accurate mount endpoints in status and unmount, including mixed databases.
+- [x] Verify build, vet, unit/race and isolated Redis CLI acceptance.
+
+Design: compact Redis URL with explicit effective database; header before
+operations/confirmation, after successful connection. Preserve JSON and offline
+help/config output. Status stays offline; distinguish configured and mounted
+databases. Preserve existing timestamp work. No unresolved questions.
+
+Review: build, vet, full unit/race and isolated real-Redis process suites pass.
+Effective DB overrides, credential redaction, offline/empty status, changed mount
+configuration and JSON purity are covered. Rebuilt bin/afs (the installed symlink
+target) and verified database override/list isolation through that exact binary.
+Logs: /tmp/afs-header-{unit,race,e2e}.log. No user Redis data accessed.
+
 ## Delete all configured AFS workspaces
 
-- [ ] Inventory workspaces and local mounts through the installed CLI.
-- [ ] Unmount affected local mounts if needed; delete every listed workspace.
-- [ ] Verify the configured database's workspace list is empty.
+- [x] Inventory workspaces and local mounts through the installed CLI.
+- [x] Unmount affected local mounts if needed; delete every listed workspace.
+- [x] Verify the configured database's workspace list is empty.
 
 Scope: user-requested deletion through `afs` using its current configuration.
-No unresolved questions. Review pending.
+Found 12 workspaces and no registered local mounts. No unresolved questions.
+Review: the installed `afs` CLI deleted all 12 listed workspaces using
+`afs delete <workspace> --yes`; every command succeeded. Final `afs --json list`
+returned `[]`. No local unmounts were needed.
 
 ## Fix make install over an existing executable
 
@@ -516,3 +555,24 @@ All local acceptance gates pass on final production code:
 - Linux CI passed build, vet, unit, race and real-Redis process acceptance on
   production commit `e983f4d`: run `34916337513`. Published through PR #1;
   visibility and protections remain unchanged.
+## Human-readable display timestamps
+
+- [x] Audit date/time display paths.
+- [x] Use dd/mm/yyyy hh:mm:ss AM/PM (12-hour time) in the system local timezone for human output.
+- [x] Verify build, vet, unit/race and isolated Redis output acceptance.
+
+Scope: CLI tables, details and sync logs; preserve JSON/storage formats.
+Unresolved questions: none.
+
+Review: also covered version build dates and standard native-driver logs with
+one shared formatter. Build, vet, unit and race suites passed. Four isolated
+Redis output/CLI acceptance tests passed. Fixed build timestamp verified in UTC
+and Asia/Kolkata (including next-day rollover); native helper error output verified.
+Checkpoint IDs and conflict filenames retain their filename-safe timestamps.
+
+## Capitalize Redis labels
+
+- [x] Use REDIS in headers and detail labels; update existing assertions.
+- [x] Rebuild and verify focused CLI output checks.
+
+Review: focused unit and disposable-Redis output tests pass through rebuilt bin/afs.

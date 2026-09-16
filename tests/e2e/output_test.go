@@ -92,6 +92,13 @@ func TestDefaultCommandOutput(t *testing.T) {
 				t.Fatalf("afs %v: %v\nstdout=%s\nstderr=%s", s.args, err, out, diag)
 			}
 			commandSucceeded = true
+			label := "REDIS"
+			if s.args[0] == "status" {
+				label = "Configured REDIS"
+			}
+			if !strings.HasPrefix(string(out), label+": "+r.url()+"\n\n") {
+				t.Errorf("missing database header: %s", out)
+			}
 			if len(diag) != 0 {
 				t.Errorf("successful command wrote diagnostics: %s", diag)
 			}
@@ -166,4 +173,24 @@ func TestDefaultMountOutputAndJSONStatus(t *testing.T) {
 	t.Run("forced detach readable", func(t *testing.T) {
 		readableOutput(t, out, []string{"detached", "unmounted"}, []string{root}, []string{"not synchronized", "without flushing", "not flushed", "unsynchronized"})
 	})
+}
+
+func TestDatabaseHeaderFollowsEffectiveOverride(t *testing.T) {
+	r := newRedis(t)
+	c := newCLI(t, r)
+	override := strings.TrimSuffix(r.url(), "/0") + "/1?db=3"
+	endpoint := strings.TrimSuffix(r.url(), "/0") + "/3"
+	c.run(nil, "--redis", override, "create", "only-in-three")
+	out := c.run(nil, "--redis", override, "list")
+	if !strings.HasPrefix(string(out), "REDIS: "+endpoint+"\n\n") || !strings.Contains(string(out), "only-in-three") {
+		t.Fatalf("override result/header disagree: %s", out)
+	}
+	out = c.run(nil, "list")
+	if !strings.Contains(string(out), "No workspaces.") || !strings.HasPrefix(string(out), "REDIS: "+r.url()+"\n\n") {
+		t.Fatalf("default database context: %s", out)
+	}
+	out = c.run(nil, "--redis", override, "--json", "list")
+	if !json.Valid(out) || !strings.Contains(string(out), "only-in-three") {
+		t.Fatalf("JSON output: %s", out)
+	}
 }
