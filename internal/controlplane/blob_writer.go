@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,11 +18,13 @@ const (
 	BlobWriterMaxCommands = 512
 	// BlobWriterMaxBytes is the max queued payload bytes per pipeline flush.
 	BlobWriterMaxBytes = 8 << 20 // 8 MiB
+	// Imports retain at most one write batch of blob payloads for the following
+	// root materialization. Bound entries too, including zero-length blobs.
+	importBlobCacheMaxEntries = 2048
 )
 
 // BlobWriter pipelines blob and blob-ref writes to Redis, flushing on byte or
-// command-count thresholds. It is safe for a single goroutine to call Submit
-// sequentially; multiple producers must serialize externally or use a mutex.
+// command-count thresholds. Submit and Flush serialize concurrent producers.
 //
 // On a fresh import every blob reference is brand new (ref count 1 with no
 // prior record), so BlobWriter does not read existing refs before writing,
@@ -38,6 +41,9 @@ type BlobWriter struct {
 	seen        map[string]struct{}
 	totalBlobs  int64
 	totalBytes  int64
+	cachedBlobs map[string][]byte
+	cacheBytes  int64
+	cacheLimit  int64
 
 	FlushMaxCommands int
 	FlushMaxBytes    int64
@@ -95,6 +101,14 @@ func (w *BlobWriter) Submit(ctx context.Context, blobID string, data []byte, siz
 	if w.pipe == nil {
 		w.pipe = w.newPipeline()
 	}
+	if w.cachedBlobs != nil && len(w.cachedBlobs) < importBlobCacheMaxEntries && int64(len(data)) <= w.cacheLimit-w.cacheBytes {
+		// Keep exactly the payload allocation, without retaining a larger source
+		// buffer or allowing its reuse to change the subsequent materialization.
+		// The queued write shares this immutable copy with the cache.
+		data = bytes.Clone(data)
+		w.cachedBlobs[blobID] = data
+		w.cacheBytes += int64(len(data))
+	}
 	w.pipe.Set(ctx, blobKey(w.workspace, blobID), data, 0)
 	w.pipe.Set(ctx, blobRefKey(w.workspace, blobID), refBytes, 0)
 	w.queuedCmds += 2
@@ -102,6 +116,31 @@ func (w *BlobWriter) Submit(ctx context.Context, blobID string, data []byte, siz
 	w.totalBlobs++
 	w.totalBytes += int64(len(data))
 	return nil
+}
+
+// enableImportCache is only used by the fresh-workspace service; ordinary blob
+// writers do not retain payloads after their pipeline drains.
+func (w *BlobWriter) enableImportCache(limit int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.cachedBlobs = make(map[string][]byte)
+	w.cacheBytes = 0
+	w.cacheLimit = max(0, limit)
+}
+
+func (w *BlobWriter) cachedBlob(blobID string) ([]byte, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	data, ok := w.cachedBlobs[blobID]
+	return data, ok
+}
+
+func (w *BlobWriter) discardImportCache() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.cachedBlobs = nil
+	w.cacheBytes = 0
+	w.cacheLimit = 0
 }
 
 // Flush drains any queued commands to Redis. Must be called before the import

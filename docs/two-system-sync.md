@@ -255,3 +255,6 @@ passed completely; six were blocked by Redis OOM and one failed to connect a
 fresh observer, with the server reporting a 30-client limit and rejected
 connections. Directory chmod and symlink unmount in both recovery scenarios pass
 on the actual OS pair. Full acceptance still requires resource headroom.
+
+A separate branch also validated parity additions with local paired processes;
+see its historical [follow-up results](audit-followup-results.md).

@@ -75,6 +75,8 @@ type MaterializeOptions struct {
 	KeepRootEntries  []string
 	OnProgress       func(ImportStats)
 	PreserveMetadata bool
+	// ReadOnlyFiles removes write bits from files without broadening read or execute access.
+	ReadOnlyFiles bool
 }
 
 var ErrWorkspaceConflict = errors.New("afs workspace head conflict")

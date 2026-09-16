@@ -35,6 +35,7 @@ type syncDaemonReady struct {
 type successfulMountState struct {
 	Generation   string `json:"generation"`
 	RootIdentity string `json:"root_identity"`
+	ReadOnly     bool   `json:"read_only,omitempty"`
 }
 
 func redisIdentity(cfg config) string {
@@ -51,6 +52,7 @@ func (a *app) mount(args []string) error {
 	flags := flag.NewFlagSet("mount", flag.ContinueOnError)
 	foreground := flags.Bool("foreground", false, "stay attached")
 	backend := flags.String("backend", "sync", "sync, fuse, or nfs")
+	mountOpts := addMountOptions(flags)
 	pos, err := parseCommandFlags(flags, args)
 	if err != nil {
 		return err
@@ -58,11 +60,11 @@ func (a *app) mount(args []string) error {
 	if len(pos) != 2 {
 		return errors.New(commandUsage["mount"])
 	}
+	if err := validateMountOptions(flags, *backend); err != nil {
+		return err
+	}
 	if *backend != "sync" {
-		if *backend != "fuse" && *backend != "nfs" {
-			return fmt.Errorf("unknown mount backend %q; choose sync, fuse, or nfs", *backend)
-		}
-		return a.mountNative(pos[0], pos[1], *backend, *foreground)
+		return a.mountNative(pos[0], pos[1], *backend, *foreground, *mountOpts)
 	}
 	localRoot, err := normalizeMountPath(pos[1])
 	if err != nil {
@@ -123,7 +125,8 @@ func (a *app) mount(args []string) error {
 	id := sha256Hex([]byte(redisIdentity(a.config) + "\x00" + meta.ID + "\x00" + localRoot))[:32]
 	runtimeDir := filepath.Join(baseStateDir(), "clients", id)
 	rec := mountRecord{ID: id, Workspace: meta.Name, WorkspaceID: meta.ID, LocalPath: localRoot,
-		Redis: redisDisplay(a.config), RedisIdentity: redisIdentity(a.config), RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation,
+		ReadOnly: mountOpts.ReadOnly,
+		Redis:    redisDisplay(a.config), RedisIdentity: redisIdentity(a.config), RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation,
 		Token: token, RuntimeDir: runtimeDir, SyncLog: filepath.Join(runtimeDir, "sync.log"), StartedAt: time.Now().UTC()}
 	boot := syncDaemonBootstrap{Config: a.config, Record: rec, Foreground: *foreground}
 	if *foreground {
@@ -151,7 +154,7 @@ func (a *app) mount(args []string) error {
 		return err
 	}
 	release()
-	return a.output(map[string]any{"workspace": meta.Name, "directory": localRoot, "status": "syncing", "pid": pid}, fmt.Sprintf("Syncing workspace %q at %q (PID %d).\n", meta.Name, localRoot, pid))
+	return a.output(map[string]any{"workspace": meta.Name, "directory": localRoot, "status": "syncing", "pid": pid, "read_only": rec.ReadOnly}, fmt.Sprintf("Syncing workspace %q at %q (PID %d).\n", meta.Name, localRoot, pid))
 }
 
 func removeFinishedMount(rec mountRecord) {
@@ -280,6 +283,9 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 		return errors.New("local sync root was replaced; preserve its contents and mount into a new directory")
 	}
 	knownMount := localSnapshot.Exists && successful.Generation == rec.Generation && successful.RootIdentity == rootIdentity
+	if knownMount && successful.ReadOnly != rec.ReadOnly {
+		return errors.New("this directory was mounted with a different read-only setting; use a new directory to change mount access")
+	}
 	if err = os.WriteFile(genPath, []byte(rec.Generation), 0o600); err != nil {
 		return err
 	}
@@ -301,7 +307,7 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 	if current != rec.Generation {
 		return errors.New("workspace changed while mounting; retry")
 	}
-	d, err := newSyncDaemon(syncDaemonConfig{Workspace: rec.WorkspaceID, LocalRoot: rec.LocalPath, FS: client.New(rdb, rec.RedisKey), Store: newAFSStore(rdb), MaxFileBytes: syncSizeCapBytes(boot.Config), WatcherQueueCapacity: syncWatcherQueueCapacity(boot.Config), Interactive: boot.Foreground})
+	d, err := newSyncDaemon(syncDaemonConfig{Workspace: rec.WorkspaceID, LocalRoot: rec.LocalPath, FS: client.New(rdb, rec.RedisKey), Store: newAFSStore(rdb), MaxFileBytes: syncSizeCapBytes(boot.Config), WatcherQueueCapacity: syncWatcherQueueCapacity(boot.Config), Interactive: boot.Foreground, Readonly: rec.ReadOnly})
 	if err != nil {
 		return err
 	}
@@ -337,7 +343,7 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 	}
 	// This marker distinguishes recovery of an established root from a
 	// first mount into unrelated populated content, even after a hard crash.
-	if err = writeSyncControlJSON(mountedPath, successfulMountState{Generation: rec.Generation, RootIdentity: rootIdentity}, 0o600); err != nil {
+	if err = writeSyncControlJSON(mountedPath, successfulMountState{Generation: rec.Generation, RootIdentity: rootIdentity, ReadOnly: rec.ReadOnly}, 0o600); err != nil {
 		d.Stop()
 		return err
 	}
@@ -442,7 +448,8 @@ func controlMount(rec mountRecord, op string, timeout time.Duration) (syncContro
 	if !result.Success {
 		return result, fmt.Errorf("%s failed: %s", op, result.Error)
 	}
-	if (op == syncControlOpSave || op == syncControlOpShutdown) && result.Save == nil {
+	readOnlyShutdown := op == syncControlOpShutdown && rec.ReadOnly && result.ReadOnly
+	if (op == syncControlOpSave || op == syncControlOpShutdown) && result.Save == nil && !readOnlyShutdown {
 		return result, errors.New("daemon did not return a verified flush receipt")
 	}
 	return result, nil
@@ -527,7 +534,11 @@ func (a *app) unmount(args []string) error {
 	if err = saveMountRegistry(reg); err != nil {
 		return err
 	}
-	return a.output(map[string]any{"directory": root, "unmounted": true, "synchronized": !*force, "save": result.Save}, formatUnmount(root, *force))
+	message := formatUnmount(root, *force)
+	if rec.ReadOnly && !*force {
+		message = fmt.Sprintf("Unmounted read-only sync directory %q. Local files preserved; local changes were not uploaded.\n", root)
+	}
+	return a.output(map[string]any{"directory": root, "unmounted": true, "synchronized": !*force && !rec.ReadOnly, "read_only": rec.ReadOnly, "save": result.Save}, message)
 }
 func (a *app) status(args []string) error {
 	if len(args) > 1 {
@@ -556,7 +567,7 @@ func (a *app) status(args []string) error {
 	}
 	out := make([]map[string]any, 0, len(reg.Mounts))
 	for _, rec := range reg.Mounts {
-		row := map[string]any{"workspace": rec.Workspace, "directory": rec.LocalPath, "redis": rec.Redis, "pid": rec.PID}
+		row := map[string]any{"workspace": rec.Workspace, "directory": rec.LocalPath, "redis": rec.Redis, "pid": rec.PID, "read_only": rec.ReadOnly}
 		if isNativeMount(rec) {
 			nativeMountStatus(rec, row)
 			out = append(out, row)
@@ -613,6 +624,11 @@ func (a *app) flushLocalMounts(ctx context.Context, workspace string) error {
 		return err
 	}
 	for _, rec := range records {
+		// A reader has no unpublished contribution to a checkpoint, including
+		// when its daemon is stopped. Its local edits must never enter a save.
+		if rec.ReadOnly && !isNativeMount(rec) {
+			continue
+		}
 		if isNativeMount(rec) {
 			if _, err := callNativeMount(rec, "flush", defaultSyncSaveTimeout); err != nil {
 				return fmt.Errorf("flush %s: %w", rec.LocalPath, err)

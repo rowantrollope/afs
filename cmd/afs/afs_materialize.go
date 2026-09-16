@@ -7,11 +7,13 @@ type manifestBlobLoader = worktree.BlobLoader
 type manifestMaterializeOptions struct {
 	onProgress       func(importStats)
 	preserveMetadata bool
+	readonlyFiles    bool
 }
 
 func materializeManifestToDirectory(targetDir string, m manifest, loadBlob manifestBlobLoader, opts manifestMaterializeOptions) (importStats, error) {
 	worktreeOpts := worktree.MaterializeOptions{
 		PreserveMetadata: opts.preserveMetadata,
+		ReadOnlyFiles:    opts.readonlyFiles,
 		KeepRootEntries:  []string{syncControlDirName},
 	}
 	if opts.onProgress != nil {

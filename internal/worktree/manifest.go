@@ -407,6 +407,10 @@ func MaterializeManifestToDirectory(targetDir string, m controlplane.Manifest, l
 				return progress, err
 			}
 			mode := fileModeOrDefault(entry.Mode, 0o644)
+			if opts.ReadOnlyFiles {
+				// Manifest modes are explicit here, including mode 0000.
+				mode = os.FileMode(entry.Mode) &^ 0o222
+			}
 			if err := os.WriteFile(fullPath, data, mode); err != nil {
 				return progress, err
 			}

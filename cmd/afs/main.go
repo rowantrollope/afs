@@ -30,6 +30,7 @@ Commands:
   mount <workspace> <directory>  Connect a workspace using sync, FUSE, or NFS
   unmount <directory>            Flush pending changes and disconnect
   status [directory]             Show connection, sync progress, and errors
+  sync                           Inspect sync activity or wait for verification
   create <workspace>             Create a workspace or import a directory
   list                           List workspaces
   info <workspace>               Show workspace details
@@ -53,6 +54,7 @@ Run 'afs <command> --help' for details.
 `
 
 var commandUsage = map[string]string{
+	"sync": syncCommandUsage,
 	"config": `Usage: afs [--config <file>] config set <key> <value>
 
 Settings (defaults):
@@ -92,7 +94,7 @@ command. It captures published remote state, not another machine's pending write
 Applications must pause writes for an application-consistent snapshot.
 Restore requires local mounts to be unmounted and creates a safety checkpoint.
 `,
-	"mount": `Usage: afs mount <workspace> <directory> [--foreground] [--backend sync|fuse|nfs]
+	"mount": `Usage: afs mount <workspace> <directory> [--foreground] [--backend sync|fuse|nfs] [--readonly]
 
 Start folder synchronization in the background, or stay attached with --foreground.
 An unrelated populated directory is rejected. Import it with:
@@ -101,11 +103,19 @@ An unrelated populated directory is rejected. Import it with:
 --backend fuse or nfs uses the optional afsmount helper to expose the workspace
 as a native filesystem. Native mountpoints must be empty. Files live in Redis;
 unmounting reveals the original local directory. Folder sync remains the default.
+
+--readonly prevents this mount from publishing changes. Folder sync continues
+receiving remote files; local edits stay local and are excluded from checkpoints.
+Use the same read-only setting when remounting a sync directory, or use a new one.
+Native read-only mounts also reject filesystem writes.
+FUSE only: --uid <id> and --gid <id> override ownership (including 0);
+--allow-other permits access by other local users when the FUSE driver allows it.
 `,
 	"unmount": `Usage: afs unmount <directory> [--force]
 
 Flush pending changes and stop synchronization; local files remain intact.
 A failed flush leaves synchronization running and returns an error.
+Read-only sync mounts stop without uploading local changes or claiming a flush.
 --force detaches without flushing. Pending changes may exist only on this machine.
 For native mounts, unmount detaches the filesystem after flushing kernel writes;
 a failed normal unmount leaves the helper serving. --force requests forced detach.
@@ -164,7 +174,7 @@ func runCLI(args []string) error {
 			return nil
 		}
 	}
-	if args[0] == "cp" && len(args) == 1 {
+	if (args[0] == "cp" || args[0] == "sync") && len(args) == 1 {
 		fmt.Print(usage)
 		return nil
 	}
@@ -192,6 +202,8 @@ func runCLI(args []string) error {
 		return a.unmount(args[1:])
 	case "status":
 		return a.status(args[1:])
+	case "sync":
+		return a.syncCommand(args[1:])
 	}
 	return nil
 }

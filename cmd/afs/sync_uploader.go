@@ -78,6 +78,7 @@ type uploader struct {
 	log            *syncLogger
 	localRoot      string
 	rootIdentity   string
+	echo           *echoSuppressor
 }
 
 func newUploader(fs client.Client, results chan<- uploadResult, maxFileBytes int64, readonly bool, log *syncLogger) *uploader {
@@ -119,6 +120,10 @@ func (u *uploader) run(ctx context.Context, in <-chan uploadOp) {
 }
 
 func (u *uploader) process(ctx context.Context, op uploadOp) {
+	if u.readonly {
+		u.send(uploadResult{Op: op, Err: errors.New("uploader is read-only")})
+		return
+	}
 	if u.localRoot != "" {
 		if err := checkSyncLocalRoot(u.localRoot, u.rootIdentity); err != nil {
 			u.send(uploadResult{Op: op, Err: err})
@@ -668,13 +673,54 @@ func (u *uploader) processRename(ctx context.Context, op uploadOp) {
 }
 
 func (u *uploader) processChmod(ctx context.Context, op uploadOp) {
-	remotePath := absoluteRemotePath(op.Path)
-	if err := u.fs.Chmod(ctx, remotePath, op.Mode); err != nil {
-		u.send(uploadResult{Op: op, Err: fmt.Errorf("chmod remote %s: %w", op.Path, err)})
+	// A queued directory chmod belongs to this local candidate and the
+	// published mode observed in its baseline, never to a peer replacement.
+	if !u.queuedDirectoryModeCurrent(op) {
+		u.send(uploadResult{Op: op, Skipped: true})
 		return
 	}
-	stat, _ := u.fs.Stat(ctx, remotePath)
-	u.send(uploadResult{Op: op, RemoteStat: stat})
+	remotePath := absoluteRemotePath(op.Path)
+	stat, err := u.fs.Stat(ctx, remotePath)
+	if err != nil {
+		u.send(uploadResult{Op: op, Err: err})
+		return
+	}
+	if stat == nil || stat.Type != "dir" || !op.HasStored || op.StoredEntry.Type != "dir" {
+		u.send(uploadResult{Op: op, Conflict: true, RemoteStat: stat})
+		return
+	}
+	if stat.Mode != op.Mode && stat.Mode != op.StoredEntry.Mode {
+		u.send(uploadResult{Op: op, Conflict: true, RemoteStat: stat})
+		return
+	}
+	if !u.queuedDirectoryModeCurrent(op) {
+		u.send(uploadResult{Op: op, Skipped: true})
+		return
+	}
+	if stat.Mode != op.Mode {
+		if err := u.fs.Chmod(client.WithExpectedStat(ctx, stat), remotePath, op.Mode); err != nil {
+			if errors.Is(err, client.ErrWriteConflict) {
+				u.send(uploadResult{Op: op, Conflict: true})
+				return
+			}
+			u.send(uploadResult{Op: op, Err: fmt.Errorf("chmod remote %s: %w", op.Path, err)})
+			return
+		}
+	}
+	// The receipt describes our committed mode. A later peer publication
+	// must arrive through reconciliation, not be paired with our old baseline.
+	ack := *stat
+	ack.Mode = op.Mode
+	u.send(uploadResult{Op: op, RemoteStat: &ack})
+}
+
+func (u *uploader) queuedDirectoryModeCurrent(op uploadOp) bool {
+	if op.AbsPath == "" {
+		return true
+	}
+	info, err := os.Lstat(op.AbsPath)
+	return err == nil && info.IsDir() && uint32(info.Mode().Perm()) == op.Mode &&
+		(u.echo == nil || !u.echo.matchesTemporaryDirectory(op.Path, info))
 }
 
 func (u *uploader) send(r uploadResult) {

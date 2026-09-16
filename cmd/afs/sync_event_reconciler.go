@@ -205,7 +205,7 @@ func (r *reconciler) run(ctx context.Context, local <-chan LocalEvent, remote <-
 // file from disk, computes the hash, looks up the stored entry, and decides
 // whether to enqueue an upload, drop as echo, or trigger conflict resolution.
 func (r *reconciler) handleLocalEvent(ctx context.Context, ev LocalEvent) {
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || r.readonly {
 		return
 	}
 	if err := r.checkLocalRoot(); err != nil {
@@ -245,6 +245,9 @@ func (r *reconciler) handleLocalEvent(ctx context.Context, ev LocalEvent) {
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "afs sync: lstat %s: %v\n", abs, err)
+		return
+	}
+	if r.echo.matchesTemporaryDirectory(ev.Path, info) {
 		return
 	}
 
@@ -296,7 +299,7 @@ func (r *reconciler) echoMatches(abs string, info fs.FileInfo, exp echoExpectati
 		}
 		return target == exp.hash
 	case "dir":
-		return info.IsDir() && uint32(info.Mode().Perm()) == exp.mode
+		return info.IsDir() && uint32(info.Mode().Perm()) == exp.mode && exp.identity == localFileIdentity(info)
 	case "delete":
 		return false // shouldn't happen — file present means no delete echo
 	}
@@ -751,16 +754,19 @@ func (r *reconciler) handleLocalDir(ctx context.Context, rel, abs string, info f
 	if r.deferScanForPendingUpload(rel) {
 		return
 	}
-	if hasStored && stored.Type == "dir" {
-		if stored.Mode != uint32(info.Mode().Perm()) {
-			// Recovery already guards directory chmod against concurrent local
-			// and remote changes. Reuse it instead of an unconditional chmod.
-			r.requestFullSweep()
+	mode := uint32(info.Mode().Perm())
+	kind := opUploadMkdir
+	if hasStored && stored.Type == "dir" && !stored.Deleted {
+		if stored.Mode == mode {
+			return
 		}
+		kind = opUploadChmod
+	}
+	if r.readonly {
 		return
 	}
 	r.enqueueTrackedUpload(uploadOp{
-		Kind:        opUploadMkdir,
+		Kind:        kind,
 		Path:        rel,
 		AbsPath:     abs,
 		Mode:        uint32(info.Mode() & fs.ModePerm),
@@ -814,6 +820,9 @@ func (r *reconciler) sweepMissingLocalSymlinks(ctx context.Context) {
 }
 
 func (r *reconciler) handleLocalDelete(ctx context.Context, rel, kindHint string) {
+	if r.readonly {
+		return
+	}
 	if err := r.checkLocalRoot(); err != nil {
 		r.log.Err("local deletion", err.Error())
 		return
@@ -1209,12 +1218,21 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 		}
 		r.state.state.Entries[res.Op.Path] = entry
 	case opUploadChmod:
-		if entry, ok := r.state.state.Entries[res.Op.Path]; ok {
-			entry.Mode = res.Op.Mode
-			entry.Version = r.state.nextVersion()
-			entry.LastSyncedAt = now
-			r.state.state.Entries[res.Op.Path] = entry
+		// The receipt belongs to the baseline used to queue this chmod. A
+		// download or recovery may have installed a newer directory mode
+		// while the result waited; even a duplicate receipt must not replace
+		// that newer baseline or advance its version.
+		entry, ok := r.state.state.Entries[res.Op.Path]
+		if !ok || entry.Deleted || entry.Type != "dir" || !res.Op.HasStored ||
+			entry.Version != res.Op.StoredEntry.Version {
+			r.state.mu.Unlock()
+			r.requestFullSweep()
+			return
 		}
+		entry.Mode = res.Op.Mode
+		entry.Version = r.state.nextVersion()
+		entry.LastSyncedAt = now
+		r.state.state.Entries[res.Op.Path] = entry
 	}
 	r.state.dirty = true
 	r.state.mu.Unlock()
@@ -1227,6 +1245,9 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 		r.log.Symlink(res.Op.Path, res.Op.Symlink, "upload")
 	case opUploadMkdir:
 		r.log.Mkdir(res.Op.Path, "upload")
+		if res.RemoteStat != nil && res.RemoteStat.Mode != res.Op.Mode {
+			r.handleRemoteEvent(ctx, remoteEvent{Path: absoluteRemotePath(res.Op.Path)})
+		}
 	case opUploadDelete:
 		r.log.Delete(res.Op.Path, "upload")
 	case opUploadRename:
@@ -1248,6 +1269,12 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 	}
 	if res.Err != nil {
 		r.log.Err("download "+res.Op.Path, res.Err.Error())
+		if r.readonly && errors.Is(res.Err, fs.ErrPermission) {
+			// A reader can legitimately retain mode 0000 or execute-only files.
+			// The event downloader cannot hash those local bytes. Recovery uses
+			// guarded metadata staging, preserving modes and local conflicts.
+			r.requestFullSweep()
+		}
 		return
 	}
 	if err := r.checkLocalRoot(); err != nil {
@@ -1261,7 +1288,9 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 		if res.ConflictPath != "" {
 			r.log.Conflict(res.Op.Path, res.ConflictPath)
 			r.requestFullSweep()
-			go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+			if !r.readonly {
+				go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+			}
 		}
 		r.log.Delete(res.Op.Path, "download")
 		return
@@ -1282,7 +1311,9 @@ func (r *reconciler) handleDownloadResult(ctx context.Context, res downloadResul
 	r.state.mu.Unlock()
 	if res.ConflictPath != "" {
 		r.log.Conflict(res.Op.Path, res.ConflictPath)
-		go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+		if !r.readonly {
+			go triggerConflictCheckpoint(ctx, r.store, r.workspace)
+		}
 	}
 	now := time.Now().UTC()
 	r.state.mu.Lock()

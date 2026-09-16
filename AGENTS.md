@@ -4,7 +4,7 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 - Reuse the retained folder sync, Redis client, manifests, checkpoints, and recovery code.
 - One workspace is one tree; no public volumes, cloud, MCP, or search. Native FUSE/NFS mounting is optional, with folder sync as the default.
-- Workspace actions live at the root; cp is the only nested command family. No ws/fs aliases. Access files through mounted directories.
+- Workspace actions live at the root; cp manages checkpoints, config manages settings, and sync provides status and an explicit verification wait. No ws/fs aliases. Access files through mounted directories.
 - Never run tests against existing user Redis data or change the original installation.
 - Retain multi-writer behavior and prove safety changes with focused regressions.
 - Local lifecycle belongs in cmd/afs; Redis content and checkpoints remain internal.

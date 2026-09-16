@@ -59,14 +59,16 @@ func TestSyncLocalDirectoryChmodAfterDownloadEcho(t *testing.T) {
 	}
 	// warmStart left a directory echo; it must not hide the application's chmod.
 	d.reconciler.handleLocalEvent(ctx, LocalEvent{Path: "directory", KindHint: "chmod"})
-	select {
-	case <-d.reconciler.fullSweepRequest:
-	default:
-		t.Fatal("local directory chmod did not schedule reconciliation")
+	op := nextDiagnosticUpload(t, d)
+	if op.Kind != opUploadChmod || op.Mode != 0o750 {
+		t.Fatalf("local directory chmod did not schedule its guarded upload: %+v", op)
 	}
-	if err := d.full.warmStart(ctx, nil); err != nil {
-		t.Fatal(err)
+	d.uploader.process(ctx, op)
+	result := <-d.reconciler.uploadResCh
+	if result.Err != nil || result.Conflict || result.Skipped {
+		t.Fatalf("local directory chmod failed: %+v", result)
 	}
+	d.reconciler.handleUploadResult(ctx, result)
 	stat, err := env.fsClient.Stat(ctx, "/directory")
 	if err != nil || stat.Mode != 0o750 {
 		t.Fatalf("remote mode = %+v, %v", stat, err)

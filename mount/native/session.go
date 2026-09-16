@@ -28,6 +28,9 @@ type Config struct {
 	RedisKey   string
 	Generation string
 	ReadOnly   bool
+	UID        *uint32
+	GID        *uint32
+	AllowOther bool
 }
 
 type Session struct {
@@ -63,6 +66,9 @@ func StartExport(ctx context.Context, cfg Config) (*Session, error) {
 func start(ctx context.Context, cfg Config, exportOnly bool) (result *Session, err error) {
 	if cfg.Backend != "fuse" && cfg.Backend != "nfs" {
 		return nil, errors.New("native backend must be fuse or nfs")
+	}
+	if cfg.Backend != "fuse" && (cfg.UID != nil || cfg.GID != nil || cfg.AllowOther) {
+		return nil, errors.New("uid, gid and allow-other require the FUSE backend")
 	}
 	if cfg.RedisKey == "" || cfg.Generation == "" {
 		return nil, errors.New("native mount requires a workspace key and generation")
@@ -120,9 +126,8 @@ func start(ctx context.Context, cfg Config, exportOnly bool) (result *Session, e
 	}
 	switch cfg.Backend {
 	case "fuse":
-		uid, gid := afsfs.GetOwnership()
 		mountAttempted = true
-		s.fuse, err = afsfs.Mount(lifetime, cfg.Mountpoint, s.client, &afsfs.Options{MountContext: ctx, AttrTimeout: time.Second, ReadOnly: cfg.ReadOnly, UID: uid, GID: gid})
+		s.fuse, err = afsfs.Mount(lifetime, cfg.Mountpoint, s.client, fuseOptions(ctx, cfg))
 		if err != nil {
 			return nil, err
 		}
@@ -152,6 +157,17 @@ func start(ctx context.Context, cfg Config, exportOnly bool) (result *Session, e
 		}
 	}
 	return s, nil
+}
+
+func fuseOptions(ctx context.Context, cfg Config) *afsfs.Options {
+	uid, gid := afsfs.GetOwnership()
+	if cfg.UID != nil {
+		uid = *cfg.UID
+	}
+	if cfg.GID != nil {
+		gid = *cfg.GID
+	}
+	return &afsfs.Options{MountContext: ctx, AttrTimeout: time.Second, ReadOnly: cfg.ReadOnly, UID: uid, GID: gid, AllowOther: cfg.AllowOther}
 }
 
 func prepareMountpoint(path string, created *bool) error {

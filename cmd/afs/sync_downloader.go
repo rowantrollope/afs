@@ -195,7 +195,7 @@ func (d *downloader) processFile(ctx context.Context, op downloadOp) {
 	hash := sha256Hex(data)
 	mode := stat.Mode
 	if d.readonly {
-		mode = 0o444
+		mode &^= 0o222
 	}
 	if !local.unchanged(op.AbsPath) {
 		d.send(downloadResult{Op: op, Skipped: true})
@@ -309,7 +309,7 @@ func (d *downloader) processChunkedFile(ctx context.Context, op downloadOp) {
 
 	mode := stat.Mode
 	if d.readonly {
-		mode = 0o444
+		mode &^= 0o222
 	}
 	hash := compositeHash(op.ChunkHashes)
 	if local.baselineHash == hash && local.info.Size() == op.FileSize && uint32(local.info.Mode().Perm()) == mode&0o777 {
@@ -514,17 +514,52 @@ func (d *downloader) processMkdir(ctx context.Context, op downloadOp) {
 	if d.cancelled(ctx, op) {
 		return
 	}
+	if d.fs != nil {
+		stat, err := d.fs.Stat(ctx, absoluteRemotePath(op.Path))
+		if err != nil {
+			d.send(downloadResult{Op: op, Err: err})
+			return
+		}
+		if stat == nil || stat.Type != "dir" {
+			d.send(downloadResult{Op: op, Skipped: true})
+			return
+		}
+		op.Mode = stat.Mode
+	}
+	before, err := os.Lstat(op.AbsPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		d.send(downloadResult{Op: op, Err: err})
+		return
+	}
+	if before != nil {
+		if !before.IsDir() {
+			d.send(downloadResult{Op: op, Skipped: true})
+			return
+		}
+		// Child notifications also name their parent. An unchanged remote
+		// mode must not erase a local chmod awaiting its upload.
+		if !d.readonly && op.HasStored && op.StoredEntry.Type == "dir" &&
+			uint32(before.Mode().Perm()) != op.StoredEntry.Mode && op.Mode == op.StoredEntry.Mode {
+			d.send(downloadResult{Op: op, Skipped: true})
+			return
+		}
+	}
 	if err := os.MkdirAll(op.AbsPath, 0o755); err != nil {
 		d.send(downloadResult{Op: op, Err: fmt.Errorf("mkdir local %s: %w", op.Path, err)})
 		return
 	}
-	d.echo.markDir(op.Path, op.Mode&0o777)
+	info, err := os.Lstat(op.AbsPath)
+	if err != nil {
+		d.send(downloadResult{Op: op, Err: err})
+		return
+	}
+	d.echo.markDir(op.Path, op.Mode, info)
 	if err := os.Chmod(op.AbsPath, fs.FileMode(op.Mode&0o7777)); err != nil {
 		d.send(downloadResult{Op: op, Err: fmt.Errorf("chmod local directory %s: %w", op.Path, err)})
 		return
 	}
-	info, err := os.Lstat(op.AbsPath)
-	d.send(downloadResult{Op: op, Err: err, LocalInfo: info})
+	info, err = os.Lstat(op.AbsPath)
+	d.send(downloadResult{Op: op, Mode: op.Mode, Err: err, LocalInfo: info})
 }
 
 // A delayed acknowledgment may clean up its own candidate after a local
@@ -680,14 +715,22 @@ func randomSuffix() (string, error) {
 // reconciler consults this on every local event and ignores it when the
 // observed disk content matches.
 type echoSuppressor struct {
-	mu      sync.Mutex
-	pending map[string]echoExpectation
+	mu            sync.Mutex
+	pending       map[string]echoExpectation
+	temporaryDirs map[string]*temporaryDirectoryMode
+}
+
+type temporaryDirectoryMode struct {
+	before fs.FileInfo
+	mode   uint32
+	retry  bool // protected by echoSuppressor.mu; failed restores retry before scanning
 }
 
 type echoExpectation struct {
-	kind string // "file" | "symlink" | "dir" | "delete"
-	hash string // sha256 hex for files; symlink target for symlinks
-	mode uint32 // directory permissions expected after our own mutation
+	kind     string // "file" | "symlink" | "dir" | "delete"
+	hash     string // sha256 hex for files; symlink target for symlinks
+	mode     uint32 // observed directory permissions; never suppress another chmod
+	identity string // directory inode that produced the echo
 }
 
 func newEchoSuppressor() *echoSuppressor {
@@ -702,8 +745,8 @@ func (e *echoSuppressor) markSymlink(rel, target string) {
 	e.set(rel, echoExpectation{kind: "symlink", hash: target})
 }
 
-func (e *echoSuppressor) markDir(rel string, mode uint32) {
-	e.set(rel, echoExpectation{kind: "dir", mode: mode})
+func (e *echoSuppressor) markDir(rel string, mode uint32, info fs.FileInfo) {
+	e.set(rel, echoExpectation{kind: "dir", mode: mode & 0o777, identity: localFileIdentity(info)})
 }
 
 func (e *echoSuppressor) markDelete(rel string) {
@@ -730,4 +773,33 @@ func (e *echoSuppressor) consume(rel string) (echoExpectation, bool) {
 		delete(e.pending, rel)
 	}
 	return exp, ok
+}
+
+// Directory recovery can produce many parent notifications while owner access
+// is temporarily enabled. Keep this suppression until restoration completes;
+// the usual one-shot echo is insufficient for repeated child write events.
+func (e *echoSuppressor) holdDirectoryMode(rel string, before fs.FileInfo) *temporaryDirectoryMode {
+	marker := &temporaryDirectoryMode{before: before, mode: uint32(before.Mode().Perm() | 0o700)}
+	e.mu.Lock()
+	if e.temporaryDirs == nil {
+		e.temporaryDirs = make(map[string]*temporaryDirectoryMode)
+	}
+	e.temporaryDirs[rel] = marker
+	e.mu.Unlock()
+	return marker
+}
+
+func (e *echoSuppressor) releaseDirectoryMode(rel string, marker *temporaryDirectoryMode) {
+	e.mu.Lock()
+	if e.temporaryDirs[rel] == marker {
+		delete(e.temporaryDirs, rel)
+	}
+	e.mu.Unlock()
+}
+
+func (e *echoSuppressor) matchesTemporaryDirectory(rel string, info fs.FileInfo) bool {
+	e.mu.Lock()
+	marker := e.temporaryDirs[rel]
+	e.mu.Unlock()
+	return marker != nil && info.IsDir() && os.SameFile(marker.before, info) && uint32(info.Mode().Perm()) == marker.mode
 }

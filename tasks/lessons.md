@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-09-16 — Describe automatic sync with an explicit wait boundary
+
+User rejected a standalone save verb because it implies sync requires manual action.
+Expose verified completion as `afs sync --wait` and observational progress as
+`afs sync status`. Keep automatic synchronization explicit in help and docs; never
+claim empty queues prove remote byte verification.
+
 ## 2026-09-16 — Capitalize REDIS display labels
 
 Use `REDIS:` in CLI headers and detail labels, including `Configured REDIS:`.

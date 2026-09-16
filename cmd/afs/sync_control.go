@@ -57,6 +57,7 @@ type syncControlResult struct {
 	Save      *syncSaveReceipt `json:"save,omitempty"`
 	Token     string           `json:"token,omitempty"`
 	Status    *syncStatus      `json:"status,omitempty"`
+	ReadOnly  bool             `json:"read_only,omitempty"`
 }
 
 // Queued counts are an observation, not a completed flush. Only Save supplies

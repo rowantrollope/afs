@@ -54,6 +54,22 @@ requires the platform driver and mount utility. NFS uses the OS NFSv3 client,
 `mount_nfs` on macOS or `mount.nfs` on Linux, with the necessary mount privileges.
 AFS does not install drivers or change system mount policy.
 
+Use `--readonly` for a receive-only FUSE or NFS mount. Native adapters reject
+mutations, and unmount reports `read_only: true` without claiming an upload/save
+receipt. For FUSE, `--uid` and `--gid` select the presented file ownership;
+explicit zero is supported. `--allow-other` permits access by other local users
+when the host FUSE policy allows it. These three options require `--backend=fuse`:
+
+```sh
+./bin/afs mount shared ./live --backend=fuse --uid 1000 --gid 1000 --allow-other
+./bin/afs mount shared ./observer --backend=fuse --readonly
+```
+
+Ownership overrides are local presentation settings, not a Redis ACL or a
+per-file ownership database. Omitting them preserves the process ownership
+defaults. Read-only folder sync is also available; its local permission and
+offline-edit behavior is described in the [README](../README.md).
+
 The mountpoint must be an empty directory, or have an existing parent so the
 helper can create it. Native mounts overlay their directories. Unmounting does
 not hydrate files onto the local disk. A helper-created directory is removed
@@ -192,3 +208,11 @@ append, advisory locks and crash recovery.
 
 Source compilation and adapter unit tests alone are not native mount acceptance.
 See [multiwriter results](multiwriter-results.md) for the full integrated results.
+
+`scripts/native_options_smoke.py` provides an additional isolated Linux FUSE
+check for ownership/access options. Run it as root in the disposable native lab
+container with `--afs /usr/local/bin/afs --helper /usr/local/bin/afsmount`. It
+starts and verifies ownership of its own Redis process, mounts three clients,
+drops to UID/GID 1000 for file operations, checks ownership after chmod, denies
+read-only mutations and private-mount access, and verifies normal unmount and
+owned cleanup.

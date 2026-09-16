@@ -199,7 +199,7 @@ func (s *syncSaveService) saveWithResume(request syncControlRequest, resume bool
 	if request.Path != "" || request.Content != "" || request.VersionID != "" || request.FileID != "" || request.Ordinal != 0 {
 		return fail(errors.New("save operates on the entire mounted sync workspace"))
 	}
-	if daemon.cfg.Readonly {
+	if daemon.cfg.Readonly && resume {
 		return fail(errors.New("cannot save a read-only sync mount"))
 	}
 	if request.DeadlineUnixMilli <= 0 {
@@ -211,6 +211,14 @@ func (s *syncSaveService) saveWithResume(request syncControlRequest, resume bool
 	}
 	ctx, cancel := context.WithDeadline(s.ctx, deadline)
 	defer cancel()
+	if daemon.cfg.Readonly {
+		// Readers have no writes to flush. Join the retained worker drain and
+		// return an explicit reader acknowledgement, never a save receipt.
+		daemon.Stop()
+		s.active = nil
+		result.Success, result.ReadOnly = true, true
+		return result
+	}
 
 	// Preserve the caller's local tree across the drain. An old inbound write
 	// must never become the tree that this save silently acknowledges.

@@ -1,5 +1,36 @@
 # AFS extraction
 
+## Integrate upstream parity and explicit sync verification
+
+- [x] Integrate useful parity code/tests; preserve current main and existing edits.
+- [x] Add `afs sync --wait <workspace|directory>` and `afs sync status [target]`.
+- [x] Fix permission enforcement, unreadable-reader updates and stale chmod receipts.
+- [x] Validate build/vet/unit/race, real-Redis CLI, concurrency and native checks.
+- [x] Review final diff; record evidence and remaining platform limits.
+
+Design: reuse save's existing authenticated control transport and verified receipt.
+Wait requires one active writable folder-sync mount; reject native/read-only/ambiguous
+or stopped targets. Status only observes sync activity. Wait resumes sync, creates no checkpoint, and fails clearly
+on conflict/timeout/verification errors. JSON must remain machine-readable; human
+output follows current REDIS header and timestamp conventions. Preserve main's
+queue backpressure, symlink-mode and parallel save-verification fixes. Integrate
+on main; test, commit and push after validation. Do not alter installed binaries/configuration during tests.
+Tests use disposable Redis and private state. No unresolved questions.
+
+Review: all three review regressions reproduced before fixes and pass after them.
+Build/vet/unit/race, real-Redis CLI, original CLI compatibility, native dependency
+and 38 Python checks pass. Linux nonroot build/vet/unit and actual FUSE ownership,
+other-user permission denial and read-only smoke pass. Four-writer lab: 10/10;
+paired Mac processes: 12/12 each, clean exits/cleanup. Mixed Linux native: 9/10;
+known pre-existing NFS reconnect misses a newly created directory entry, recorded
+without claiming a full pass. See docs/sync-parity-integration-results.md for
+source/binary provenance, commands, artifacts and platform limits.
+
+- [x] Prepare tested source for publication to GitHub main.
+
+Publication authorized by the user; final remote verification follows the commit.
+
+
 ## Redis password environment override
 
 - [x] Add AFS_REDIS_PASSWORD at client construction for CLI, sync and native mounts.
