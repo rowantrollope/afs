@@ -24,8 +24,8 @@ Usage:
   afs [options] <command>
 
 Commands:
-  mount <workspace> <directory>   Sync a workspace with a local folder
-  unmount <directory>             Flush pending changes and stop syncing
+  mount <workspace> <directory>   Connect a workspace using sync, FUSE, or NFS
+  unmount <directory>             Flush pending changes and disconnect
   status [directory]              Show connection, sync progress, and errors
   create <workspace>             Create a workspace or import a directory
   list                           List workspaces
@@ -72,17 +72,23 @@ command. It captures published remote state, not another machine's pending write
 Applications must pause writes for an application-consistent snapshot.
 Restore requires local mounts to be unmounted and creates a safety checkpoint.
 `,
-	"mount": `Usage: afs mount <workspace> <directory> [--foreground]
+	"mount": `Usage: afs mount <workspace> <directory> [--foreground] [--backend sync|fuse|nfs]
 
 Start folder synchronization in the background, or stay attached with --foreground.
 An unrelated populated directory is rejected. Import it with:
   afs create <new-workspace> --from <directory>
+
+--backend fuse or nfs uses the optional afsmount helper to expose the workspace
+as a native filesystem. Native mountpoints must be empty. Files live in Redis;
+unmounting reveals the original local directory. Folder sync remains the default.
 `,
 	"unmount": `Usage: afs unmount <directory> [--force]
 
 Flush pending changes and stop synchronization; local files remain intact.
 A failed flush leaves synchronization running and returns an error.
 --force detaches without flushing. Pending changes may exist only on this machine.
+For native mounts, unmount detaches the filesystem after flushing kernel writes;
+a failed normal unmount leaves the helper serving. --force requests forced detach.
 `,
 	"status": "Usage: afs status [directory]\n\nShow locally registered mounts, connection state, pending work, and errors.\n",
 }

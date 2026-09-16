@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -18,6 +19,38 @@ import (
 type conflictNamer struct {
 	hostname string
 	counter  uint64
+	moveMu   sync.Mutex
+	capture  *syncConflictMoveCapture
+}
+
+type syncConflictMove struct {
+	source, target, identity string
+}
+
+type syncConflictMoveCapture struct {
+	moves []syncConflictMove
+}
+
+// Save records only moves made while its old workers drain. Hold the same
+// lock during its initial scan so a conflict rename cannot split that scan.
+// The returned cleanup is safe on every exit, including a failed scan.
+func (n *conflictNamer) captureMoves(scan func() error) (func() []syncConflictMove, error) {
+	n.moveMu.Lock()
+	defer n.moveMu.Unlock()
+	if n.capture != nil {
+		return nil, fmt.Errorf("conflict move capture already active")
+	}
+	capture := &syncConflictMoveCapture{}
+	n.capture = capture
+	finish := func() []syncConflictMove {
+		n.moveMu.Lock()
+		defer n.moveMu.Unlock()
+		if n.capture == capture {
+			n.capture = nil
+		}
+		return append([]syncConflictMove(nil), capture.moves...)
+	}
+	return finish, scan()
 }
 
 func newConflictNamer() *conflictNamer {
@@ -69,7 +102,10 @@ func (n *conflictNamer) conflictPath(localAbsPath string) string {
 // If the source does not exist (e.g. user already deleted it), this is a
 // no-op.
 func moveLocalToConflict(namer *conflictNamer, localAbsPath string) (string, error) {
-	if _, err := os.Lstat(localAbsPath); err != nil {
+	namer.moveMu.Lock()
+	defer namer.moveMu.Unlock()
+	info, err := os.Lstat(localAbsPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
@@ -82,12 +118,15 @@ func moveLocalToConflict(namer *conflictNamer, localAbsPath string) (string, err
 	if err := os.Rename(localAbsPath, target); err != nil {
 		return "", err
 	}
+	if namer.capture != nil {
+		namer.capture.moves = append(namer.capture.moves, syncConflictMove{source: localAbsPath, target: target, identity: localFileIdentity(info)})
+	}
 	return target, nil
 }
 
 // A remote deletion still conflicts with unsynchronized local content. Reuse
 // the existing conflict-copy policy before removing a modified file/subtree.
-func preserveLocalDeleteConflict(ctx context.Context, root, abs string, stored SyncEntry, hasStored bool, state *stateWriter, namer *conflictNamer) (string, error) {
+func preserveLocalDeleteConflict(ctx context.Context, root, abs string, stored SyncEntry, hasStored bool, lookup func(string) (SyncEntry, bool), namer *conflictNamer, checkRunning func() error) (string, error) {
 	changed := false
 	err := filepath.WalkDir(abs, func(current string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
@@ -105,12 +144,7 @@ func preserveLocalDeleteConflict(ctx context.Context, root, abs string, stored S
 			if err != nil {
 				return err
 			}
-			known = false
-			if state != nil {
-				state.mu.Lock()
-				baseline, known = state.state.Entries[filepath.ToSlash(rel)]
-				state.mu.Unlock()
-			}
+			baseline, known = lookup(filepath.ToSlash(rel))
 		}
 		// A deletion event may have marked this entry before the downloader
 		// runs. Its content fields still describe the last synchronized bytes.
@@ -129,6 +163,9 @@ func preserveLocalDeleteConflict(ctx context.Context, root, abs string, stored S
 		return "", err
 	}
 	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := checkRunning(); err != nil {
 		return "", err
 	}
 	return moveLocalToConflict(namer, abs)

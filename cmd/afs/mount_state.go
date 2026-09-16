@@ -18,6 +18,7 @@ type mountRegistry struct {
 	Mounts    []mountRecord `json:"mounts"`
 }
 type mountRecord struct {
+	Backend       string    `json:"backend,omitempty"` // Empty in existing records means folder sync.
 	ID            string    `json:"id"`
 	Workspace     string    `json:"workspace"`
 	WorkspaceID   string    `json:"workspace_id"`

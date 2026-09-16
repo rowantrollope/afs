@@ -7,7 +7,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rowantrollope/afs/mount/client"
 )
+
+type syncManualSaveClient struct{ client.Client }
+
+func (c *syncManualSaveClient) SubscribeInvalidationsWithReconnect(context.Context, func(client.InvalidateEvent), func()) error {
+	// The controlled generation is driven by explicit save requests. A
+	// subscription recovery scan must not publish before the test's write gate.
+	return nil
+}
 
 func saveRequestForDaemon(d *syncDaemon, timeout time.Duration) syncControlRequest {
 	return syncControlRequest{Version: syncControlVersion, Operation: syncControlOpSave,
@@ -17,8 +27,14 @@ func saveRequestForDaemon(d *syncDaemon, timeout time.Duration) syncControlReque
 
 func newDirectSaveService(t *testing.T, env *syncTestEnv) *syncSaveService {
 	t.Helper()
-	d := env.startDaemon(t)
-	// No watcher may upload the test changes before the explicit save.
+	var liveClient client.Client
+	d := env.startDaemon(t, func(cfg *syncDaemonConfig) {
+		liveClient = cfg.FS
+		cfg.FS = &syncManualSaveClient{Client: liveClient}
+	})
+	// Replacement generations still exercise ordinary subscription recovery.
+	d.cfg.FS = liveClient
+	// No watcher may upload the test changes before the explicit save either.
 	if err := d.watcher.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +104,9 @@ func TestSyncSaveServiceWaitsForRemoteWriteAndRestartsAfterTimeout(t *testing.T)
 	go func() { done <- s.save(request) }()
 	select {
 	case <-entered:
+	case result := <-done:
+		data, readErr := env.fsClient.Cat(context.Background(), "/file")
+		t.Fatalf("save bypassed gated write: result=%+v remote=%q remoteErr=%v", result, data, readErr)
 	case <-time.After(5 * time.Second):
 		t.Fatal("save never reached write")
 	}

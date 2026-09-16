@@ -20,5 +20,51 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: go test -race ./...
+      - name: Native mount dependency regressions
+        run: make native-deps-test
       - name: Independent processes against real Redis
         run: go test -tags=integration -timeout=15m -count=1 -v ./tests/e2e
+      - name: Lab oracle and cleanup checks
+        run: python3 -m unittest discover -s tests/multiwriter -p 'test_*.py' -v
+      - name: Concurrent agent workload smoke
+        run: python3 scripts/multiwriter_lab.py --clients 4 --files 8 --rounds 2 --output "$RUNNER_TEMP/afs-multiwriter"
+      - name: Retain multi-writer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afs-multiwriter
+          path: ${{ runner.temp }}/afs-multiwriter
+          if-no-files-found: ignore
+  native-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        clients: [4, 8]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable kernel FUSE and NFS clients
+        run: sudo modprobe fuse && sudo modprobe nfs
+      - name: Concurrent FUSE, NFS and folder-sync acceptance
+        env:
+          AFS_LAB_CLIENTS: ${{ matrix.clients }}
+          AFS_LAB_FILES: 8
+          AFS_LAB_ROUNDS: 3
+          AFS_LAB_LATENCY_MS: 1
+        run: |
+          mkdir -p tests/multiwriter/artifacts
+          docker compose -f tests/multiwriter/compose.native.yaml run --build --rm native
+      - name: Make container evidence readable by the runner
+        if: always()
+        run: |
+          if [ -d tests/multiwriter/artifacts ]; then
+            sudo chown -R "$(id -u):$(id -g)" tests/multiwriter/artifacts
+          fi
+      - name: Retain native mount evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afs-native-${{ matrix.clients }}
+          path: tests/multiwriter/artifacts
+          if-no-files-found: warn

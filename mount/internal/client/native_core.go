@@ -234,8 +234,9 @@ func (c *nativeClient) ReadChangeStream(ctx context.Context, lastID string, coun
 }
 
 // SubscribeInvalidationsWithReconnect is like SubscribeInvalidations but
-// calls onReconnect each time the underlying pub/sub connection is
-// re-established after a drop.
+// calls onReconnect after the initial subscription and each time the underlying
+// pub/sub connection is re-established. The initial callback closes the gap
+// between a caller's starting snapshot and the confirmed live subscription.
 func (c *nativeClient) SubscribeInvalidationsWithReconnect(ctx context.Context, handler func(InvalidateEvent), onReconnect func()) error {
 	if handler == nil {
 		handler = func(InvalidateEvent) {}
@@ -246,7 +247,6 @@ func (c *nativeClient) SubscribeInvalidationsWithReconnect(ctx context.Context, 
 }
 
 func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Context, channel string, handler func(InvalidateEvent), onReconnect func()) {
-	firstConnect := true
 	backoff := 100 * time.Millisecond
 	const maxBackoff = 5 * time.Second
 
@@ -273,12 +273,40 @@ func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Contex
 			continue
 		}
 		backoff = 100 * time.Millisecond
-		if !firstConnect && onReconnect != nil {
+		if onReconnect != nil {
 			onReconnect()
 		}
-		firstConnect = false
-		ch := sub.Channel()
-		c.consumeInvalidationChannel(ctx, ch, handler)
+		// go-redis reconnects inside Channel without closing the channel. Keep
+		// subscription confirmations so those internal reconnects are visible;
+		// the first confirmation was already consumed by Receive above.
+		ch := sub.ChannelWithSubscriptions()
+	consume:
+		for {
+			select {
+			case <-ctx.Done():
+				break consume
+			case message, ok := <-ch:
+				if !ok {
+					break consume
+				}
+				switch msg := message.(type) {
+				case *redis.Subscription:
+					if msg.Kind == "subscribe" && msg.Channel == channel && onReconnect != nil {
+						onReconnect()
+					}
+				case *redis.Message:
+					ev, err := decodeInvalidate([]byte(msg.Payload))
+					if err != nil {
+						log.Printf("afs-lite: invalidate decode failed: %v (payload=%q)", err, msg.Payload)
+						continue
+					}
+					if ev.Origin != c.originID {
+						c.applyRemoteInvalidation(ev)
+						handler(*ev)
+					}
+				}
+			}
+		}
 		_ = sub.Close()
 		if ctx.Err() != nil {
 			return
@@ -411,14 +439,16 @@ func (c *nativeClient) applyRemoteInvalidation(ev *InvalidateEvent) {
 }
 
 func (c *nativeClient) Stat(ctx context.Context, p string) (*StatResult, error) {
-	resolved, inode, err := c.resolvePath(ctx, p, false)
+	_, inode, err := c.resolvePath(ctx, p, false)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	c.cachePath(resolved, inode)
+	// resolvePath caches Redis reads. Re-caching its result here would renew
+	// hits indefinitely, so a missed invalidation could retain a retired inode
+	// for as long as callers keep polling it.
 	return inode.toStat(), nil
 }
 
@@ -524,6 +554,10 @@ func (c *nativeClient) CreateFile(ctx context.Context, p string, mode uint32, ex
 }
 
 func (c *nativeClient) Mkdir(ctx context.Context, p string) error {
+	return c.MkdirMode(ctx, p, 0o755)
+}
+
+func (c *nativeClient) MkdirMode(ctx context.Context, p string, mode uint32) error {
 	p = normalizePath(p)
 	if p == "/" {
 		return c.ensureRoot(ctx)
@@ -541,7 +575,7 @@ func (c *nativeClient) Mkdir(ctx context.Context, p string) error {
 		}
 		return ErrAlreadyExists
 	}
-	if err := c.createDir(ctx, p, 0o755); err != nil {
+	if err := c.createDir(ctx, p, mode); err != nil {
 		return err
 	}
 	return c.markRootDirty(ctx)

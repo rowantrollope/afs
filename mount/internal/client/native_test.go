@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -74,12 +75,31 @@ func setupTestRedis(t *testing.T) (*redis.Client, context.Context) {
 		"--save", "",
 		"--appendonly", "no",
 	)
+	logPath := filepath.Join(t.TempDir(), "redis-server.log")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		t.Fatalf("create redis-server log: %v", err)
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		t.Fatalf("start redis-server: %v", err)
 	}
+	var exitErr error
+	exited := make(chan struct{})
+	go func() {
+		exitErr = cmd.Wait()
+		close(exited)
+	}()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			t.Errorf("owned redis-server pid %d did not exit after kill", cmd.Process.Pid)
+		}
+		_ = logFile.Close()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -89,12 +109,20 @@ func setupTestRedis(t *testing.T) (*redis.Client, context.Context) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	deadline := time.Now().Add(5 * time.Second)
+	var lastPing error
 	for {
-		if err := rdb.Ping(ctx).Err(); err == nil {
+		if lastPing = rdb.Ping(ctx).Err(); lastPing == nil {
 			break
 		}
+		select {
+		case <-exited:
+			log, _ := os.ReadFile(logPath)
+			t.Fatalf("owned redis-server pid %d exited before ready: %v; last ping: %v\nserver log:\n%s", cmd.Process.Pid, exitErr, lastPing, log)
+		default:
+		}
 		if time.Now().After(deadline) {
-			t.Fatal("redis-server did not become ready")
+			log, _ := os.ReadFile(logPath)
+			t.Fatalf("owned redis-server pid %d did not become ready (child still running); last ping: %v\nserver log:\n%s", cmd.Process.Pid, lastPing, log)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

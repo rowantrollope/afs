@@ -5,13 +5,15 @@ machines and edit ordinary local files; changes synchronize in both directions.
 One workspace owns one file tree and its checkpoints.
 
 AFS is a slim Go derivative of [redis/agent-filesystem](https://github.com/redis/agent-filesystem),
-retaining its folder sync, inode storage, manifest checkpoints and recovery code.
+retaining its folder sync, inode storage, manifest checkpoints and recovery code,
+with optional FUSE and NFS mounting through a separate helper.
 See the [simplification report](docs/simplification.md) for provenance and changes.
 
 ## Build
 
 Requires Go 1.22.2 or newer and a Redis server. Supported local platforms are
-macOS and Linux; acceptance runs cover Redis 7.0.15 and 8.6.2. No FUSE, NFS, control-plane server or agent plugin is required.
+macOS and Linux; acceptance runs cover Redis 7.0.15 and 8.6.2. The default folder
+sync needs no FUSE, NFS, control-plane server or agent plugin.
 
 ```sh
 git clone https://github.com/rowantrollope/afs.git
@@ -89,6 +91,31 @@ in the local directory. Ctrl-C in foreground mode also attempts a flush.
 
 ## Files and command output
 
+### Optional native mounts
+
+Build the native helper alongside the CLI:
+
+```sh
+make native
+./bin/afs mount shared ./live --backend=fuse
+# Or:
+./bin/afs mount shared ./live-nfs --backend=nfs
+./bin/afs status ./live
+./bin/afs unmount ./live
+```
+
+Native mountpoints must be empty. FUSE requires the platform's installed FUSE
+driver; NFS requires `mount_nfs` on macOS or `mount.nfs` on Linux and OS mount
+privileges. Install `afsmount` alongside `afs`, or set `AFS_NATIVE_HELPER` to its
+absolute path. The ordinary CLI does not link the driver libraries.
+
+Native mounts expose Redis files directly. Unmounting does not copy them onto
+the local disk. They share workspace/checkpoint safeguards and Redis Array
+detection with folder sync, but native concurrent writes do not create sync
+conflict copies. See [native mount semantics and testing](docs/native-mounts.md).
+
+### Ordinary filesystem tools
+
 Use ordinary filesystem tools inside a mounted directory:
 
 ```sh
@@ -164,7 +191,7 @@ at a terminal or require `--yes` when used noninteractively.
 
 ## Conflicts and recovery
 
-Disjoint edits converge automatically. When both sides modify one path, the
+With folder sync, disjoint edits converge automatically. When both sides modify one path, the
 published version remains at the original path and the competing local version
 is preserved as `name.conflict-<host>-<timestamp>-<counter>`. Review and merge those
 files with normal filesystem tools. Concurrent delete/edit likewise preserves
@@ -198,12 +225,32 @@ go test -tags=integration -timeout=15m -count=1 -v ./tests/e2e
 ```
 
 `make cli-test` runs the complete reduced CLI acceptance suite.
-`make check` runs all checks. The integration tag builds a fresh CLI binary
+`make check` runs build, vet, unit/race, native dependency regressions, CLI
+acceptance and the core concurrency smoke test. Native kernel acceptance and
+prior/current CLI comparison have separate commands below and in their guides.
+The integration tag builds a fresh CLI binary
 and executes the reduced commands as a black-box contract, including the README
 workflows. The [CLI comparison](docs/cli-compatibility.md) maps prior commands to
 AFS and describes the separately executable comparison against the prior binary.
 Optional Redis Array tests require a separately configured disposable server;
-skips are reported separately from verification. CI runs the core and process
-suites on Linux.
+set `AFS_TEST_ARRAY_REDIS_ADDR` to its host and port, and
+`AFS_TEST_ARRAY_REDIS_SERVER` to the Array-capable `redis-server` executable for
+tests that start their own instance. Skips are reported separately from
+verification. CI runs the core, process and native kernel suites on Linux.
+
+For agent fleets sharing one workspace, the [multi-writer lab](tests/multiwriter/README.md)
+runs configurable independent clients, concurrent file/symlink conflicts,
+partitions, crashes and cold hydration against disposable Redis. It retains
+logs, expected versions, manifests and JSON/Markdown reports:
+
+```sh
+make multiwriter LAB_ARGS='--clients 4 --files 20 --rounds 3 --seed 1'
+```
+
+The lab includes a Linux Docker Compose environment. These process tests model
+independent clients; validate actual microVM boot, disks and resource limits in
+the customer's environment before drawing deployment capacity conclusions.
+See the [recorded findings](docs/multiwriter-results.md) for reproduced bugs,
+fixes, validation results and measurement limits.
 
 License: GNU AGPL v3; see [LICENSE](LICENSE) and [NOTICE](NOTICE).

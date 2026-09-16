@@ -59,7 +59,8 @@ type downloadResult struct {
 	Size         int64
 	MtimeMs      int64
 	LocalMtimeMs int64
-	Target       string // for symlinks
+	LocalInfo    fs.FileInfo // identity and metadata of the acknowledged local candidate
+	Target       string      // for symlinks
 }
 
 // downloader runs in its own goroutine, draining ops from the reconciler.
@@ -167,6 +168,8 @@ func (d *downloader) processFile(ctx context.Context, op downloadOp) {
 		return
 	}
 	if stat.Type == "dir" {
+		op.Kind = opDownloadMkdir
+		op.Mode = stat.Mode
 		d.processMkdir(ctx, op)
 		return
 	}
@@ -212,7 +215,7 @@ func (d *downloader) processFile(ctx context.Context, op downloadOp) {
 		return err
 	})
 	if err != nil {
-		d.send(downloadResult{Op: op, Skipped: errors.Is(err, errSyncDownloadLocalChanged), Err: fmt.Errorf("write local %s: %w", op.Path, err)})
+		d.send(downloadResult{Op: op, ConflictPath: conflictPath, Skipped: errors.Is(err, errSyncDownloadLocalChanged), Err: fmt.Errorf("write local %s: %w", op.Path, err)})
 		return
 	}
 	d.echo.markFile(op.Path, hash)
@@ -223,7 +226,7 @@ func (d *downloader) processFile(ctx context.Context, op downloadOp) {
 func (d *downloader) sendFileResult(op downloadOp, stat *client.StatResult, hash, conflictPath string, mode uint32, size int64) {
 	info, err := os.Lstat(op.AbsPath)
 	if err != nil {
-		d.send(downloadResult{Op: op, Err: err})
+		d.send(downloadResult{Op: op, Err: err, ConflictPath: conflictPath})
 		return
 	}
 	d.send(downloadResult{
@@ -235,6 +238,7 @@ func (d *downloader) sendFileResult(op downloadOp, stat *client.StatResult, hash
 		Size:         size,
 		MtimeMs:      stat.Mtime,
 		LocalMtimeMs: info.ModTime().UnixMilli(),
+		LocalInfo:    info,
 	})
 }
 
@@ -446,7 +450,7 @@ func (d *downloader) processSymlink(ctx context.Context, op downloadOp) {
 		return
 	}
 	if local.info != nil && local.info.Mode()&os.ModeSymlink != 0 && local.target == op.Symlink {
-		d.send(downloadResult{Op: op, Target: op.Symlink, LocalMtimeMs: local.info.ModTime().UnixMilli()})
+		d.send(downloadResult{Op: op, Target: op.Symlink, LocalMtimeMs: local.info.ModTime().UnixMilli(), LocalInfo: local.info})
 		return
 	}
 	if !op.Conflict && !local.matchesStored(op) {
@@ -494,16 +498,16 @@ func (d *downloader) processSymlink(ctx context.Context, op downloadOp) {
 		}
 	}
 	if err := os.Rename(tempPath, op.AbsPath); err != nil {
-		d.send(downloadResult{Op: op, Err: err})
+		d.send(downloadResult{Op: op, Err: err, ConflictPath: conflictPath})
 		return
 	}
 	d.echo.markSymlink(op.Path, op.Symlink)
 	info, err = os.Lstat(op.AbsPath)
 	if err != nil {
-		d.send(downloadResult{Op: op, Err: err})
+		d.send(downloadResult{Op: op, Err: err, ConflictPath: conflictPath})
 		return
 	}
-	d.send(downloadResult{Op: op, Target: op.Symlink, ConflictPath: conflictPath, LocalMtimeMs: info.ModTime().UnixMilli()})
+	d.send(downloadResult{Op: op, Target: op.Symlink, ConflictPath: conflictPath, LocalMtimeMs: info.ModTime().UnixMilli(), LocalInfo: info})
 }
 
 func (d *downloader) processMkdir(ctx context.Context, op downloadOp) {
@@ -515,44 +519,46 @@ func (d *downloader) processMkdir(ctx context.Context, op downloadOp) {
 		return
 	}
 	d.echo.markDir(op.Path)
-	d.send(downloadResult{Op: op})
+	if err := os.Chmod(op.AbsPath, fs.FileMode(op.Mode&0o7777)); err != nil {
+		d.send(downloadResult{Op: op, Err: fmt.Errorf("chmod local directory %s: %w", op.Path, err)})
+		return
+	}
+	info, err := os.Lstat(op.AbsPath)
+	d.send(downloadResult{Op: op, Err: err, LocalInfo: info})
+}
+
+// A delayed acknowledgment may clean up its own candidate after a local
+// deletion, but must leave a subsequent application edit or recreation intact.
+func (r downloadResult) localCandidateUnchanged(abs string) bool {
+	if r.LocalInfo == nil || !(downloadLocalSnapshot{info: r.LocalInfo}).unchanged(abs) {
+		return false
+	}
+	local, err := snapshotDownloadLocal(abs, SyncEntry{ChunkSize: r.Op.ChunkSize})
+	if err != nil || local.info == nil {
+		return false
+	}
+	var matches bool
+	switch r.Op.Kind {
+	case opDownloadFile:
+		matches = local.info.Mode().IsRegular() && r.RemoteHash != "" &&
+			(local.hash == r.RemoteHash || local.baselineHash == r.RemoteHash)
+	case opDownloadSymlink:
+		matches = local.info.Mode()&os.ModeSymlink != 0 && local.target == r.Target
+	case opDownloadMkdir:
+		matches = local.info.IsDir()
+	}
+	return matches && local.unchanged(abs) && (downloadLocalSnapshot{info: r.LocalInfo}).unchanged(abs)
 }
 
 func (d *downloader) processDelete(ctx context.Context, op downloadOp) {
 	if d.cancelled(ctx, op) {
 		return
 	}
-	conflictPath, err := preserveLocalDeleteConflict(ctx, d.root, op.AbsPath, op.StoredEntry, op.HasStored, d.state, d.conflict)
-	if err == nil && conflictPath == "" {
-		err = d.removeLocalFile(ctx, op)
-	}
+	conflictPath, skipped, err := applyConfirmedSyncRemoteDelete(ctx, d.fs, d.root, op.AbsPath, op.StoredEntry, op.HasStored, d.state, d.conflict, d.echo, d.checkLocalRoot)
 	if conflictPath != "" && d.log != nil {
 		d.log.Conflict(op.Path, conflictPath)
 	}
-	d.send(downloadResult{Op: op, Err: err, ConflictPath: conflictPath})
-}
-
-func (d *downloader) removeLocalFile(ctx context.Context, op downloadOp) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := d.checkLocalRoot(); err != nil {
-		return err
-	}
-	info, err := os.Lstat(op.AbsPath)
-	if err != nil {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	d.echo.markDelete(op.Path)
-	if info.IsDir() {
-		_ = os.RemoveAll(op.AbsPath)
-		return nil
-	}
-	_ = os.Remove(op.AbsPath)
-	return nil
+	d.send(downloadResult{Op: op, Err: err, Skipped: skipped, ConflictPath: conflictPath})
 }
 
 func (d *downloader) processChmod(ctx context.Context, op downloadOp) {
@@ -589,7 +595,7 @@ var errSyncDownloadLocalChanged = errors.New("local destination changed while st
 
 // Stage bytes before replacing the destination. Cancelled downloads discard
 // their temporary files without moving the local file to a conflict copy.
-func (d *downloader) writeLocalFile(ctx context.Context, op downloadOp, mode uint32, write func(*os.File) error) (string, error) {
+func (d *downloader) writeLocalFile(ctx context.Context, op downloadOp, mode uint32, write func(*os.File) error, beforeCommit ...func() error) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -630,6 +636,11 @@ func (d *downloader) writeLocalFile(ctx context.Context, op downloadOp, mode uin
 	}
 	if err := d.checkLocalRoot(); err != nil {
 		return "", err
+	}
+	for _, check := range beforeCommit {
+		if err := check(); err != nil {
+			return "", err
+		}
 	}
 	if !local.unchanged(op.AbsPath) {
 		return "", errSyncDownloadLocalChanged

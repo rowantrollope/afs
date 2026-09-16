@@ -9,6 +9,9 @@ import (
 )
 
 type Client = internal.Client
+type NativeClient = internal.NativeClient
+type FileLock = internal.FileLock
+type PathCacheWarmer = internal.PathCacheWarmer
 type StatResult = internal.StatResult
 type LsEntry = internal.LsEntry
 type InfoResult = internal.InfoResult
@@ -52,9 +55,28 @@ func NewWithCacheAndObserver(rdb *redis.Client, key string, ttl time.Duration, o
 var ErrWriteConflict = internal.ErrWriteConflict
 var ErrWorkspaceChanged = internal.ErrWorkspaceChanged
 var ErrDirNotEmpty = internal.ErrDirNotEmpty
+var ErrAlreadyExists = internal.ErrAlreadyExists
+var ErrNotFound = internal.ErrNotFound
+var ErrNotFile = internal.ErrNotFile
+var ErrNotDir = internal.ErrNotDir
+var ErrUnsupported = internal.ErrUnsupported
+var ErrLockWouldBlock = internal.ErrLockWouldBlock
+var ErrNativeSessionLost = internal.ErrNativeSessionLost
+
+func NewNative(ctx context.Context, rdb *redis.Client, key, generation string) (NativeClient, error) {
+	return internal.NewNative(ctx, rdb, key, generation)
+}
+
+func NewNativeWithCache(ctx context.Context, rdb *redis.Client, key, generation string, ttl time.Duration) (NativeClient, error) {
+	return internal.NewNativeWithCache(ctx, rdb, key, generation, ttl)
+}
 
 func WithExpectedStat(ctx context.Context, stat *StatResult) context.Context {
 	return internal.WithExpectedStat(ctx, stat)
+}
+
+func WithExpectedParent(ctx context.Context, parentPath string, inode uint64) context.Context {
+	return internal.WithExpectedParent(ctx, parentPath, inode)
 }
 func WithWorkspaceGeneration(ctx context.Context, generation string) context.Context {
 	return internal.WithWorkspaceGeneration(ctx, generation)

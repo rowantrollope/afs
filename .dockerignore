@@ -1,0 +1,9 @@
+.git
+.codex
+.agents
+.env
+.env.*
+bin
+tests/multiwriter/artifacts
+**/__pycache__
+**/.DS_Store

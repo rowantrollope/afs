@@ -50,12 +50,19 @@ func redisIdentity(cfg config) string {
 func (a *app) mount(args []string) error {
 	flags := flag.NewFlagSet("mount", flag.ContinueOnError)
 	foreground := flags.Bool("foreground", false, "stay attached")
+	backend := flags.String("backend", "sync", "sync, fuse, or nfs")
 	pos, err := parseCommandFlags(flags, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
 		return errors.New(commandUsage["mount"])
+	}
+	if *backend != "sync" {
+		if *backend != "fuse" && *backend != "nfs" {
+			return fmt.Errorf("unknown mount backend %q; choose sync, fuse, or nfs", *backend)
+		}
+		return a.mountNative(pos[0], pos[1], *backend, *foreground)
 	}
 	localRoot, err := normalizeMountPath(pos[1])
 	if err != nil {
@@ -90,7 +97,11 @@ func (a *app) mount(args []string) error {
 	for _, rec := range reg.Mounts {
 		conflict := rec.LocalPath == localRoot || pathContains(rec.LocalPath, localRoot) || pathContains(localRoot, rec.LocalPath)
 		if conflict {
-			owned, e := syncRootOwned(rec.LocalPath)
+			if isNativeMount(rec) {
+				release()
+				return fmt.Errorf("directory overlaps a registered native mount: %s; unmount it first", rec.LocalPath)
+			}
+			owned, e := mountOwned(rec)
 			if e != nil {
 				release()
 				return e
@@ -447,7 +458,7 @@ func (a *app) unmount(args []string) error {
 	if len(pos) != 1 {
 		return errors.New(commandUsage["unmount"])
 	}
-	root, err := normalizeMountPath(pos[0])
+	root, err := expandPath(pos[0])
 	if err != nil {
 		return err
 	}
@@ -460,9 +471,18 @@ func (a *app) unmount(args []string) error {
 	if err != nil {
 		return err
 	}
+	if _, ok := mountByPath(reg, root); !ok {
+		root, err = normalizeMountPath(pos[0])
+		if err != nil {
+			return err
+		}
+	}
 	rec, ok := mountByPath(reg, root)
 	if !ok {
 		return errors.New("directory is not registered as mounted")
+	}
+	if isNativeMount(rec) {
+		return a.unmountNative(rec, &reg, *force)
 	}
 	owned, err := syncRootOwned(root)
 	if err != nil {
@@ -515,9 +535,15 @@ func (a *app) status(args []string) error {
 		return err
 	}
 	if len(args) == 1 {
-		root, e := normalizeMountPath(args[0])
+		root, e := expandPath(args[0])
 		if e != nil {
 			return e
+		}
+		if _, ok := mountByPath(reg, root); !ok {
+			root, e = normalizeMountPath(args[0])
+			if e != nil {
+				return e
+			}
 		}
 		rec, ok := mountByPath(reg, root)
 		if !ok {
@@ -528,6 +554,11 @@ func (a *app) status(args []string) error {
 	out := make([]map[string]any, 0, len(reg.Mounts))
 	for _, rec := range reg.Mounts {
 		row := map[string]any{"workspace": rec.Workspace, "directory": rec.LocalPath, "redis": rec.Redis, "pid": rec.PID}
+		if isNativeMount(rec) {
+			nativeMountStatus(rec, row)
+			out = append(out, row)
+			continue
+		}
 		owned, e := syncRootOwned(rec.LocalPath)
 		if e != nil {
 			row["error"] = e.Error()
@@ -572,6 +603,12 @@ func (a *app) flushLocalMounts(ctx context.Context, workspace string) error {
 		return err
 	}
 	for _, rec := range records {
+		if isNativeMount(rec) {
+			if _, err := callNativeMount(rec, "flush", defaultSyncSaveTimeout); err != nil {
+				return fmt.Errorf("flush %s: %w", rec.LocalPath, err)
+			}
+			continue
+		}
 		owned, e := syncRootOwned(rec.LocalPath)
 		if e != nil {
 			return e

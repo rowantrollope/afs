@@ -109,6 +109,18 @@ func (c *nativeClient) ensureRoot(ctx context.Context) error {
 }
 
 func (c *nativeClient) ensureParents(ctx context.Context, p string) error {
+	if parents, _ := ctx.Value(expectedParentsKey{}).(expectedParents); len(parents) > 0 {
+		// Native handles refer to existing directories. A stale pathname must
+		// never cause implicit parent creation before the identity check.
+		_, parent, err := c.resolvePath(ctx, parentOf(normalizePath(p)), true)
+		if errors.Is(err, redis.Nil) {
+			return ErrWriteConflict
+		}
+		if err != nil {
+			return err
+		}
+		return checkExpectedParent(ctx, p, parent.ID)
+	}
 	if err := c.ensureRoot(ctx); err != nil {
 		return err
 	}
@@ -491,19 +503,8 @@ func (c *nativeClient) loadContentExternal(ctx context.Context, id, contentRef s
 	if err != nil && err != redis.Nil {
 		return "", err
 	}
-	preferredRef, err := c.preferredContentRef(ctx)
-	if err != nil {
-		return "", err
-	}
-	// Lazy migration: move inline content to the preferred external backend.
-	// This is best-effort — if it fails, the next read will retry.
-	if v != "" || preferredRef != "" {
-		pipe := c.rdb.Pipeline()
-		rediscontent.QueueWriteFull(ctx, pipe, c.keys.content(id), preferredRef, []byte(v))
-		pipe.HSet(ctx, c.keys.inode(id), "content_ref", preferredRef)
-		pipe.HDel(ctx, c.keys.inode(id), "content")
-		_, _ = pipe.Exec(ctx)
-	}
+	// A read must not migrate live content outside the publication guard.
+	// The next staged write converts the representation atomically.
 	return v, nil
 }
 
@@ -578,6 +579,9 @@ func (c *nativeClient) createInodeAtPath(ctx context.Context, p string, inode *i
 func (c *nativeClient) createInodeUnderParent(ctx context.Context, childPath string, parent *inodeData, name string, inode *inodeData) error {
 	if parent == nil || parent.Type != "dir" {
 		return ErrParentConflict
+	}
+	if err := checkExpectedParent(ctx, childPath, parent.ID); err != nil {
+		return err
 	}
 	if _, err := c.lookupChildID(ctx, parent.ID, name); err == nil {
 		return ErrAlreadyExists
@@ -669,6 +673,9 @@ func (c *nativeClient) createFileIfMissing(ctx context.Context, p string, conten
 	if parent.Type != "dir" {
 		return nil, false, ErrParentConflict
 	}
+	if err := checkExpectedParent(ctx, p, parent.ID); err != nil {
+		return nil, false, err
+	}
 	id, err := c.allocInodeID(ctx)
 	if err != nil {
 		return nil, false, err
@@ -701,6 +708,9 @@ func (c *nativeClient) createFileIfMissing(ctx context.Context, p string, conten
 	if _, conditional := ctx.Value(expectedStatKey{}).(expectedStat); conditional {
 		return nil, false, ErrWriteConflict
 	}
+	if parents, _ := ctx.Value(expectedParentsKey{}).(expectedParents); len(parents) > 0 {
+		return nil, false, ErrWriteConflict
+	}
 	if exclusive {
 		return nil, false, ErrAlreadyExists
 	}
@@ -723,6 +733,12 @@ func (c *nativeClient) createFileIfMissing(ctx context.Context, p string, conten
 }
 
 func (c *nativeClient) renamePath(ctx context.Context, resolvedSrc string, srcInode *inodeData, dst string, newParent *inodeData, flags uint32) error {
+	if err := checkExpectedParent(ctx, resolvedSrc, srcInode.Parent); err != nil {
+		return err
+	}
+	if err := checkExpectedParent(ctx, dst, newParent.ID); err != nil {
+		return err
+	}
 	if err := checkWriteCondition(ctx, srcInode, false); err != nil {
 		return err
 	}
@@ -736,12 +752,21 @@ func (c *nativeClient) renamePath(ctx context.Context, resolvedSrc string, srcIn
 	var watchDstDirID string
 	for attempts := 0; attempts < 8; attempts++ {
 		keys := uniqueStrings(c.keys.dirents(oldParentID), c.keys.dirents(newParent.ID), c.keys.inode(srcInode.ID))
+		parentKeys := uniqueStrings(c.keys.inode(oldParentID), c.keys.inode(newParent.ID))
+		keys = uniqueStrings(append(keys, parentKeys...)...)
 		if watchDstDirID != "" {
 			keys = uniqueStrings(append(keys, c.keys.dirents(watchDstDirID))...)
 		}
 
 		var nextDstDirID string
 		err := c.retryWatch(ctx, keys, func(tx *redis.Tx) error {
+			live, err := tx.Exists(ctx, parentKeys...).Result()
+			if err != nil {
+				return err
+			}
+			if live != int64(len(parentKeys)) {
+				return ErrWriteConflict
+			}
 			currentSrcID, err := tx.HGet(ctx, c.keys.dirents(oldParentID), oldName).Result()
 			if err != nil {
 				if errors.Is(err, redis.Nil) {
@@ -937,10 +962,21 @@ func (c *nativeClient) allocInodeID(ctx context.Context) (string, error) {
 
 func (c *nativeClient) retryWatch(ctx context.Context, keys []string, fn func(*redis.Tx) error) error {
 	generation, managed := ctx.Value(workspaceGenerationKey{}).(string)
+	lease := nativeLease(ctx)
+	if lease != "" {
+		keys = uniqueStrings(append(keys, lease)...)
+	}
 	if managed {
 		keys = uniqueStrings(append(keys, c.keys.generation())...)
 	}
 	guarded := func(tx *redis.Tx) error {
+		if lease != "" {
+			if exists, err := tx.Exists(ctx, lease).Result(); err != nil {
+				return err
+			} else if exists == 0 {
+				return ErrNativeSessionLost
+			}
+		}
 		if managed {
 			actual, err := tx.Get(ctx, c.keys.generation()).Result()
 			if errors.Is(err, redis.Nil) || (err == nil && actual != generation) {
@@ -949,6 +985,9 @@ func (c *nativeClient) retryWatch(ctx context.Context, keys []string, fn func(*r
 			if err != nil {
 				return err
 			}
+		}
+		if err := c.watchExpectedParents(ctx, tx); err != nil {
+			return err
 		}
 		return fn(tx)
 	}
@@ -1083,8 +1122,28 @@ func (c *nativeClient) markRootDirty(ctx context.Context) error {
 	}
 	c.dirtyLastSent = time.Now()
 	c.dirtyMu.Unlock()
+	if generation, managed := ctx.Value(workspaceGenerationKey{}).(string); managed {
+		code, err := markRootDirtyGuarded.Run(ctx, c.rdb, []string{c.keys.rootDirty(), c.keys.generation(), c.leaseGuardKey(ctx)}, generation).Int()
+		if err != nil {
+			return err
+		}
+		if code == -2 {
+			return ErrWorkspaceChanged
+		}
+		if code == -5 {
+			return ErrNativeSessionLost
+		}
+		return nil
+	}
 	return c.rdb.Set(ctx, c.keys.rootDirty(), "1", 0).Err()
 }
+
+var markRootDirtyGuarded = redis.NewScript(`
+if redis.call('GET',KEYS[2])~=ARGV[1] then return -2 end
+if KEYS[3]~=KEYS[2] and redis.call('EXISTS',KEYS[3])==0 then return -5 end
+redis.call('SET',KEYS[1],'1')
+return 1
+`)
 
 func (c *nativeClient) cachePath(p string, inode *inodeData) {
 	if c.cache == nil || inode == nil {

@@ -77,4 +77,6 @@ func normalizePath(p string) string {
 	return clean
 }
 
-func (k keyBuilder) generation() string { return "afs-lite:{" + k.fsKey + "}:generation" }
+func (k keyBuilder) generation() string       { return "afs-lite:{" + k.fsKey + "}:generation" }
+func (k keyBuilder) session(id string) string { return "afs-lite:{" + k.fsKey + "}:session:" + id }
+func (k keyBuilder) locks(id string) string   { return "afs-lite:{" + k.fsKey + "}:locks:" + id }

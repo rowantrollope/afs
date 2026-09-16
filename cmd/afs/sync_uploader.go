@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -44,6 +46,7 @@ type uploadOp struct {
 	HasStored     bool
 	Tracked       bool   // reconciler keeps this operation pending through result application
 	RenameVersion uint64 // provisional destination baseline installed when a rename was staged
+	DeleteVersion uint64 // outstanding tombstone installed when a local deletion was staged
 	// Chunked upload fields (set when file > chunkThreshold).
 	Chunked     bool
 	FileSize    int64
@@ -192,6 +195,17 @@ func (u *uploader) processFile(ctx context.Context, op uploadOp) {
 	if !u.queuedFileCurrent(op) {
 		return
 	}
+	if stat == nil {
+		var err error
+		ctx, err = u.prepareRemoteParent(ctx, op)
+		if err != nil {
+			u.send(uploadResult{Op: op, Err: err})
+			return
+		}
+		if !u.queuedFileCurrent(op) {
+			return
+		}
+	}
 	// Echo handles both create-and-write and write-existing in a single
 	// round trip; the native client falls back to createFile when the
 	// path is missing. We don't pre-create with CreateFile because that
@@ -282,6 +296,16 @@ func (u *uploader) processChunkedFile(ctx context.Context, op uploadOp) {
 		return
 	}
 
+	if stat == nil {
+		ctx, err = u.prepareRemoteParent(ctx, op)
+		if err != nil {
+			u.send(uploadResult{Op: op, Err: err})
+			return
+		}
+		if !u.queuedFileCurrent(op) {
+			return
+		}
+	}
 	// The client publishes a complete new file or complete delta atomically.
 	// Precreating an empty inode would expose an incomplete publication.
 	if err := u.fs.WriteChunks(client.WithExpectedStat(ctx, stat), remotePath, chunks, op.ChunkSize, op.FileSize, op.ChunkHashes); err != nil {
@@ -378,24 +402,79 @@ func uploadChunkHashes(data []byte, chunkSize int) []string {
 
 func (u *uploader) processSymlink(ctx context.Context, op uploadOp) {
 	remotePath := absoluteRemotePath(op.Path)
-	// Best-effort delete first; Ln on existing path returns an error.
-	if existing, err := u.fs.Stat(ctx, remotePath); err == nil && existing != nil {
-		if rmErr := u.fs.Rm(ctx, remotePath); rmErr != nil {
-			u.send(uploadResult{Op: op, Err: fmt.Errorf("replace symlink %s: %w", op.Path, rmErr)})
+	if op.AbsPath != "" {
+		target, err := os.Readlink(op.AbsPath)
+		if err != nil || target != op.Symlink {
+			u.send(uploadResult{Op: op, Skipped: true})
 			return
 		}
 	}
-	if err := u.fs.Ln(ctx, op.Symlink, remotePath); err != nil {
-		u.send(uploadResult{Op: op, Err: fmt.Errorf("create symlink %s: %w", op.Path, err)})
+	var err error
+	ctx, err = u.prepareRemoteParent(ctx, op)
+	if err != nil {
+		u.send(uploadResult{Op: op, Err: err})
 		return
 	}
-	stat, _ := u.fs.Stat(ctx, remotePath)
+	stat, err := syncUploadSymlink(ctx, u.fs, remotePath, op.Symlink, op.StoredEntry, op.HasStored)
+	if errors.Is(err, client.ErrWriteConflict) {
+		u.send(uploadResult{Op: op, Conflict: true})
+		return
+	}
+	if err != nil {
+		u.send(uploadResult{Op: op, Err: fmt.Errorf("write symlink %s: %w", op.Path, err)})
+		return
+	}
 	u.send(uploadResult{Op: op, RemoteStat: stat})
+}
+
+// Symlink replacement follows the same baseline rule as regular files. Bind
+// deletion to the observation used for comparison; an intervening publication
+// must survive. Ln claims an absent path exclusively, preserving a writer that
+// creates the path between our conditional removal and creation.
+func syncUploadSymlink(ctx context.Context, fs client.Client, remotePath, target string, stored SyncEntry, hasStored bool) (*client.StatResult, error) {
+	existing, err := fs.Stat(ctx, remotePath)
+	if err != nil && !isClientNotFound(err) {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.Type == "symlink" {
+			remoteTarget, err := fs.Readlink(ctx, remotePath)
+			if err != nil {
+				return nil, err
+			}
+			if remoteTarget == target {
+				return existing, nil
+			}
+		}
+		matches, err := syncRemoteMatchesStored(ctx, fs, remotePath, existing, stored, hasStored)
+		if err != nil {
+			return nil, err
+		}
+		if !matches {
+			return nil, client.ErrWriteConflict
+		}
+		if err := fs.Rm(client.WithExpectedStat(ctx, existing), remotePath); err != nil {
+			return nil, err
+		}
+	}
+	if err := fs.Ln(ctx, target, remotePath); err != nil {
+		if isClientAlreadyExists(err) {
+			return nil, client.ErrWriteConflict
+		}
+		return nil, err
+	}
+	return fs.Stat(ctx, remotePath)
 }
 
 func (u *uploader) processMkdir(ctx context.Context, op uploadOp) {
 	remotePath := absoluteRemotePath(op.Path)
-	if err := u.fs.Mkdir(ctx, remotePath); err != nil {
+	var err error
+	ctx, err = u.prepareRemoteParent(ctx, op)
+	if err != nil {
+		u.send(uploadResult{Op: op, Err: err})
+		return
+	}
+	if err := u.fs.MkdirMode(ctx, remotePath, op.Mode); err != nil {
 		// If it already exists we treat as success (the live root may have
 		// the dir from a prior run).
 		if !isClientAlreadyExists(err) {
@@ -405,6 +484,66 @@ func (u *uploader) processMkdir(ctx context.Context, op uploadOp) {
 	}
 	stat, _ := u.fs.Stat(ctx, remotePath)
 	u.send(uploadResult{Op: op, RemoteStat: stat})
+}
+
+// A watcher can report a child before its new directories. Publish missing
+// ancestors with their local modes before the file API can create default-mode
+// parents. MkdirMode leaves an existing peer directory's permissions intact.
+func (u *uploader) prepareRemoteParent(ctx context.Context, op uploadOp) (context.Context, error) {
+	rel := path.Dir(strings.TrimPrefix(op.Path, "/"))
+	if u.localRoot == "" || rel == "." {
+		return ctx, nil
+	}
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return ctx, fmt.Errorf("invalid upload parent %q", rel)
+	}
+	remotePath := absoluteRemotePath(rel)
+	parent, err := u.fs.Stat(ctx, remotePath)
+	if err != nil && !isClientNotFound(err) {
+		return ctx, err
+	}
+	if parent == nil {
+		parentPath := "/"
+		parent, err = u.fs.Stat(ctx, parentPath)
+		if err != nil {
+			return ctx, fmt.Errorf("read upload root: %w", err)
+		}
+		if parent == nil || parent.Type != "dir" {
+			return ctx, errors.New("remote upload root is not a directory")
+		}
+		for _, component := range strings.Split(rel, "/") {
+			nextPath := path.Join(parentPath, component)
+			next, err := u.fs.Stat(ctx, nextPath)
+			if err != nil && !isClientNotFound(err) {
+				return ctx, err
+			}
+			if next == nil {
+				info, err := os.Lstat(filepath.Join(u.localRoot, filepath.FromSlash(strings.TrimPrefix(nextPath, "/"))))
+				if err != nil {
+					return ctx, fmt.Errorf("read local upload parent %s: %w", nextPath, err)
+				}
+				if !info.IsDir() {
+					return ctx, fmt.Errorf("local upload parent %s is not a directory", nextPath)
+				}
+				bound := client.WithExpectedParent(ctx, parentPath, parent.Inode)
+				if err := u.fs.MkdirMode(bound, nextPath, uint32(info.Mode().Perm())); err != nil && !isClientAlreadyExists(err) {
+					return ctx, fmt.Errorf("create upload parent %s: %w", nextPath, err)
+				}
+				next, err = u.fs.Stat(ctx, nextPath)
+				if err != nil {
+					return ctx, err
+				}
+			}
+			if next == nil || next.Type != "dir" {
+				return ctx, fmt.Errorf("remote upload parent %s is not a directory", nextPath)
+			}
+			parentPath, parent = nextPath, next
+		}
+	}
+	if parent.Type != "dir" {
+		return ctx, fmt.Errorf("remote upload parent %s is not a directory", remotePath)
+	}
+	return client.WithExpectedParent(ctx, remotePath, parent.Inode), nil
 }
 
 func (u *uploader) processDelete(ctx context.Context, op uploadOp) {
@@ -493,6 +632,21 @@ func (u *uploader) processRename(ctx context.Context, op uploadOp) {
 	if err != nil && !isClientNotFound(err) {
 		u.send(uploadResult{Op: op, Err: err})
 		return
+	}
+	if before != nil {
+		matches, err := syncRemoteMatchesStored(ctx, u.fs, srcPath, before, op.StoredEntry, op.HasStored)
+		if err != nil {
+			u.send(uploadResult{Op: op, Err: err})
+			return
+		}
+		if !matches {
+			// Carrying a changed source to the destination would pair its
+			// new metadata with our old content baseline. Recovery could
+			// then overwrite that edit with the stale local renamed file.
+			// Reuse failed-rename recovery to retain both current paths.
+			u.send(uploadResult{Op: op, Skipped: true})
+			return
+		}
 	}
 	if err := u.fs.Rename(client.WithExpectedStat(ctx, before), srcPath, dstPath, client.RenameNoreplace); err != nil {
 		if errors.Is(err, client.ErrWriteConflict) || isClientAlreadyExists(err) || errors.Is(err, redis.Nil) || isClientNotFound(err) {

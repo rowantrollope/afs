@@ -214,7 +214,15 @@ func (s *syncSaveService) saveWithResume(request syncControlRequest, resume bool
 
 	// Preserve the caller's local tree across the drain. An old inbound write
 	// must never become the tree that this save silently acknowledges.
-	beforeDrain, err := scanSyncSaveLocal(ctx, daemon.reconciler)
+	var beforeDrain syncSaveTree
+	finishMoves, err := daemon.reconciler.conflict.captureMoves(func() error {
+		var scanErr error
+		beforeDrain, scanErr = scanSyncSaveLocal(ctx, daemon.reconciler)
+		return scanErr
+	})
+	if finishMoves != nil {
+		defer finishMoves()
+	}
 	if err != nil {
 		return fail(fmt.Errorf("scan local tree before save: %w", err))
 	}
@@ -223,12 +231,13 @@ func (s *syncSaveService) saveWithResume(request syncControlRequest, resume bool
 	// delayed delete senders and in-flight writes before inspecting the tree.
 	// If a client has already timed out, no later success or new save is started.
 	daemon.StopForSave(ctx)
+	moves := finishMoves()
 	s.active = nil
 	s.applyStoppedUploadResults(daemon)
 	var receipt syncSaveReceipt
 	afterDrain, saveErr := scanSyncSaveLocal(ctx, daemon.reconciler)
 	if saveErr == nil {
-		saveErr = compareSyncSaveTrees(beforeDrain, afterDrain)
+		saveErr = compareSyncSaveDrainTrees(daemon.reconciler.root, beforeDrain, afterDrain, moves)
 		if saveErr != nil {
 			saveErr = fmt.Errorf("local tree changed while pausing sync: %w", saveErr)
 		}

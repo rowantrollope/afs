@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -606,7 +604,7 @@ func (f *fullReconciler) scanRemoteDirMeta(ctx context.Context, dir string, out 
 			if err != nil {
 				continue
 			}
-			out[rel] = observedMeta{kind: "symlink", target: target, mtimeMs: e.Mtime}
+			out[rel] = observedMeta{kind: "symlink", mode: e.Mode, size: e.Size, target: target, mtimeMs: e.Mtime}
 		case "file":
 			out[rel] = observedMeta{kind: "file", mode: e.Mode, size: e.Size, mtimeMs: e.Mtime}
 		}
@@ -978,13 +976,26 @@ func (f *fullReconciler) execMkdirLocal(a syncAction) error {
 
 func (f *fullReconciler) execMkdirRemote(ctx context.Context, a syncAction) error {
 	remotePath := absoluteRemotePath(a.path)
-	if err := f.r.fs.Mkdir(ctx, remotePath); err != nil && !isClientAlreadyExists(err) {
-		return fmt.Errorf("mkdir remote %s: %w", a.path, err)
+	stat, current, err := f.remoteStatStillCurrent(ctx, a)
+	if err != nil || !current {
+		return err
 	}
-	if a.mode != 0 {
-		if err := f.r.fs.Chmod(ctx, remotePath, a.mode); err != nil {
-			return fmt.Errorf("chmod remote directory %s: %w", a.path, err)
+	if stat == nil {
+		// Publish the requested mode with creation. A peer that creates the
+		// directory after our observation keeps its own permissions.
+		err = f.r.fs.MkdirMode(ctx, remotePath, a.mode)
+		if isClientAlreadyExists(err) {
+			err = nil
 		}
+	} else {
+		// An intentional local chmod may only change the observed revision.
+		err = f.r.fs.Chmod(client.WithExpectedStat(ctx, stat), remotePath, a.mode)
+	}
+	if err != nil {
+		if errors.Is(err, client.ErrWriteConflict) {
+			f.r.requestFullSweep()
+		}
+		return fmt.Errorf("publish remote directory %s: %w", a.path, err)
 	}
 	f.updateActionState(a, SyncEntry{
 		Type:         "dir",
@@ -1030,10 +1041,8 @@ func (f *fullReconciler) execDownload(ctx context.Context, a syncAction) error {
 	localInfo, statErr := os.Lstat(a.absPath)
 	identical := localErr == nil && statErr == nil && localInfo.Mode().IsRegular() &&
 		sha256Hex(localData) == hash && uint32(localInfo.Mode().Perm()) == a.mode
-	if a.conflict && !identical {
-		if _, err := moveLocalToConflict(f.r.conflict, a.absPath); err != nil {
-			return fmt.Errorf("conflict copy %s: %w", a.path, err)
-		}
+	if identical {
+		a.conflict = false
 	}
 
 	mode := a.mode
@@ -1044,7 +1053,19 @@ func (f *fullReconciler) execDownload(ctx context.Context, a syncAction) error {
 		mode = 0o444
 	}
 	if !identical || f.r.readonly {
-		if err := atomicWriteFileStandalone(a.absPath, data, mode, os.Getpid()); err != nil {
+		conflictPath, err := f.stageDownload(ctx, a, mode, func(file *os.File) error {
+			_, err := file.Write(data)
+			return err
+		})
+		if conflictPath != "" || errors.Is(err, errSyncDownloadLocalChanged) {
+			// Startup can run before the watcher. Preserve both staged edits
+			// and newly created conflict copies through another reconciliation.
+			f.r.requestFullSweep()
+		}
+		if errors.Is(err, errSyncDownloadLocalChanged) {
+			return nil
+		}
+		if err != nil {
 			return fmt.Errorf("write %s: %w", a.path, err)
 		}
 		f.r.echo.markFile(a.path, hash)
@@ -1073,50 +1094,36 @@ func (f *fullReconciler) execDownload(ctx context.Context, a syncAction) error {
 	return nil
 }
 
+// Use the event downloader's staging and destination-identity checks during
+// full recovery as well. Its final guard must also validate this scan's action:
+// a state update during disk I/O can supersede an otherwise unchanged file.
+func (f *fullReconciler) stageDownload(ctx context.Context, a syncAction, mode uint32, write func(*os.File) error) (string, error) {
+	d := newDownloader(f.r.fs, nil, f.r.root, f.r.conflict, f.r.echo, f.r.readonly, f.r.log)
+	d.rootIdentity = f.r.rootIdentity
+	return d.writeLocalFile(ctx, downloadOp{Path: a.path, AbsPath: a.absPath, Conflict: a.conflict}, mode, write, func() error {
+		if err := f.checkRunning(ctx); err != nil {
+			return err
+		}
+		if !f.actionStillCurrent(a) {
+			return errSyncDownloadLocalChanged
+		}
+		return nil
+	})
+}
+
 func (f *fullReconciler) execDeleteLocal(ctx context.Context, a syncAction) error {
-	conflictPath, err := preserveLocalDeleteConflict(ctx, f.r.root, a.absPath, a.storedEntry, a.hasStored, f.r.state, f.r.conflict)
-	if err != nil {
-		return err
-	}
-	if conflictPath != "" {
-		f.r.log.Conflict(a.path, conflictPath)
-		f.r.requestFullSweep()
-	}
 	if err := f.checkRunning(ctx); err != nil {
 		return err
 	}
 	f.r.log.Info(fmt.Sprintf("execDeleteLocal %s", a.path))
-	info, err := os.Lstat(a.absPath)
-	if err != nil {
-		// Already gone locally — mark tombstone in state.
-		f.r.state.mu.Lock()
-		if entry, ok := f.r.state.state.Entries[a.path]; ok {
-			entry.Deleted = true
-			entry.Version = f.r.state.nextVersion()
-			f.r.state.state.Entries[a.path] = entry
-			f.r.state.dirty = true
-		}
-		f.r.state.mu.Unlock()
-		return nil
+	conflictPath, skipped, err := applyConfirmedSyncRemoteDelete(ctx, f.r.fs, f.r.root, a.absPath, a.storedEntry, a.hasStored, f.r.state, f.r.conflict, f.r.echo, func() error { return f.checkRunning(ctx) })
+	if conflictPath != "" {
+		f.r.log.Conflict(a.path, conflictPath)
 	}
-	f.r.echo.markDelete(a.path)
-	if err := f.checkRunning(ctx); err != nil {
-		return err
+	if skipped || conflictPath != "" {
+		f.r.requestFullSweep()
 	}
-	if info.IsDir() {
-		_ = os.RemoveAll(a.absPath)
-	} else {
-		_ = os.Remove(a.absPath)
-	}
-	f.r.state.mu.Lock()
-	if entry, ok := f.r.state.state.Entries[a.path]; ok {
-		entry.Deleted = true
-		entry.Version = f.r.state.nextVersion()
-		f.r.state.state.Entries[a.path] = entry
-		f.r.state.dirty = true
-	}
-	f.r.state.mu.Unlock()
-	return nil
+	return err
 }
 
 func (f *fullReconciler) execDeleteRemote(ctx context.Context, a syncAction) error {
@@ -1157,14 +1164,13 @@ func (f *fullReconciler) execDeleteRemote(ctx context.Context, a syncAction) err
 		return fmt.Errorf("rm remote %s: %w", a.path, err)
 	}
 	f.r.state.mu.Lock()
-	if entry, ok := f.r.state.state.Entries[a.path]; ok {
-		entry.Deleted = true
-		entry.Version = f.r.state.nextVersion()
-		entry.LastSyncedAt = time.Now().UTC()
-		f.r.state.state.Entries[a.path] = entry
+	if entry, ok := f.r.state.state.Entries[a.path]; ok && entry.Deleted &&
+		(!a.checkState || entry.Version == a.storedEntry.Version) {
+		delete(f.r.state.state.Entries, a.path)
 		f.r.state.dirty = true
 	}
 	f.r.state.mu.Unlock()
+	f.r.requestFullSweep()
 	return nil
 }
 
@@ -1207,7 +1213,26 @@ func (f *fullReconciler) execUpload(ctx context.Context, a syncAction) error {
 	if err != nil || !current {
 		return err
 	}
-	if err := f.r.fs.Echo(client.WithExpectedStat(ctx, expectedStat), remotePath, data); err != nil {
+	var chunkSize int
+	var chunkHashes []string
+	publishCtx := client.WithExpectedStat(ctx, expectedStat)
+	if len(data) > f.r.chunkThreshold {
+		// Recovery can discover a new file before the watcher does. Publish
+		// the same chunk manifest as the event uploader so later edits retain
+		// delta uploads regardless of which path won that race.
+		chunkSize = f.r.chunkSize
+		chunkHashes = uploadChunkHashes(data, chunkSize)
+		chunks := make(map[int][]byte, len(chunkHashes))
+		for i := range chunkHashes {
+			start := i * chunkSize
+			chunks[i] = data[start:min(start+chunkSize, len(data))]
+		}
+		err = f.r.fs.WriteChunks(publishCtx, remotePath, chunks, chunkSize, int64(len(data)), chunkHashes)
+		hash = compositeHash(chunkHashes)
+	} else {
+		err = f.r.fs.Echo(publishCtx, remotePath, data)
+	}
+	if err != nil {
 		if errors.Is(err, client.ErrWriteConflict) {
 			f.r.requestFullSweep()
 		}
@@ -1235,54 +1260,64 @@ func (f *fullReconciler) execUpload(ctx context.Context, a syncAction) error {
 		LocalMtimeMs:  localInfo.ModTime().UnixMilli(),
 		RemoteMtimeMs: remoteStat.Mtime,
 		LastSyncedAt:  time.Now().UTC(),
+		ChunkSize:     chunkSize,
+		ChunkHashes:   chunkHashes,
 	})
 	return nil
 }
 
 func (f *fullReconciler) execSymlinkDownload(ctx context.Context, a syncAction) error {
-	target := a.target
-	if target == "" {
-		remotePath := absoluteRemotePath(a.path)
-		t, err := f.r.fs.Readlink(ctx, remotePath)
-		if err != nil {
-			return err
-		}
-		target = t
-	}
 	if err := f.checkRunning(ctx); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(a.absPath), 0o755); err != nil {
-		return err
+	// Reuse the event downloader's staged replacement and conflict copy. A
+	// warm restart must preserve the competing local target just as live sync
+	// does, including edits made after the remote scan.
+	results := make(chan downloadResult, 1)
+	d := newDownloader(f.r.fs, results, f.r.root, f.r.conflict, f.r.echo, f.r.readonly, f.r.log)
+	d.rootIdentity = f.r.rootIdentity
+	downloadHasStored := a.hasStored
+	if a.checkState && a.localMeta == nil {
+		// The checked recovery plan already expects this path to be absent,
+		// including after rejecting a local deletion of a changed remote
+		// target. Keep the original baseline only for state publication.
+		downloadHasStored = false
 	}
-	if _, err := os.Lstat(a.absPath); err == nil {
-		_ = os.Remove(a.absPath)
+	d.processSymlink(ctx, downloadOp{Kind: opDownloadSymlink, Path: a.path, AbsPath: a.absPath,
+		Symlink: a.target, StoredEntry: a.storedEntry, HasStored: downloadHasStored, Conflict: a.conflict})
+	res := <-results
+	if res.Err != nil {
+		return res.Err
 	}
-	if err := os.Symlink(target, a.absPath); err != nil {
-		return err
+	if res.Skipped {
+		f.r.requestFullSweep()
+		return nil
 	}
-	f.r.echo.markSymlink(a.path, target)
-	f.updateState(a.path, SyncEntry{
-		Type:         "symlink",
-		Target:       target,
-		LastSyncedAt: time.Now().UTC(),
+	if res.ConflictPath != "" {
+		f.r.log.Conflict(a.path, res.ConflictPath)
+		f.r.requestFullSweep()
+	}
+	f.updateActionState(a, SyncEntry{
+		Type:          "symlink",
+		Target:        res.Target,
+		LocalIdentity: localFileIdentityFromPath(a.absPath),
+		LastSyncedAt:  time.Now().UTC(),
 	})
 	return nil
 }
 
 func (f *fullReconciler) execSymlinkUpload(ctx context.Context, a syncAction) error {
 	remotePath := absoluteRemotePath(a.path)
-	existing, statErr := f.r.fs.Stat(ctx, remotePath)
 	if err := f.checkRunning(ctx); err != nil {
 		return err
 	}
-	if statErr == nil && existing != nil {
-		_ = f.r.fs.Rm(ctx, remotePath)
-	}
-	if err := f.r.fs.Ln(ctx, a.target, remotePath); err != nil {
+	if _, err := syncUploadSymlink(ctx, f.r.fs, remotePath, a.target, a.storedEntry, a.hasStored); err != nil {
+		if errors.Is(err, client.ErrWriteConflict) {
+			f.r.requestFullSweep()
+		}
 		return fmt.Errorf("symlink upload %s: %w", a.path, err)
 	}
-	f.updateState(a.path, SyncEntry{
+	f.updateActionState(a, SyncEntry{
 		Type:         "symlink",
 		Target:       a.target,
 		LastSyncedAt: time.Now().UTC(),
@@ -1355,51 +1390,6 @@ func joinRemote(dir, name string) string {
 	return dir + "/" + name
 }
 
-// atomicWriteFileStandalone is the free-function counterpart of
-// downloader.atomicWriteFile. Used by the full reconciler (which doesn't
-// have a downloader instance during startup).
-func atomicWriteFileStandalone(absPath string, data []byte, mode uint32, pid int) error {
-	if mode == 0 {
-		mode = 0o644
-	}
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return err
-	}
-	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return err
-	}
-	suffix := hex.EncodeToString(buf[:])
-	base := filepath.Base(absPath)
-	dir := filepath.Dir(absPath)
-	tmpName := filepath.Join(dir, "."+base+".afssync.tmp."+fmt.Sprintf("%d.%s", pid, suffix))
-	f, err := os.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_TRUNC, fs.FileMode(mode&0o7777))
-	if err != nil {
-		return err
-	}
-	cleanup := func() { _ = os.Remove(tmpName) }
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		cleanup()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		cleanup()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(tmpName, absPath); err != nil {
-		cleanup()
-		return err
-	}
-	_ = os.Chmod(absPath, fs.FileMode(mode&0o7777))
-	return nil
-}
-
 // remoteSubscriptionPump runs in its own goroutine, translating client
 // invalidation events into remoteEvents the reconciler understands.
 // It also handles durable stream catch-up on startup and after each
@@ -1409,10 +1399,11 @@ type remoteSubscriptionPump struct {
 	log         *syncLogger
 	stateWriter *stateWriter
 	out         chan remoteEvent
+	onOverflow  func(remoteEvent)
 }
 
-func newRemoteSubscriptionPump(fs client.Client, log *syncLogger, sw *stateWriter) *remoteSubscriptionPump {
-	return &remoteSubscriptionPump{fs: fs, log: log, stateWriter: sw, out: make(chan remoteEvent, 256)}
+func newRemoteSubscriptionPump(fs client.Client, log *syncLogger, sw *stateWriter, onOverflow func(remoteEvent)) *remoteSubscriptionPump {
+	return &remoteSubscriptionPump{fs: fs, log: log, stateWriter: sw, out: make(chan remoteEvent, 256), onOverflow: onOverflow}
 }
 
 func (p *remoteSubscriptionPump) events() <-chan remoteEvent { return p.out }
@@ -1420,21 +1411,15 @@ func (p *remoteSubscriptionPump) events() <-chan remoteEvent { return p.out }
 func (p *remoteSubscriptionPump) run(ctx context.Context, onReconnect func()) error {
 	p.log.Info("subscription pump started, listening for remote changes")
 
-	// Catch up from the durable change stream before subscribing to
-	// live pub/sub. This replays any events missed while we were offline.
-	// A missing cursor (first run or pre-journal state) is NOT an error —
-	// the initial reconcile already ran. Only trigger full reconcile when
-	// we had a cursor but it was trimmed (stream retention exceeded).
-	p.catchUpFromStream(ctx)
-
 	handler := func(ev client.InvalidateEvent) {
 		p.dispatchInvalidateEvent(ev)
 	}
 
-	// Use the reconnect-aware subscriber so we can replay the stream
-	// after each pub/sub connection drop.
+	// Recover only after Redis confirms the live subscription. Catching up
+	// first leaves a gap where a final remote publication can be lost forever.
 	return p.fs.SubscribeInvalidationsWithReconnect(ctx, handler, func() {
-		p.log.Info("pub/sub reconnected, replaying change stream")
+		p.log.Info("pub/sub connected, replaying change stream")
+		p.fs.InvalidateCache()
 		if !p.catchUpFromStream(ctx) {
 			if onReconnect != nil {
 				onReconnect()
@@ -1450,9 +1435,9 @@ func (p *remoteSubscriptionPump) run(ctx context.Context, onReconnect func()) er
 func (p *remoteSubscriptionPump) catchUpFromStream(ctx context.Context) bool {
 	lastID := p.stateWriter.lastStreamID()
 	if lastID == "" {
-		// No cursor yet — first run or pre-journal state file. This is not
-		// an error; the initial reconcile already ran. Skip silently.
-		return true
+		// The initial scan can predate subscription confirmation, so a missing
+		// cursor requires a fresh scan even on the first connection.
+		return false
 	}
 	const batchSize int64 = 500
 	total := 0
@@ -1533,9 +1518,8 @@ func (p *remoteSubscriptionPump) send(ev remoteEvent) {
 	select {
 	case p.out <- ev:
 	default:
-		select {
-		case p.out <- remoteEvent{FullSweep: true}:
-		default:
-		}
+		// Recovery must bypass the saturated event queue. Otherwise the
+		// last publication and its fallback can both disappear forever.
+		p.onOverflow(ev)
 	}
 }

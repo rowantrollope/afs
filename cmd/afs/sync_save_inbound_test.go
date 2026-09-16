@@ -32,6 +32,13 @@ func (c *syncSaveInboundClient) Cat(ctx context.Context, path string) ([]byte, e
 	return data, err
 }
 
+func (c *syncSaveInboundClient) SubscribeInvalidationsWithReconnect(context.Context, func(client.InvalidateEvent), func()) error {
+	// This test queues one downloader operation directly and closes the local
+	// watcher. Keep automatic recovery from consuming its single Cat gate;
+	// full-reconciliation reads have separate save/drain tests.
+	return nil
+}
+
 func TestSyncSaveCancelsInboundReadBeforeReplacingLocalEdit(t *testing.T) {
 	env := newSyncTestEnv(t)
 	gate := &syncSaveInboundClient{Client: env.fsClient, entered: make(chan context.Context, 1), release: make(chan struct{})}
@@ -61,6 +68,9 @@ func TestSyncSaveCancelsInboundReadBeforeReplacingLocalEdit(t *testing.T) {
 	case readCtx = <-gate.entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("download did not enter its read")
+	}
+	if readCtx.Done() != d.downloader.stopCh {
+		t.Fatal("read gate did not intercept the downloader generation")
 	}
 	env.writeLocalFile(t, "file", "completed local edit")
 	done := make(chan syncControlResult, 1)

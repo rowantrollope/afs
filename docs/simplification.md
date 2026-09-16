@@ -1,5 +1,13 @@
 # Simplification report
 
+## Optional native mounting follow-up
+
+The original extraction described below omitted native mount drivers. A later
+request restores FUSE/NFS as an optional `afsmount` helper sharing the retained
+storage engine. Current boundaries, semantics and acceptance are described in
+[native-mounts.md](native-mounts.md). The original extraction measurements below
+are historical and do not include the restored adapters.
+
 ## Provenance
 
 AFS is extracted from `redis/agent-filesystem` commit

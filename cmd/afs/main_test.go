@@ -16,7 +16,7 @@ func TestHelpAndVersionDoNotLoadRedisOrConfiguration(t *testing.T) {
 		}
 	}
 	out, _ := captureStdout(t, func() error { return runCLI([]string{"--help"}) })
-	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "FUSE", "NFS", "mcp", "auth", "query", "cloud"} {
+	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "mcp", "auth", "query", "cloud"} {
 		if strings.Contains(out, excluded) {
 			t.Errorf("root help contains excluded surface %q", excluded)
 		}

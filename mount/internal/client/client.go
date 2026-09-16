@@ -44,6 +44,9 @@ type Client interface {
 	EchoAppend(ctx context.Context, path string, data []byte) error
 	Touch(ctx context.Context, path string) error
 	Mkdir(ctx context.Context, path string) error
+	// MkdirMode uses mode only when creating a directory; existing directories
+	// retain their permissions, including when another writer wins creation.
+	MkdirMode(ctx context.Context, path string, mode uint32) error
 	Rm(ctx context.Context, path string) error
 	Ls(ctx context.Context, path string) ([]string, error)
 	LsLong(ctx context.Context, path string) ([]LsEntry, error)
@@ -86,9 +89,9 @@ type Client interface {
 	ReadChangeStream(ctx context.Context, lastID string, count int64) ([]ChangeStreamEntry, error)
 
 	// SubscribeInvalidationsWithReconnect is like SubscribeInvalidations
-	// but calls onReconnect each time the pub/sub connection is
-	// re-established after a drop, allowing callers to replay the change
-	// stream for events missed during the outage.
+	// but calls onReconnect after the initial subscription is confirmed and
+	// each time the pub/sub connection is re-established after a drop. This
+	// lets callers recover events missed before subscribing or during an outage.
 	SubscribeInvalidationsWithReconnect(ctx context.Context, handler func(InvalidateEvent), onReconnect func()) error
 
 	// SubscribeInvalidations runs a goroutine that listens on this FS key's
@@ -123,6 +126,38 @@ type Client interface {
 // entries from backend metadata.
 type PathCacheWarmer interface {
 	WarmPathCache(ctx context.Context) error
+}
+
+// NativeClient adds the inode operations needed by kernel filesystem adapters.
+// A native session pins its workspace generation for its entire lifetime.
+type NativeClient interface {
+	Client
+	StatInode(context.Context, uint64) (*StatResult, error)
+	InodePath(context.Context, uint64) (string, error)
+	ReadInodeAt(context.Context, uint64, int64, int) ([]byte, error)
+	WriteInodeAt(context.Context, uint64, []byte, int64) error
+	// An offset of -1 appends atomically to the latest committed inode size.
+	WriteInodeAtPath(context.Context, uint64, string, []byte, int64) error
+	TruncateInode(context.Context, uint64, int64) error
+	TruncateInodeAtPath(context.Context, uint64, string, int64) error
+	Getlk(context.Context, uint64, string, *FileLock) (*FileLock, error)
+	Setlk(context.Context, uint64, string, *FileLock, bool) error
+	UnlockAll(context.Context, uint64, string) error
+	// Check fences adapter-local cache hits that do not need a data request.
+	Check(context.Context) error
+	// Barrier waits for requests already admitted by this client and checks
+	// its generation and Redis connection. The caller first drains kernel I/O.
+	Barrier(context.Context) error
+	Close() error
+}
+
+// FileLock describes an inclusive advisory byte-range lock. End may be
+// math.MaxUint64 to cover the rest of the file.
+type FileLock struct {
+	Start uint64
+	End   uint64
+	Type  uint32
+	PID   uint32
 }
 
 // New creates a filesystem client for the given Redis key.
