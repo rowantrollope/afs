@@ -4,10 +4,17 @@
 
 - [x] Review the combined changes and compare source with passing acceptance evidence.
 - [x] Exclude the local Redis database dump from source control.
-- [ ] Commit all intended source, tests and documentation and push to GitHub.
+- [x] Commit all intended source, tests and documentation and push to GitHub.
 
 Scope: publish the combined changes on `rtwork/single-executable-redis-errors`.
 Keep the local runtime database intact. No unresolved questions.
+
+Review: implementation commit `2ddbc72` is published to `origin` on that branch.
+All 455 Go/assembly/module source hashes match the final quiet-Redis snapshot;
+the build, vet, 655 unit, 655 race and 120 CLI checks passed with no skips.
+The packaging scripts also match the tested snapshot. Only publication notes
+and the runtime-dump ignore rule were added after acceptance. The local Redis
+dump remains intact and excluded. GitHub CI runs independently after publication.
 
 ## Single executable distribution
 
