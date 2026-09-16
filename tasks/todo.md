@@ -1,5 +1,37 @@
 # AFS extraction
 
+## Two-system synchronization acceptance
+
+- [x] Add a coordinated macOS/Linux runner with isolated state and directories.
+- [x] Check independent content/metadata oracles, bidirectional mutations, conflicts,
+      partitions, warm crash recovery, ignores, flushes, and cold hydration.
+- [x] Retain per-host diagnostics; reject missing peers, false convergence, and failures.
+- [x] Document two-host SSH setup and validate the harness plus repository gates.
+
+Scope: folder sync on two actual systems; orchestration travels outside the synced
+tree. User clarified that both hosts must use their existing remote Redis server;
+create fresh uniquely named test workspaces there, preserve existing workspaces,
+and never restart/flush Redis or use installed AFS state. Only coordination needs
+an SSH tunnel. Our local validation uses disposable Redis. Local paired-process
+validation does not substitute for running on the user's two systems.
+
+Validation: build, vet, unit/race and isolated CLI process suites pass. Harness
+regressions cover independent oracles, authenticated coordination, per-case failure
+recovery, remote proxy partitions and actual TLS hostname/trust verification.
+Two complete paired-process runs finish 11/12 scenarios; both correctly return 1
+for directory chmod after rename (expected 0750, peer remains 0755). A third,
+earlier run independently reproduced that assertion before continuation existed.
+Final workload: 100 files/writer/round, three rounds, 8 MiB large fixtures,
+seed 1, 45-second phase deadline and 0.5-second stability window. All owned
+process cleanup completes; a pre-existing fixture workspace retains its metadata
+and cold-hydrated bytes. Production code/installation and remote Redis stay untouched.
+The existing ten-scenario lab passed nine; its rename/delete candidate-preservation
+check timed out once and passed a focused rerun. Retain that intermittent result.
+See docs/two-system-sync.md for run instructions and local findings.
+
+- [ ] Investigate/fix live directory chmod propagation after directory rename.
+- [ ] Investigate intermittent existing-lab rename/delete candidate loss.
+
 ## Align root help columns
 
 - [x] Align every command and option description to the same column.

@@ -1,5 +1,13 @@
 # Lessons
 
+## 2026-09-16 — Two-system testing uses the user's remote Redis
+
+The user already has a remote Redis server and wants both systems to use it.
+Do not require another Redis deployment. Isolate the workload in fresh, uniquely
+named workspaces and private local state; never flush/restart the shared server
+or modify pre-existing workspaces. Validate the harness itself with disposable
+local Redis, without connecting to the user's server.
+
 ## 2026-09-16 — Align CLI help descriptions
 
 Keep command and option descriptions in one consistent column; check rendered

@@ -71,8 +71,8 @@ def parallel(function, values):
 class Proxy:
     """Dedicated asyncio loop; partition closes existing AND new connections."""
 
-    def __init__(self, upstream, latency_ms):
-        self.upstream = upstream
+    def __init__(self, upstream, latency_ms, host="127.0.0.1", tls=None):
+        self.upstream, self.host, self.tls = upstream, host, tls
         self.delay = latency_ms / 1000
         self.blocked = False
         self.writers = set()
@@ -94,7 +94,9 @@ class Proxy:
         try:
             if self.blocked:
                 return
-            remote, peer = await asyncio.open_connection("127.0.0.1", self.upstream)
+            remote, peer = await asyncio.open_connection(
+                self.host, self.upstream, ssl=self.tls,
+                server_hostname=self.host if self.tls else None)
             self.writers.add(peer)
             if self.blocked:
                 return

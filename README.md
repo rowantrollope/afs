@@ -272,8 +272,19 @@ a flush receipt confirms publication, not a Redis disk fsync.
 
 ## Verify
 
-Tests start disposable local Redis servers and use separate directories and state
-for independent client processes. `redis-server` must be on PATH.
+To test **two actual systems against your existing remote Redis**, use the
+[two-system sync runner](docs/two-system-sync.md). It coordinates both hosts,
+checks exact bytes and permissions, injects client partitions/crashes, and saves
+per-host failure reports in isolated test workspaces:
+
+```sh
+export AFS_TEST_REDIS='rediss://default:PASSWORD@HOST:PORT/0'
+python3 scripts/two_system_sync.py host --binary "$(command -v afs)"
+# On the other system, follow the SSH/join commands printed by the runner.
+```
+
+The repository's local test suites start disposable Redis servers and use separate
+directories and state for independent client processes. `redis-server` must be on PATH.
 
 ```sh
 go build ./...
