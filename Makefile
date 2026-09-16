@@ -4,7 +4,6 @@ build:
 	go build -o bin/afs ./cmd/afs
 
 native: build
-	go build -o bin/afsmount ./cmd/afsmount
 
 test:
 	go test ./...
@@ -26,7 +25,7 @@ multiwriter:
 	python3 scripts/multiwriter_lab.py $(LAB_ARGS)
 
 multiwriter-native: native
-	python3 scripts/native_lab_supervisor.py --binary "$(CURDIR)/bin/afs" --helper "$(CURDIR)/bin/afsmount" $(LAB_ARGS)
+	python3 scripts/native_lab_supervisor.py --binary "$(CURDIR)/bin/afs" $(LAB_ARGS)
 
 multiwriter-smoke:
 	python3 -m unittest discover -s tests/multiwriter -p 'test_*.py'

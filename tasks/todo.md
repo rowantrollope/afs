@@ -1,5 +1,92 @@
 # AFS extraction
 
+## Publish single executable and quiet Redis errors
+
+- [x] Review the combined changes and compare source with passing acceptance evidence.
+- [x] Exclude the local Redis database dump from source control.
+- [ ] Commit all intended source, tests and documentation and push to GitHub.
+
+Scope: publish the combined changes on `rtwork/single-executable-redis-errors`.
+Keep the local runtime database intact. No unresolved questions.
+
+## Single executable distribution
+
+- [x] Move native daemon implementation/tests into an internal package; dispatch through `afs`.
+- [x] Launch native mounts and recovery through the current executable; retain lifecycle safeguards.
+- [x] Remove separate-helper build/install configuration and update docs and process labs.
+- [x] Verify build/vet, unit/race, isolated CLI and real native mount acceptance; record sizes/results.
+- [x] Remove the obsolete `bin/afsmount` after verification.
+
+Spec: distribute only `afs`, with sync as the default and FUSE/NFS available via
+the existing backend flags. Reuse the separate native child process, bootstrap,
+authenticated control, readiness, flush and recovery behavior. No public daemon
+command or helper-path setting. Preserve unrelated connection-presentation work,
+existing installations and all user Redis data. Unresolved questions: none.
+
+Review: `afs` now dispatches native mounts and stale-mount recovery through its
+own private daemon entrypoint. The native implementation and tests moved to
+`internal/nativedaemon`; authenticated control, bootstrap, ownership, readiness
+and flush safeguards are retained. Builds, Docker and the native lab use one
+executable. The renamed-binary regression proves recovery without a companion
+binary, PATH entry, driver or Redis connection.
+
+Final verification passes build/vet, 655 unit and 655 race test/subtest cases
+(real Array enabled, zero skips), 120 CLI cases, vendored regressions and all
+16 harness tests. All ten four-client sync workloads pass; all ten four-client
+Linux FUSE/NFS/sync scenarios pass; macOS NFS file/checkpoint/crash scenarios pass
+with two clients. Source hashes stayed unchanged through verification. Native
+supervisors report no timeout, cleanup errors or remaining owned PIDs. macOS FUSE
+kernel acceptance was not rerun; Linux provides the real FUSE coverage.
+
+The verified macOS ARM64 binary is 12,472,738 bytes, SHA-256
+`692bca82ca908f671749bccc4955ff46978732010d15b377553d61c6b8b0790e`.
+Installed identical bytes at `~/.local/bin/afs`; verified PATH resolution,
+offline help and unavailable-Redis presentation against a reserved local port.
+Deleted `bin/afsmount`; preserved the original `/usr/local/bin/afs` symlink.
+
+Evidence: `tests/multiwriter/artifacts/single-binary-go-20260916/report.json`,
+`single-binary-core-20260916/report.json`,
+`single-binary-linux-20260916/acceptance-summary.json`,
+`single-binary-macos-nfs-20260916/supervisor.json`, and
+`single-binary-install-20260916.json` under the same artifacts directory.
+
+## Redis connection error presentation
+
+- [x] Apply the user correction: remove connection progress in every output mode.
+- [x] Verify error-only output and refresh the installed CLI.
+- [x] Reproduce unavailable Redis output and add CLI regression coverage.
+- [x] Show one endpoint-specific error and suppress repeated dial logs.
+- [x] Verify success/JSON/offline behavior, build/vet, unit/race and isolated CLI tests.
+
+Spec: connection attempts are silent; failures produce one clean stderr error.
+Errors name the host and port without credentials or raw driver diagnostics.
+Keep JSON stdout, offline commands, retry behavior and daemon lifecycle intact.
+No unresolved product questions.
+
+Verification note: focused old/new binary regressions pass for the Redis fix.
+The first full run was interrupted when concurrent native packaging changes
+introduced recursive startup test children; all attributed processes and the
+owned Redis were cleaned up. Final Redis verification uses an isolated snapshot
+of merged main plus only this fix. The native packaging task owns validation
+and installation of the combined executable.
+Review: the isolated fix passes build/vet, 654 unit and 654 race test/subtest
+cases with real Array and no skips, 117 CLI cases, and 16 harness tests.
+Dependency checks pass after one retained, confirmed NFS fixture source-port
+collision and a scoped retry. All owned processes are gone and source hashes
+are unchanged. Evidence: tests/multiwriter/artifacts/redis-connection-ux-isolated-20260915/acceptance-summary.json.
+The combined executable has also passed its integration gates and is installed
+at ~/.local/bin/afs. Its hash matches the tested bin/afs; an unavailable local
+endpoint gets a friendly endpoint/timeout error. The earlier connecting banner
+has been removed following the user's correction.
+The legacy /usr/local/bin/afs installation remains unchanged.
+
+Correction verification: the error-only executable passes build/vet, 655 unit,
+655 race and 120 CLI cases with real Array and zero skips. All 455 source hashes
+match the frozen snapshot, and owned processes exited. The tested binary was
+installed at bin/afs and ~/.local/bin/afs; a reserved unavailable endpoint now
+produces exactly one stderr error line, empty stdout and exit 1. Offline help
+remains silent on stderr. Evidence: tests/multiwriter/artifacts/quiet-redis-20260916/.
+
 ## PR #4 CI follow-up
 
 - [x] Reproduce the missed startup deletion with a gated subscription regression.
@@ -94,6 +181,34 @@ Tests used owned Redis and local Linux containers; original installations remain
 untouched. macOS FUSE kernel testing needs an active driver; real Linux FUSE and
 macOS/Linux NFS passed. Actual customer microVMs and remote CI were not exercised.
 No product questions remain.
+
+## Upstream validation audit
+
+- [x] Compare upstream tests, benchmarks and validation scripts with retained coverage.
+- [x] Verify useful candidates against current CLI, storage and mount contracts.
+- [x] Rank additions by value and adaptation effort; record evidence and limits.
+
+Scope: inspect the local upstream checkout at `c3897ac` and this derivative.
+Recommend imports without modifying production or running upstream workloads
+against existing Redis data. Unresolved questions: none.
+
+Review: all nine upstream Go benchmarks are already retained (six manifest,
+three native-client). Highest-value additions are `tests/bench/main.go` (19
+local-versus-mounted filesystem operations), the workloads in
+`scripts/bench_claude_fs.sh`, and selected corpus/reporting components from
+`tests/bench_md_workloads/main.go`. Port benchmarks with failing error/content
+oracles and separate local operation, publication and fresh-observer timings.
+The original runners can print failures or mismatches without failing the run.
+Useful test gaps are assembled streaming-import deduplication/readback
+(`internal/controlplane/import_pipeline_test.go`) and explicit Array selection
+during manifest materialization (`internal/controlplane/workspace_root_test.go`).
+Adapt both to current service APIs and owned disposable Redis; the upstream Array
+fixture flushes an externally selected DB. A trimmed `scripts/test_harness.py`
+could provide discovery, but must recognize our integration/compatibility tags
+and exclude retained artifact directories. Its upstream catalog discovery ran
+successfully; this was a source audit, not a benchmark or acceptance rerun.
+Cloud/search/UI/SDK validation and obsolete lifecycle scripts do not fit the
+retained product. No test imports or production changes made by this audit.
 
 ## Native mount encapsulation study
 

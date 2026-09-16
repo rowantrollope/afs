@@ -51,25 +51,6 @@ func mountOwned(rec mountRecord) (bool, error) {
 	return false, nil
 }
 
-func findNativeHelper() (string, error) {
-	if explicit := os.Getenv("AFS_NATIVE_HELPER"); explicit != "" {
-		if !filepath.IsAbs(explicit) {
-			return "", errors.New("AFS_NATIVE_HELPER must be an absolute executable path")
-		}
-		return explicit, nil
-	}
-	if exe, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "afsmount")
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			return candidate, nil
-		}
-	}
-	if helper, err := exec.LookPath("afsmount"); err == nil {
-		return helper, nil
-	}
-	return "", errors.New("native mounting requires afsmount; build it with 'make native' and install it alongside afs")
-}
-
 func validateNativeMountpoint(root string) error {
 	if root == string(filepath.Separator) {
 		return errors.New("the filesystem root cannot be a native mountpoint")
@@ -95,7 +76,7 @@ func validateNativeMountpoint(root string) error {
 }
 
 func (a *app) mountNative(workspace, directory, backend string, foreground bool) error {
-	helper, err := findNativeHelper()
+	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
@@ -152,7 +133,7 @@ func (a *app) mountNative(workspace, directory, backend string, foreground bool)
 	if err = saveMountRegistry(reg); err != nil {
 		return err
 	}
-	cmd, err := startNativeHelper(helper, a.config, rec, false, func(pid int) error {
+	cmd, err := startNativeDaemon(executable, a.config, rec, false, func(pid int) error {
 		rec.PID = pid
 		upsertMount(&reg, rec)
 		return saveMountRegistry(reg)
@@ -198,7 +179,7 @@ func (a *app) mountNative(workspace, directory, backend string, foreground bool)
 	}
 }
 
-func startNativeHelper(helper string, cfg config, rec mountRecord, detachOnly bool, started func(int) error) (*exec.Cmd, error) {
+func startNativeDaemon(executable string, cfg config, rec mountRecord, detachOnly bool, started func(int) error) (*exec.Cmd, error) {
 	if err := os.MkdirAll(rec.RuntimeDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -239,7 +220,7 @@ func startNativeHelper(helper string, cfg config, rec mountRecord, detachOnly bo
 		return nil, err
 	}
 	defer log.Close()
-	cmd := exec.Command(helper)
+	cmd := exec.Command(executable, "_native-daemon")
 	cmd.Env = append(os.Environ(), "AFS_NATIVE_BOOTSTRAP="+f.Name())
 	cmd.Stdout, cmd.Stderr = log, log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -286,13 +267,13 @@ func (a *app) unmountNative(rec mountRecord, reg *mountRegistry, force bool) err
 		return err
 	}
 	if !owned && force {
-		helper, err := findNativeHelper()
+		executable, err := os.Executable()
 		if err != nil {
 			return err
 		}
 		// Start a fresh owned process that only detaches the stale OS mount.
 		// Do not signal the old PID: it may now belong to another application.
-		cmd, err := startNativeHelper(helper, a.config, rec, true, nil)
+		cmd, err := startNativeDaemon(executable, a.config, rec, true, nil)
 		if err != nil {
 			return err
 		}

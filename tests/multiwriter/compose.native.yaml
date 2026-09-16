@@ -31,7 +31,6 @@ services:
         done
         python3 /lab/scripts/native_lab_supervisor.py \
           --binary /usr/local/bin/afs \
-          --helper /usr/local/bin/afsmount \
           --output "$$run_dir" \
           --clients "${AFS_LAB_CLIENTS:-4}" \
           --backends "${AFS_LAB_BACKENDS:-fuse,nfs,sync}" \

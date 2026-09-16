@@ -286,13 +286,14 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = client.WithWorkspaceGeneration(ctx, rec.Generation)
-	rdb := redis.NewClient(buildRedisOptions(boot.Config, 8))
+	redisOpts := buildRedisOptions(boot.Config, 8)
+	rdb := redis.NewClient(redisOpts)
 	defer rdb.Close()
 	ping, cancelPing := context.WithTimeout(ctx, 5*time.Second)
 	err = rdb.Ping(ping).Err()
 	cancelPing()
 	if err != nil {
-		return fmt.Errorf("connect to Redis: %s", redactConnectionError(err, boot.Config))
+		return redisConnectionError(redisOpts.Addr, err)
 	}
 	current, err := controlplane.NewStore(rdb).WorkspaceGeneration(ctx, rec.WorkspaceID)
 	if err != nil {

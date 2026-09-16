@@ -1,5 +1,5 @@
-// Package native runs the optional FUSE and NFS exposure layers. The ordinary
-// afs command imports mountcontrol instead, keeping driver code out of its binary.
+// Package native runs the optional FUSE and NFS exposure layers in the afs
+// native mount daemon.
 package native
 
 import (

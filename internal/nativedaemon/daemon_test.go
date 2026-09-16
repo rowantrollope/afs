@@ -1,15 +1,16 @@
-package main
+package nativedaemon
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/rowantrollope/afs/internal/mountcontrol"
 	"net"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/rowantrollope/afs/internal/mountcontrol"
 )
 
 func TestBootstrapPrivateRegularFile(t *testing.T) {

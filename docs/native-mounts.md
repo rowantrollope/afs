@@ -1,15 +1,16 @@
 # Native workspace mounts
 
 Native mounting is optional. `afs mount` defaults to folder sync; selecting
-`--backend=fuse` or `--backend=nfs` starts the separate `afsmount` helper.
+`--backend=fuse` or `--backend=nfs` starts a separate background process using
+the same `afs` executable.
 Workspace actions remain at the root and checkpoints remain under `afs cp`.
 
 ## Encapsulation
 
 ```text
-cmd/afs                 workspace CLI, registry, native helper dispatch
-internal/mountcontrol   authenticated local helper protocol; no driver imports
-cmd/afsmount            private bootstrap and process lifecycle
+cmd/afs                 workspace CLI, registry, private _native-daemon dispatch
+internal/mountcontrol   authenticated local daemon protocol; no driver imports
+internal/nativedaemon   private native bootstrap and process lifecycle
 mount/native            fixed FUSE/NFS runtime and OS mount operations
 mount/internal/afsfs    retained FUSE adapter
 mount/internal/nfsfs    retained NFS adapter
@@ -18,8 +19,10 @@ third_party/go-nfs      retained patched NFS protocol implementation
 third_party/go-fuse     FUSE dependency with bounded startup cancellation
 ```
 
-The code stays in one Go module. `cmd/afs` imports only the helper protocol,
-so native driver libraries do not become dependencies of the CLI executable.
+The code stays in one Go module and builds one executable. `cmd/afs` links the
+native driver libraries through `internal/nativedaemon`; native mount sessions
+still run in separate child processes, launched through the private
+`_native-daemon` entry point. Folder sync uses its existing separate daemon.
 The original control-plane observer, cloud dependencies and search worker are
 not part of either native adapter.
 
@@ -39,7 +42,7 @@ creation publishes the requested permissions atomically, including mode `000`.
 ## Installation and lifecycle
 
 ```sh
-make native
+make build
 ./bin/afs mount shared ./live --backend=fuse
 ./bin/afs mount shared ./network-files --backend=nfs
 ./bin/afs cp create shared --name before-change
@@ -48,15 +51,15 @@ make native
 ./bin/afs unmount ./network-files
 ```
 
-Both binaries must be built for the host platform. Put `afsmount` alongside
-`afs`, put it on PATH, or supply an absolute `AFS_NATIVE_HELPER` path. FUSE
-requires the platform driver and mount utility. NFS uses the OS NFSv3 client,
-`mount_nfs` on macOS or `mount.nfs` on Linux, with the necessary mount privileges.
+Build and install only `afs` for the host platform. `make native` remains an
+alias for `make build`. FUSE requires the platform driver and mount utility.
+NFS uses the OS NFSv3 client, `mount_nfs` on macOS or `mount.nfs` on Linux, with
+the necessary mount privileges.
 AFS does not install drivers or change system mount policy.
 
 The mountpoint must be an empty directory, or have an existing parent so the
-helper can create it. Native mounts overlay their directories. Unmounting does
-not hydrate files onto the local disk. A helper-created directory is removed
+daemon can create it. Native mounts overlay their directories. Unmounting does
+not hydrate files onto the local disk. A daemon-created directory is removed
 only when it is empty after detaching; pre-existing directories are preserved.
 
 The same registry tracks all backends. Checkpoint creation flushes locally
@@ -69,20 +72,20 @@ Native control sockets, process ownership and bootstrap files live outside the
 mounted tree. Bootstrap files have mode 0600; Redis credentials are not passed
 as command arguments. Control requests authenticate the exact mount identity.
 Socket names remain short even when the configured state directory is long.
-The registry records the mount identity before launching the detached helper,
+The registry records the mount identity before launching the detached daemon,
 so an interrupted startup remains discoverable and recoverable with `unmount`.
 Driver startup has a 30-second deadline, including mount utility execution and
 FUSE descriptor handoff. If a mount exists and normal startup cleanup fails,
-the helper retains authenticated control for recovery.
+the daemon retains authenticated control for recovery.
 
 The NFS gateway listens only on loopback and serves one workspace. NFSv3's
 AUTH_SYS/AUTH_NULL handling is not an authentication boundary against other
 users on the same host; use it on a trusted host. The local CLI control socket
 has separate capability authentication.
 
-A failed normal flush or unmount leaves the helper serving. `unmount --force`
+A failed normal flush or unmount leaves the daemon serving. `unmount --force`
 explicitly requests forced detach without a flush guarantee. It can also
-recover a kernel mount after a helper crash; registry PIDs are never blindly
+recover a kernel mount after a daemon crash; registry PIDs are never blindly
 signalled. A restored or deleted workspace fences old native sessions so stale
 file handles cannot write into the replacement tree.
 
@@ -132,7 +135,7 @@ select applicable cases for a different backend arrangement.
 Native cases check ordinary files and permissions, concurrent disjoint and
 overlapping writes, FUSE append, open-handle rename, missed-event recovery,
 checkpoint flushing, stale handles after restore, FUSE advisory locks and native
-helper crash recovery. Working clients and a fresh folder-sync observer must
+daemon crash recovery. Working clients and a fresh folder-sync observer must
 reproduce the expected published tree under their documented filename policy.
 Kernel runs use disposable directories and Redis, not an existing installation.
 On macOS, the test compares the sync observer using its existing AppleDouble
@@ -152,10 +155,10 @@ AFS_LAB_CLIENTS=8 AFS_LAB_LATENCY_MS=1 \
 The container needs `/dev/fuse` and `SYS_ADMIN` for its own mounts. It has no
 external network at runtime and mounts no host configuration. Clients work on
 native Linux tmpfs; only retained artifacts are copied to the host. The supervisor
-bounds the whole run independently of kernel filesystem calls, records binary
-hashes, and fails on timeout or uncertain cleanup. Its default container deadline
-is 20 minutes; set `AFS_LAB_OVERALL_TIMEOUT` for larger workloads. The CI native
-job runs both four and eight clients and retains reports even after failures.
+bounds the whole run independently of kernel filesystem calls, records the `afs`
+binary hash, and fails on timeout or uncertain cleanup. Its default container
+deadline is 20 minutes; set `AFS_LAB_OVERALL_TIMEOUT` for larger workloads. The CI
+native job runs both four and eight clients and retains reports even after failures.
 
 ### Recorded platform evidence
 

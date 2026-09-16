@@ -1,5 +1,5 @@
 // Package mountcontrol is the small, dependency-free protocol between afs and
-// its optional native mount helper. It does not import filesystem drivers.
+// its native daemon process. It does not import filesystem drivers.
 package mountcontrol
 
 import (

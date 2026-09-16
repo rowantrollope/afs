@@ -6,7 +6,7 @@ One workspace owns one file tree and its checkpoints.
 
 AFS is a slim Go derivative of [redis/agent-filesystem](https://github.com/redis/agent-filesystem),
 retaining its folder sync, inode storage, manifest checkpoints and recovery code,
-with optional FUSE and NFS mounting through a separate helper.
+with optional FUSE and NFS mounting included in the same executable.
 See the [simplification report](docs/simplification.md) for provenance and changes.
 
 ## Build
@@ -93,10 +93,10 @@ in the local directory. Ctrl-C in foreground mode also attempts a flush.
 
 ### Optional native mounts
 
-Build the native helper alongside the CLI:
+The same `afs` executable includes folder sync, FUSE, and NFS:
 
 ```sh
-make native
+make build
 ./bin/afs mount shared ./live --backend=fuse
 # Or:
 ./bin/afs mount shared ./live-nfs --backend=nfs
@@ -106,8 +106,8 @@ make native
 
 Native mountpoints must be empty. FUSE requires the platform's installed FUSE
 driver; NFS requires `mount_nfs` on macOS or `mount.nfs` on Linux and OS mount
-privileges. Install `afsmount` alongside `afs`, or set `AFS_NATIVE_HELPER` to its
-absolute path. The ordinary CLI does not link the driver libraries.
+privileges. A native mount starts a separate background process using the same
+`afs` executable. Install only `afs`; no companion executable is needed.
 
 Native mounts expose Redis files directly. Unmounting does not copy them onto
 the local disk. They share workspace/checkpoint safeguards and Redis Array

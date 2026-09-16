@@ -102,7 +102,7 @@ def descendants(table, root, known):
             known[pid] = table[pid][1:]
 
 
-def detach_registered(output, binary, helper, timeout):
+def detach_registered(output, binary, timeout):
     results, errors = [], []
     # Fixed shallow layout: never walk a mounted workspace to find registries.
     for registry in output.glob("*/*/state/mounts.json"):
@@ -128,7 +128,7 @@ def detach_registered(output, binary, helper, timeout):
                 env = {k: v for k, v in os.environ.items()
                        if not k.startswith("AFS_") and k not in ("HOME", "XDG_CONFIG_HOME")}
                 env.update(HOME=str(base / "home"), XDG_CONFIG_HOME=str(base / "config"),
-                           AFS_STATE_DIR=str(base / "state"), AFS_NATIVE_HELPER=str(helper))
+                           AFS_STATE_DIR=str(base / "state"))
                 result = bounded([str(binary), "--config", str(base / "config.json"),
                                   "--json", "unmount", mountpoint, "--force"], timeout, env,
                                  track_children=True)
@@ -142,12 +142,12 @@ def detach_registered(output, binary, helper, timeout):
     return results, errors
 
 
-def supervise(command, output, binary, helper, overall_timeout, cleanup_timeout):
-    report = {"schema_version": 1, "overall_timeout_seconds": overall_timeout,
+def supervise(command, output, binary, overall_timeout, cleanup_timeout):
+    report = {"schema_version": 2, "overall_timeout_seconds": overall_timeout,
               "cleanup_timeout_seconds": cleanup_timeout, "status": "running",
               "timed_out": False, "cleanup_errors": [], "detach_results": [],
               "output": str(output), "command": list(command),
-              "binary": str(binary), "helper": str(helper)}
+              "binary": str(binary)}
     known = {}
     started = time.monotonic()
     logfile = output.parent / (output.name + ".supervisor.log")
@@ -172,13 +172,13 @@ def supervise(command, output, binary, helper, overall_timeout, cleanup_timeout)
     finally:
         if process is not None:
             # Freeze orchestration while taking its registry-based cleanup
-            # snapshot. Native helpers are separate sessions and keep serving.
+            # snapshot. Native daemons are separate sessions and keep serving.
             if process.poll() is None:
                 try:
                     process.send_signal(signal.SIGSTOP)
                 except ProcessLookupError:
                     pass
-            results, errors = detach_registered(output, binary, helper, cleanup_timeout)
+            results, errors = detach_registered(output, binary, cleanup_timeout)
             report["detach_results"].extend(results)
             report["cleanup_errors"].extend(errors)
             try:
@@ -196,9 +196,9 @@ def supervise(command, output, binary, helper, overall_timeout, cleanup_timeout)
                     process.wait(timeout=cleanup_timeout)
                 except subprocess.TimeoutExpired:
                     report["cleanup_errors"].append("lab process did not exit after SIGKILL")
-                # Helper death can leave an NFS/FUSE mount behind. Retry the
+                # Daemon death can leave an NFS/FUSE mount behind. Retry the
                 # identity-checked CLI detach; never issue a generic umount.
-                retry, retry_errors = detach_registered(output, binary, helper, cleanup_timeout)
+                retry, retry_errors = detach_registered(output, binary, cleanup_timeout)
                 report["detach_results"].extend(retry)
                 report["cleanup_errors"].extend(retry_errors)
                 after = process_table()
@@ -213,11 +213,10 @@ def supervise(command, output, binary, helper, overall_timeout, cleanup_timeout)
                   report.get("returncode") != 0 or report["cleanup_errors"])
         report["status"] = "fail" if failed else "pass"
         report["seconds"] = time.monotonic() - started
-        for label, path in (("binary", binary), ("helper", helper)):
-            try:
-                report[label + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-            except OSError as error:
-                report[label + "_hash_error"] = str(error)
+        try:
+            report["binary_sha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
+        except OSError as error:
+            report["binary_hash_error"] = str(error)
         output.mkdir(parents=True, exist_ok=True)
         (output / "supervisor.json").write_text(json.dumps(report, indent=2) + "\n")
         print(f"{report['status'].upper()}: native lab supervisor; {output / 'supervisor.json'}", flush=True)
@@ -246,7 +245,6 @@ def main():
         output = Path(tempfile.mkdtemp(prefix="afs-native-supervised-")) / "lab"
         child_args.extend(["--output", str(output)])
     binary = Path(option(child_args, "--binary", str(output / "afs"))).absolute()
-    helper = Path(option(child_args, "--helper", str(output / "afsmount"))).absolute()
     from native_multiwriter_lab import SCENARIOS
     scenarios = sum(value == "--scenario" or value.startswith("--scenario=") for value in child_args) or len(SCENARIOS)
     clients = int(option(child_args, "--clients", "4"))
@@ -259,7 +257,7 @@ def main():
     def interrupt(signum, frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, interrupt)
-    return supervise([sys.executable, str(SCRIPT), *child_args], output, binary, helper,
+    return supervise([sys.executable, str(SCRIPT), *child_args], output, binary,
                      overall, args.cleanup_timeout)
 
 

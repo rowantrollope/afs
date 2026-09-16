@@ -1,5 +1,38 @@
 # Lessons
 
+## 2026-09-15 — Ship one executable
+
+User prefers a single `afs` executable, including optional native mounts.
+
+- Keep implementation boundaries inside packages and background processes;
+  do not require another installed executable for an AFS backend.
+- Measure combined size before assuming separate executables reduce downloads.
+- Validate the distributed CLI alone, including native startup and recovery.
+
+## 2026-09-15 — Re-exec test children must bypass the test runner
+
+- Handle a private daemon invocation directly in `TestMain` and exit. A daemon
+  child that falls through to `m.Run` can recursively launch the whole suite;
+  do not depend on rewriting command-line arguments to select its fixture.
+- Give gated process fixtures a lifetime limit, even when parent cleanup exists.
+- Coordinate shared-checkout verification before changing process-launch tests;
+  freeze source and prove focused child dispatch before running the full suite.
+
+## 2026-09-15 — Connection failures need CLI presentation
+
+User clarified that Redis connection attempts should be silent; print only an
+endpoint-specific error when Redis is unavailable.
+
+- Present bounded connection attempts through the CLI; avoid exposing repeated
+  driver retry logs or raw nested network errors as the user-facing result.
+- Do not print a connecting banner in any output mode. Successful commands keep
+  stderr empty; failures get one clean stderr error with an endpoint and no secrets.
+- Verify unavailable Redis through the built CLI alongside successful and offline
+  commands, rather than testing only error-formatting helpers.
+- When concurrent tasks share this checkout, coordinate file ownership and run
+  final verification from a frozen snapshot. Do not test or install another
+  task's partially edited production code.
+
 ## 2026-09-14 — CLI behavior is the acceptance boundary
 
 User clarified that completion is evaluated through the resulting `afs` command

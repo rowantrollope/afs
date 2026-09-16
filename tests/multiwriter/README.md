@@ -111,6 +111,9 @@ AFS_LAB_SCENARIOS="shared-edit partition" AFS_LAB_CLIENTS=4 AFS_LAB_ROUNDS=5 \
 For the optional native-mount extension, use
 `docker compose -f tests/multiwriter/compose.native.yaml run --build --rm native`.
 It reuses this lab with real FUSE/NFS kernel mounts and a whole-run supervisor.
+It builds and runs one `afs` executable for every backend. Native mount daemons
+are child processes of that executable; `--binary` selects the same binary for
+mounts and recovery. The supervisor records its hash in `supervisor.json`.
 See [native mount acceptance](../../docs/native-mounts.md#acceptance) for
 prerequisites, concurrency semantics and scenarios.
 

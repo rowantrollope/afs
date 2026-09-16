@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -72,13 +76,28 @@ func redisDisplay(cfg config) string {
 	return u.String()
 }
 
-func redactConnectionError(err error, cfg config) string {
-	message := err.Error()
-	message = strings.ReplaceAll(message, cfg.Redis, redisDisplay(cfg))
-	if u, e := url.Parse(cfg.Redis); e == nil && u.User != nil {
-		if p, ok := u.User.Password(); ok && p != "" {
-			message = strings.ReplaceAll(message, p, "[redacted]")
-		}
+// The endpoint comes from parsed options, so it contains no URL credentials.
+// Describe the failure without exposing driver retries or nested dial errors.
+func redisConnectionError(endpoint string, err error) error {
+	reason := "check that Redis is running and reachable"
+	var dnsErr *net.DNSError
+	var netErr net.Error
+	var certErr *tls.CertificateVerificationError
+	switch {
+	case errors.Is(err, context.Canceled):
+		reason = "connection canceled"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
+		reason = "connection timed out"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		reason = "connection refused"
+	case errors.As(err, &dnsErr):
+		reason = "hostname lookup failed"
+	case errors.As(err, &certErr):
+		reason = "TLS certificate verification failed"
+	case strings.HasPrefix(err.Error(), "WRONGPASS"), strings.HasPrefix(err.Error(), "NOAUTH"):
+		reason = "authentication failed; check your Redis credentials"
+	case errors.Is(err, io.EOF), errors.Is(err, syscall.ECONNRESET):
+		reason = "connection closed by the server"
 	}
-	return message
+	return fmt.Errorf("Failed to connect to Redis on %s: %s", endpoint, reason)
 }

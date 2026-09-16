@@ -32,7 +32,7 @@ class NativeSupervisorTests(unittest.TestCase):
     def supervise(self, program, timeout=2):
         with contextlib.redirect_stdout(io.StringIO()):
             result = supervisor.supervise([sys.executable, "-c", program], self.output,
-                                          self.python, self.python, timeout, .5)
+                                          self.python, timeout, .5)
         return result, json.loads((self.output / "supervisor.json").read_text())
 
     def stop_if_same(self, pid, identity):
@@ -55,6 +55,9 @@ class NativeSupervisorTests(unittest.TestCase):
             self.assertEqual(report["remaining_owned_pids"], [])
             self.assertIsNone(unrelated.poll())
             self.assertIn("binary_sha256", report)
+            self.assertEqual(report["schema_version"], 2)
+            self.assertNotIn("helper", report)
+            self.assertNotIn("helper_sha256", report)
         finally:
             unrelated.kill()
             unrelated.wait(timeout=2)
@@ -86,7 +89,10 @@ class NativeSupervisorTests(unittest.TestCase):
         fake.write_text('#!/bin/sh\nprintf "%s\\n" "$AFS_STATE_DIR" "$@" > "$AFS_STATE_DIR/calls"\n'
                         'printf \'{"mounts":[]}\' > "$AFS_STATE_DIR/mounts.json"\n')
         fake.chmod(0o700)
-        results, errors = supervisor.detach_registered(self.output, fake, fake, 1)
+        with mock.patch.dict(os.environ, {"AFS_NATIVE_HELPER": "/unrelated/old-helper"}), \
+                mock.patch.object(supervisor, "bounded", wraps=supervisor.bounded) as detach:
+            results, errors = supervisor.detach_registered(self.output, fake, 1)
+        self.assertNotIn("AFS_NATIVE_HELPER", detach.call_args.args[2])
         self.assertEqual(errors, [])
         self.assertEqual(len(results), 1)
         self.assertEqual((state / "calls").read_text().splitlines(),
@@ -95,27 +101,35 @@ class NativeSupervisorTests(unittest.TestCase):
         (state / "calls").unlink()
         record["local_path"] = str(self.base / "unrelated-mount")
         registry.write_text(json.dumps({"mounts": [record]}))
-        results, errors = supervisor.detach_registered(self.output, fake, fake, 1)
+        results, errors = supervisor.detach_registered(self.output, fake, 1)
         self.assertEqual(results, [])
         self.assertTrue(errors)
         self.assertFalse((state / "calls").exists())
 
-    def test_timed_out_cleanup_terminates_separate_session_child(self):
-        child_pid = self.base / "child.pid"
-        program = ("import pathlib,subprocess,sys,time; "
-                   "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],start_new_session=True); "
-                   "pathlib.Path(sys.argv[1]).write_text(str(p.pid)); time.sleep(30)")
-        result = supervisor.bounded([sys.executable, "-c", program, str(child_pid)], 1,
-                                    track_children=True)
+    def test_timed_out_cleanup_terminates_reexecuted_native_daemon(self):
+        _, state, _, _ = self.registry()
+        child_pid = state / "child.pid"
+        fake = self.base / "afs"
+        fake.write_text(f"#!{sys.executable}\n"
+                        "import os,pathlib,subprocess,sys,time\n"
+                        "if sys.argv[1] != '_native-daemon':\n"
+                        "    p=subprocess.Popen([sys.argv[0], '_native-daemon'], start_new_session=True)\n"
+                        "    pathlib.Path(os.environ['AFS_STATE_DIR'], 'child.pid').write_text(str(p.pid))\n"
+                        "time.sleep(30)\n")
+        fake.chmod(0o700)
+        results, errors = supervisor.detach_registered(self.output, fake, 1)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(errors, ["forced detach failed: " + str(state.parent / "workspace")])
+        result = results[0]
         self.assertTrue(result["timed_out"])
         self.assertIsNotNone(result["returncode"])
-        self.assertTrue(child_pid.exists(), "fixture did not start its detach-helper stand-in")
+        self.assertTrue(child_pid.exists(), "fixture did not re-execute its native daemon stand-in")
         pid = int(child_pid.read_text())
         row = supervisor.process_table().get(pid)
         if row is not None:
             self.addCleanup(self.stop_if_same, pid, row[1:])
         # A just-killed orphan can briefly remain a zombie; it must not be a
-        # live sleeping helper. The supervisor records any such cleanup doubt.
+        # live sleeping daemon. The supervisor records any such cleanup doubt.
         check = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
         self.assertTrue(not check.stdout.strip() or check.stdout.strip().startswith("Z"), check.stdout)
 
@@ -126,7 +140,7 @@ class NativeSupervisorTests(unittest.TestCase):
                 mock.patch.object(supervisor, "supervise", return_value=0) as run, \
                 mock.patch.object(supervisor.signal, "signal"):
             self.assertEqual(supervisor.main(), 0)
-        self.assertEqual(run.call_args.args[4], len(native_multiwriter_lab.SCENARIOS) * 720)
+        self.assertEqual(run.call_args.args[3], len(native_multiwriter_lab.SCENARIOS) * 720)
 
 
 if __name__ == "__main__":

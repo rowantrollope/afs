@@ -2,6 +2,7 @@
 /afs
 *.test
 /coverage.out
+/dump.rdb
 *.log
 .DS_Store
 /tests/multiwriter/artifacts/

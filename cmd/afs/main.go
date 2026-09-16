@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/logging"
 	"github.com/rowantrollope/afs/internal/controlplane"
+	"github.com/rowantrollope/afs/internal/mountcontrol"
+	"github.com/rowantrollope/afs/internal/nativedaemon"
 	"github.com/rowantrollope/afs/internal/version"
 	"github.com/rowantrollope/afs/internal/worktree"
 )
@@ -78,7 +81,7 @@ Start folder synchronization in the background, or stay attached with --foregrou
 An unrelated populated directory is rejected. Import it with:
   afs create <new-workspace> --from <directory>
 
---backend fuse or nfs uses the optional afsmount helper to expose the workspace
+--backend fuse or nfs exposes the workspace through a background afs process
 as a native filesystem. Native mountpoints must be empty. Files live in Redis;
 unmounting reveals the original local directory. Folder sync remains the default.
 `,
@@ -105,6 +108,9 @@ type app struct {
 }
 
 func main() {
+	// Configure the process-wide driver logger before any clients start. AFS
+	// reports connection failures itself; repeated dial-attempt logs obscure it.
+	redis.SetLogger(logging.NewBlacklistLogger([]string{"redis: connection pool: failed to dial after"}))
 	if err := runCLI(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "afs:", err)
 		os.Exit(1)
@@ -112,6 +118,12 @@ func main() {
 }
 
 func runCLI(args []string) error {
+	if len(args) > 0 && args[0] == "_native-daemon" {
+		if len(args) != 1 {
+			return errors.New("native daemon does not accept arguments")
+		}
+		return nativedaemon.Run(os.Getenv(mountcontrol.BootstrapEnv))
+	}
 	if len(args) > 0 && args[0] == "_sync-daemon" {
 		return runSyncDaemon()
 	}
@@ -262,12 +274,13 @@ func (a *app) connect(ctx context.Context) error {
 	if a.rdb != nil {
 		return nil
 	}
-	rdb := redis.NewClient(buildRedisOptions(a.config, 8))
+	opts := buildRedisOptions(a.config, 8)
+	rdb := redis.NewClient(opts)
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := rdb.Ping(pingCtx).Err(); err != nil {
 		_ = rdb.Close()
-		return fmt.Errorf("connect to Redis %s: %s", redisDisplay(a.config), redactConnectionError(err, a.config))
+		return redisConnectionError(opts.Addr, err)
 	}
 	a.rdb = rdb
 	a.service = controlplane.NewService(controlplane.NewStore(rdb))

@@ -1,5 +1,5 @@
-// afsmount is the optional native driver helper. Workspace/config UX lives in afs.
-package main
+// Package nativedaemon serves native mounts in an afs child process.
+package nativedaemon
 
 import (
 	"context"
@@ -19,17 +19,6 @@ import (
 	"github.com/rowantrollope/afs/internal/mountcontrol"
 	"github.com/rowantrollope/afs/mount/native"
 )
-
-func main() {
-	if len(os.Args) > 1 {
-		fmt.Fprintln(os.Stderr, "afsmount is started by afs mount --backend fuse|nfs")
-		os.Exit(2)
-	}
-	if err := run(os.Getenv(mountcontrol.BootstrapEnv)); err != nil {
-		log.Print(err)
-		os.Exit(1)
-	}
-}
 
 func loadBootstrap(path string) (mountcontrol.Bootstrap, error) {
 	var boot mountcontrol.Bootstrap
@@ -111,8 +100,11 @@ func lockRuntime(dir string) (func(), error) {
 	return func() { _ = syscall.Flock(fd, syscall.LOCK_UN); _ = f.Close() }, nil
 }
 
-func run(path string) (err error) {
-	boot, err := loadBootstrap(path)
+// Run consumes a private bootstrap file and serves its native mount until it is
+// unmounted. It must run in a dedicated child process because it owns signals
+// and the mount's process lifetime.
+func Run(bootstrapPath string) (err error) {
+	boot, err := loadBootstrap(bootstrapPath)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,7 @@
 """Real FUSE/NFS and folder-sync acceptance using the existing multiwriter lab.
 
 Requires functioning kernel mounts; missing prerequisites fail, never skip.
-Only lab-owned Redis, directories, helpers and mountpoints are touched.
+Only lab-owned Redis, directories, daemons and mountpoints are touched.
 """
 import argparse
 import base64
@@ -10,14 +10,13 @@ import errno
 import fcntl
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import threading
 import time
 
-from multiwriter_lab import Case, Client, Lab, REPO, digest, manifest, parallel
+from multiwriter_lab import Case, Client, Lab, digest, manifest, parallel
 
 SCENARIOS = ("native-files", "native-ranges", "native-overlap", "native-append",
              "native-rename", "native-reconnect", "native-checkpoint", "native-crash",
@@ -28,7 +27,6 @@ class MountedClient(Client):
     def __init__(self, case, name, backend):
         super().__init__(case, name)
         self.backend = backend
-        self.env["AFS_NATIVE_HELPER"] = str(case.lab.helper)
         if os.environ.get("AFS_LAB_NATIVE_DEBUG") == "1":
             self.env["AFS_NFS_DEBUG"] = "1"
 
@@ -50,7 +48,7 @@ class MountedClient(Client):
         status = self.run("status", self.root)[0]
         if status["backend"] != self.backend or status["state"] != "running":
             raise AssertionError(f"native mount status: {status}")
-        self.pid = status["pid"]  # helper, rather than its foreground supervisor
+        self.pid = status["pid"]  # native daemon, rather than its foreground supervisor
 
     def kill(self):
         if self.backend == "sync":
@@ -475,15 +473,8 @@ finally:
 class NativeLab(Lab):
     case_type = NativeCase
 
-    def __init__(self, args):
-        super().__init__(args)
-        self.helper = Path(args.helper).resolve() if args.helper else self.output / "afsmount"
-
     def setup(self):
         super().setup()
-        if not self.args.helper:
-            subprocess.run(["go", "build", "-o", str(self.helper), "./cmd/afsmount"], cwd=REPO, check=True)
-        self.report["helper_sha256"] = digest(self.helper.read_bytes())
         self.report["isolation"] = "real kernel FUSE/NFS mounts and sync processes; one host kernel"
 
 
@@ -497,8 +488,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=90)
     parser.add_argument("--latency-ms", type=float, default=0)
     parser.add_argument("--output")
-    parser.add_argument("--binary")
-    parser.add_argument("--helper")
+    parser.add_argument("--binary", help="existing afs binary to test; default: build this checkout")
     parser.add_argument("--scenario", choices=SCENARIOS, action="append")
     args = parser.parse_args()
     if args.clients < 2 or min(args.files, args.rounds) < 1 or args.timeout <= 0 or args.latency_ms < 0:
