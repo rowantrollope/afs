@@ -12,8 +12,17 @@ install: build
 	install_dir=$$(cd "$(INSTALL_DIR)" && pwd -P); \
 	source_path="$(CURDIR)/bin/afs"; \
 	destination="$$install_dir/afs"; \
-	if [ -L "$$destination" ] && [ "$$(readlink "$$destination")" = "$$source_path" ]; then \
+	if [ "$$destination" = "$$source_path" ]; then \
+		printf 'Already installed: %s\n' "$$destination"; \
+	elif [ -L "$$destination" ] && [ "$$(readlink "$$destination")" = "$$source_path" ]; then \
 		printf 'Already installed: %s -> %s\n' "$$destination" "$$source_path"; \
+	elif [ -f "$$destination" ] && [ ! -L "$$destination" ] && \
+		go version -m "$$destination" 2>/dev/null | awk '$$1 == "path" && $$2 == "github.com/rowantrollope/afs/cmd/afs" { found = 1 } END { exit !found }'; then \
+		staging_dir=$$(mktemp -d "$$install_dir/.afs-install.XXXXXX"); \
+		trap 'rm -rf "$$staging_dir"' 0; \
+		ln -s "$$source_path" "$$staging_dir/afs"; \
+		mv -f "$$staging_dir/afs" "$$destination"; \
+		printf 'Updated: %s -> %s\n' "$$destination" "$$source_path"; \
 	elif [ -e "$$destination" ] || [ -L "$$destination" ]; then \
 		printf 'Refusing to replace existing path: %s\n' "$$destination" >&2; \
 		exit 1; \

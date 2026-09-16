@@ -1,5 +1,22 @@
 # Lessons
 
+## 2026-09-16 — Installation must upgrade earlier AFS binaries
+
+An earlier installation used a regular executable, not a checkout symlink.
+`make install` must recognize and upgrade that AFS binary, as well as handle
+fresh installs and repeats. Verify the actual existing installation shape;
+do not assume it already matches the new installer. Preserve unrelated paths
+and existing user configuration.
+
+## 2026-09-16 — Work on main; do not accumulate task branches
+
+User does not want branches and requested a review of all existing branches.
+
+- Use main for future work unless the user explicitly requests a branch.
+- Before branch cleanup, inspect live remote refs, merge ancestry, unique work,
+  linked worktrees and uncommitted files; preserve work that is not on main.
+- Distinguish a branch review from deletion of branches or dirty worktrees.
+
 ## 2026-09-16 — Apply the user's replacement database to both test hosts
 
 When the user supplies a replacement Redis URL for a rerun, use it on both

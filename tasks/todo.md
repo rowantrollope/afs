@@ -1,5 +1,60 @@
 # AFS extraction
 
+## Delete all configured AFS workspaces
+
+- [ ] Inventory workspaces and local mounts through the installed CLI.
+- [ ] Unmount affected local mounts if needed; delete every listed workspace.
+- [ ] Verify the configured database's workspace list is empty.
+
+Scope: user-requested deletion through `afs` using its current configuration.
+No unresolved questions. Review pending.
+
+## Fix make install over an existing executable
+
+- [x] Reproduce the refusal using an isolated install destination.
+- [x] Allow regular-file upgrades while retaining directory/symlink safeguards.
+- [x] Verify fresh/repeat/upgrade installs and configuration preservation; install locally.
+
+Scope: Makefile installation and documentation only, on main. Preserve unrelated
+branch-review notes and runtime data. No unresolved questions.
+
+Review: the previous Makefile rejects a copy of the installed AFS executable.
+The corrected rule recognizes its Go command identity and replaces it with a
+staged checkout symlink, preserving unrelated files, directories and links.
+Nine isolated checks pass, including repeat installs, paths with spaces,
+configuration preservation and installing into the build directory itself.
+`make install` now succeeds on the real installation; PATH resolves the correct
+link and offline help passes. Configuration and the original `/usr/local/bin/afs`
+link are unchanged. Build and diff checks pass. Evidence and prior binary:
+`/private/tmp/afs-install-checks-1t73f4wc/`. Changes are local on main; not pushed.
+
+## Review all branches
+
+- [x] Inventory local/remote branches, worktrees and GitHub pull requests.
+- [x] Compare every branch with live main; identify unique and superseded work.
+- [x] Report cleanup candidates and preservation requirements.
+
+Scope: branch review and record the user's main-only preference. Preserve
+uncommitted work and the runtime Redis dump. No new branches.
+
+Review against fetched main `8ad12fc`: seven extra branch names, six local and
+six remote. `rtwork/slim-afs`, `rtwork/readable-cli-output`,
+`rtwork/workspace-cli` and `rtwork/native-mounts` are fully merged (PRs 1–4).
+Local-only `rtwork/control-plane-design` has no unique commits; its linked
+worktree contains the superseded draft and task bookkeeping, not product code.
+Main contains the improved final design.
+
+Two branches contain substantive unmerged work: `rtwork/single-executable-redis-errors`
+has two commits, including single-binary native mounting missing from main;
+preserve main's newer Redis error wording when integrating it.
+Remote-only `codex/upstream-parity-fixes` has one unique commit restoring bounded
+import reuse, read-only mounts, native ownership options and directory-mode
+safety, plus regressions/audits. Main also has its own newer sync/checkpoint
+fixes, so preserve both sets rather than replacing main with either branch.
+The parity branch's retained report records an unresolved NFS reconnect failure;
+no tests were rerun for this ancestry/source review. No branches/worktrees were
+deleted and no commits pushed. Main-only preference is recorded in lessons.
+
 ## Rerun on the user-selected replacement Redis database
 
 - [x] Verify the same Mac/Sancho source and binaries from run 9cd72d09b414.

@@ -38,8 +38,9 @@ existing configuration. Rebuilding with `make build` updates the command automat
 checkout in place; rerun `make install` after moving it, removing the old link first.
 
 For a custom destination, run `make install INSTALL_DIR=/your/bin`. Repeating
-`make install` is safe; it refuses to replace a different existing file,
-directory, or symlink.
+`make install` is safe; an existing regular AFS executable is upgraded to the
+checkout symlink. Other files, directories and links to a different location
+are preserved, and installation stops with an error.
 
 If `~/.local/bin` is not on your PATH, add this to `~/.zshrc` (zsh) or
 `~/.bashrc` (bash), then open a new terminal:
