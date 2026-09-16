@@ -25,6 +25,14 @@ install: build
 		*":$$install_dir:"*) ;; \
 		*) printf 'Add this directory to PATH in your shell startup file: %s\n' "$$install_dir" ;; \
 	esac
+	@set -eu; \
+	config_dir="$(HOME)/.config/afs-lite"; \
+	if [ ! -e "$$config_dir/config.json" ] && [ ! -L "$$config_dir/config.json" ]; then \
+		umask 077; \
+		mkdir -p "$$config_dir"; \
+		(set -C; cat config.example.json > "$$config_dir/config.json"); \
+		printf 'Created config: %s/config.json\n' "$$config_dir"; \
+	fi
 
 native: build
 	go build -o bin/afsmount ./cmd/afsmount

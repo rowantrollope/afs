@@ -34,6 +34,7 @@ Commands:
   fork <source> <new-workspace>   Fork a workspace from a checkpoint
   delete <workspace>             Delete a workspace
   cp                             Create and manage checkpoints
+  config set <key> <value>        Save a configuration setting
 
 Options:
   --redis <url>                   Redis URL; overrides configuration
@@ -46,6 +47,18 @@ Run 'afs <command> --help' for details.
 `
 
 var commandUsage = map[string]string{
+	"config": `Usage: afs [--config <file>] config set <key> <value>
+
+Settings (defaults):
+  redis                       redis://localhost:6379/0
+  sync.fileSizeCapMB           2048 (0 uses the default)
+  sync.watcherQueueCapacity    1024 (0 uses the default; maximum 1048576)
+
+Saves to ~/.config/afs-lite/config.json unless --config selects another file.
+Creates a missing file with all defaults. Preserves other settings and never
+connects to Redis. Existing config files must be regular files, not symlinks.
+Changes apply to subsequent commands and newly started mounts.
+`,
 	"create": `Usage: afs create <workspace> [--from <directory>]
 
 Create an empty workspace, or import an existing local directory with --from.
@@ -146,6 +159,9 @@ func runCLI(args []string) error {
 	if args[0] == "cp" && len(args) == 1 {
 		fmt.Print(usage)
 		return nil
+	}
+	if args[0] == "config" {
+		return configCommand(opts, args[1:])
 	}
 	cfg, err := readConfig(opts.configPath, opts.redisURL)
 	if err != nil {

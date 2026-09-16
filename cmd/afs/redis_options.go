@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -16,12 +15,9 @@ import (
 func readConfig(file, override string) (config, error) {
 	cfg := config{Redis: "redis://localhost:6379/0"}
 	explicit := file != ""
-	if !explicit {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return cfg, err
-		}
-		file = filepath.Join(home, ".config", "afs-lite", "config.json")
+	file, err := configFilePath(file)
+	if err != nil {
+		return cfg, err
 	}
 	raw, err := os.ReadFile(file)
 	if err != nil {

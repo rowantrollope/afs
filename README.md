@@ -32,7 +32,9 @@ afs --help
 ```
 
 This creates `~/.local/bin/afs` as a symlink to this checkout's `bin/afs`, without
-sudo. Rebuilding with `make build` updates the command automatically. Keep the
+sudo. It also creates `~/.config/afs-lite/config.json` from
+[`config.example.json`](config.example.json) if no config exists, preserving any
+existing configuration. Rebuilding with `make build` updates the command automatically. Keep the
 checkout in place; rerun `make install` after moving it, removing the old link first.
 
 For a custom destination, run `make install INSTALL_DIR=/your/bin`. Repeating
@@ -51,21 +53,54 @@ using `./bin/afs` directly. The original `agent-filesystem` installation is unch
 
 ## Configure
 
-Pass a Redis URL with each command:
+Save your default Redis connection from the CLI (no Redis connection is needed):
 
 ```sh
-afs --redis redis://localhost:6379/0 create demo
+afs config set redis 'redis://localhost:6379/0'
+afs list
 ```
 
-Or put this in `~/.config/afs-lite/config.json` (or select a file with `--config`):
+`make install` creates `~/.config/afs-lite/config.json` if it is missing.
+`config set` also creates a missing file with all defaults. The included
+[`config.example.json`](config.example.json) shows every supported setting:
 
 ```json
-{"redis":"redis://localhost:6379/0"}
+{
+  "redis": "redis://localhost:6379/0",
+  "sync": {
+    "fileSizeCapMB": 2048,
+    "watcherQueueCapacity": 1024
+  }
+}
 ```
 
-`--redis` overrides the file. URLs support username/password, a database number,
-and TLS via `rediss://`. Protect configuration files containing credentials.
-Help and version work without Redis.
+Change sync settings using their dotted names:
+
+```sh
+afs config set sync.fileSizeCapMB 512
+afs config set sync.watcherQueueCapacity 2048
+afs --config ./afs.json config set redis 'rediss://default:PASSWORD@HOST:PORT/0'
+```
+
+`fileSizeCapMB` is the per-file sync limit in MB. `watcherQueueCapacity` is the
+number of buffered watcher events (maximum 1048576). Zero selects the built-in
+default for either setting. Changes apply to subsequent commands and newly
+started mounts; restart an existing mount to apply new settings.
+
+`config set` preserves other JSON settings, validates the result, and saves it
+atomically with permissions `0600`. It refuses malformed files or symlink config
+paths and never prints the supplied value. Use `--config <file>` to select an
+alternate file for either configuration updates or ordinary commands.
+
+For a one-command override:
+
+```sh
+afs --redis 'redis://localhost:6379/0' list
+```
+
+`--redis` overrides the file for that command; it does not save the connection.
+URLs support username/password, a database number, and TLS via `rediss://`.
+Help, version, and config commands work without Redis.
 
 Redis keys use `afs-lite:`; local state uses `~/.afs-lite`. These do not reuse the
 original project's namespace or registry. `AFS_STATE_DIR` selects another local

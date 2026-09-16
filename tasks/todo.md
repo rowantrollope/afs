@@ -1,5 +1,24 @@
 # AFS extraction
 
+## Discoverable user configuration
+
+- [x] Add config.example.json with every supported setting and its default.
+- [x] Seed missing user configuration from make install without overwriting files.
+- [x] Add offline config set with dotted keys, validation, private atomic writes,
+      preservation of unrelated settings, and alternate --config paths.
+- [x] Validate CLI behavior, installation preservation, build, vet, unit/race,
+      and isolated real-Redis process checks.
+
+User explicitly requested the config command family; workspace actions remain
+at the root. Existing mounts retain their startup settings.
+
+Validation: build, vet, unit/race and the isolated real-Redis process suite pass.
+Regressions cover offline setup, saved connection use, alternate files and
+one-command overrides, invalid-edit preservation, secret-free output, concurrent
+updates, permissions, symlinks, and unknown-field preservation. make install
+creates the full default file privately and preserves existing configurations.
+The local binary was rebuilt and missing user configuration initialized.
+
 ## Per-user CLI installation
 
 - [x] Link the current checkout's bin/afs into ~/.local/bin directly in make install.

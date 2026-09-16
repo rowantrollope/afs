@@ -1,0 +1,7 @@
+{
+  "redis": "redis://localhost:6379/0",
+  "sync": {
+    "fileSizeCapMB": 2048,
+    "watcherQueueCapacity": 1024
+  }
+}
