@@ -5,7 +5,7 @@
 - [x] Verify source, scope and current GitHub main; isolate from other work.
 - [x] Write proposed architecture, comparison, failure semantics and acceptance gates.
 - [x] Check Markdown, references and documentation-only diff.
-- [ ] Commit directly to main, push normally and verify the GitHub document.
+- [x] Commit directly to main, push normally and verify the GitHub document.
 
 Spec: publish `docs/lightweight-control-plane.md` as a draft proposal.
 Reuse the existing engine, optional `afs serve`, one Redis backend, persistent
@@ -18,7 +18,10 @@ Review: independent source audit passes against original `c3897ac` and slim
 main `09f1146`. GFM parsing validates three tables, 11 relative links/anchors,
 13 pinned source links and one Mermaid flowchart. All 11 original source paths
 exist in GitHub's pinned tree. Only the draft and task bookkeeping change;
-implementation and Redis tests are intentionally deferred. Publication pending.
+implementation and Redis tests are intentionally deferred. Design commit
+`4e70584` was pushed directly to main; GitHub's main ref and exact document
+bytes were verified afterward. The shared checkout stayed clean on its existing
+`rtwork/single-executable-redis-errors` branch at `96dc5da`.
 
 ## PR #4 CI follow-up
 
