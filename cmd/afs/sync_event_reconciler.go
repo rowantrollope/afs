@@ -296,7 +296,7 @@ func (r *reconciler) echoMatches(abs string, info fs.FileInfo, exp echoExpectati
 		}
 		return target == exp.hash
 	case "dir":
-		return info.IsDir()
+		return info.IsDir() && uint32(info.Mode().Perm()) == exp.mode
 	case "delete":
 		return false // shouldn't happen — file present means no delete echo
 	}
@@ -477,15 +477,23 @@ func (r *reconciler) enqueueUploadOpAsync(op uploadOp, delay time.Duration, shou
 	}()
 }
 
-func (r *reconciler) queueUpload(op uploadOp) {
+// The event worker also consumes worker results. Never wait for queue space:
+// a worker can itself be waiting for us to drain its full result channel.
+// A bounded overflow becomes recovery work, just like a watcher overflow.
+func (r *reconciler) queueUpload(op uploadOp) bool {
 	select {
 	case <-r.stopCh:
-		return
+		return false
 	default:
 	}
 	select {
 	case <-r.stopCh:
+		return false
 	case r.uploadCh <- op:
+		return true
+	default:
+		r.requestFullSweep()
+		return false
 	}
 }
 
@@ -498,6 +506,8 @@ func (r *reconciler) queueDownload(op downloadOp) {
 	select {
 	case <-r.stopCh:
 	case r.downloadCh <- op:
+	default:
+		r.requestFullSweep()
 	}
 }
 
@@ -521,6 +531,9 @@ func (r *reconciler) installPendingRename(path, localIdentity string, entry Sync
 }
 
 func (r *reconciler) handleLocalFile(rel, abs string, info fs.FileInfo) {
+	if r.deferScanForPendingUpload(rel) {
+		return
+	}
 	fileSize := info.Size()
 	if fileSize > r.maxFileBytes {
 		fmt.Fprintf(os.Stderr, "afs sync: skipping %s — %d bytes exceeds %d byte cap\n", rel, fileSize, r.maxFileBytes)
@@ -684,6 +697,9 @@ func (r *reconciler) handleLocalFile(rel, abs string, info fs.FileInfo) {
 }
 
 func (r *reconciler) handleLocalSymlink(rel, abs string) {
+	if r.deferScanForPendingUpload(rel) {
+		return
+	}
 	target, err := os.Readlink(abs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "afs sync: readlink %s: %v\n", abs, err)
@@ -732,7 +748,15 @@ func (r *reconciler) handleLocalDir(ctx context.Context, rel, abs string, info f
 	stored, hasStored := r.state.state.Entries[rel]
 	r.state.mu.Unlock()
 	r.reconcileLocalDirDeletes(ctx, rel)
+	if r.deferScanForPendingUpload(rel) {
+		return
+	}
 	if hasStored && stored.Type == "dir" {
+		if stored.Mode != uint32(info.Mode().Perm()) {
+			// Recovery already guards directory chmod against concurrent local
+			// and remote changes. Reuse it instead of an unconditional chmod.
+			r.requestFullSweep()
+		}
 		return
 	}
 	r.enqueueTrackedUpload(uploadOp{
@@ -1054,20 +1078,7 @@ func (r *reconciler) handleUploadResult(ctx context.Context, res uploadResult) {
 		}
 	}
 	if res.Skipped {
-		if res.Op.Kind == opUploadRename {
-			// installPendingRename copied the source baseline to a
-			// destination that the failed rename never created remotely.
-			// Forget that provisional entry so recovery uploads the local
-			// destination instead of treating it as a remote deletion.
-			r.state.mu.Lock()
-			if entry, exists := r.state.state.Entries[res.Op.Path]; exists &&
-				!entry.Deleted && res.Op.RenameVersion != 0 && entry.Version == res.Op.RenameVersion {
-				delete(r.state.state.Entries, res.Op.Path)
-				r.state.dirty = true
-			}
-			r.state.mu.Unlock()
-			r.state.markDirty()
-		}
+		r.discardPendingRename(res.Op)
 		r.requestFullSweep()
 		return
 	}

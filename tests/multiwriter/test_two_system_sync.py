@@ -1,6 +1,7 @@
 """Independent-oracle and coordination regressions for the two-system runner."""
 import concurrent.futures
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -182,6 +183,56 @@ class CoordinationTests(unittest.TestCase):
         peers[1].call("abort", error="test failure")
         with self.assertRaisesRegex(RuntimeError, "system B failed"):
             peers[0].exchange("next")
+
+
+class DiagnosticsTests(unittest.TestCase):
+    def snapshot(self, replies, url="redis://user:p%40ss@example.com:6379/5"):
+        connection = mock.MagicMock()
+        connection.__enter__.return_value = connection
+        connection.makefile.return_value.__enter__.return_value = io.BytesIO(replies)
+        with mock.patch.object(lab.socket, "create_connection", return_value=connection):
+            result = lab.redis_memory_snapshot(12345, url)
+        return result, b"".join(c.args[0] for c in connection.sendall.call_args_list)
+
+    def bulk(self, value):
+        value = value.encode()
+        return b"$%d\r\n" % len(value) + value + b"\r\n"
+
+    def test_memory_telemetry_uses_only_auth_and_info_and_filters_secrets(self):
+        replies = b"+OK\r\n" + self.bulk("used_memory:80\r\nmaxmemory:100\r\nmaxmemory_policy:volatile-lru\r\nsecret:p@ss\r\n")
+        replies += self.bulk("evicted_keys:7\r\n") + self.bulk("errorstat_OOM:count=3\r\n")
+        result, wire = self.snapshot(replies)
+        self.assertEqual(result["headroom_bytes"], 20)
+        self.assertEqual(result["oom_errors"], 3)
+        self.assertIn(b"$4\r\np@ss\r\n", wire)
+        self.assertEqual(wire.count(b"$4\r\nINFO\r\n"), 3)
+        self.assertNotIn("p@ss", json.dumps(result))
+        self.assertNotIn(b"SELECT", wire)
+        self.assertNotIn(b"CONFIG", wire)
+
+    def test_missing_or_denied_info_is_unknown_not_zero_capacity(self):
+        result, _ = self.snapshot(b"+OK\r\n-NOPERM hidden\r\n" + self.bulk("") + self.bulk(""))
+        self.assertEqual(result["unavailable_sections"], ["memory"])
+        self.assertNotIn("headroom_bytes", result)
+        self.assertNotIn("oom_errors", result)
+        result, _ = self.snapshot(b"-WRONGPASS sensitive-server-text\r\n")
+        self.assertTrue(result["unavailable"])
+        self.assertNotIn("sensitive", json.dumps(result))
+
+    def test_deltas_ignore_missing_or_reset_counters(self):
+        self.assertEqual(lab.memory_delta({"evicted_keys": 7, "oom_errors": 3},
+                                         {"evicted_keys": 9, "oom_errors": 1}), {"evicted_keys": 2})
+
+    def test_oom_evidence_is_scoped_to_test_client_operations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "client-a").mkdir()
+            (root / "client-a" / "config.json").write_text("OOM command not allowed")
+            (root / "other.json").write_text("OOM command not allowed")
+            self.assertEqual(lab.capacity_evidence(root), [])
+            (root / "client-a" / "mount-1.log").write_text("upload failed: OOM command not allowed when used memory > 'maxmemory'\n")
+            self.assertEqual(lab.capacity_evidence(root), ["client-a/mount-1.log"])
+            self.assertEqual(lab.capacity_evidence(root, "OOM command not allowed")[0], "scenario error")
 
 
 class EndpointTests(unittest.TestCase):

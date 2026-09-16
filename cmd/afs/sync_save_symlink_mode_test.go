@@ -25,12 +25,12 @@ func TestSyncSaveSymlinkModeChangeRetainsRemoteEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newSyncSaveTestReconciler(t, env)
-	local, err := scanSyncSaveLocal(ctx, r)
+	_, err := scanSyncSaveLocal(ctx, r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Force a mode difference independently of the host's symlink semantics.
-	remoteMode := local[rel].Mode ^ 0o020
+	remoteMode := uint32(0o751)
 	if err := env.fsClient.Chmod(ctx, "/"+rel, remoteMode); err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +41,8 @@ func TestSyncSaveSymlinkModeChangeRetainsRemoteEntry(t *testing.T) {
 		t.Fatalf("remote target = %q, error %v", got, err)
 	}
 	stat, err := env.fsClient.Stat(ctx, "/"+rel)
-	if err != nil || stat == nil || stat.Mode != local[rel].Mode {
-		t.Fatalf("remote stat = %+v, error %v; want mode %o", stat, err, local[rel].Mode)
+	if err != nil || stat == nil || stat.Mode != remoteMode {
+		t.Fatalf("remote stat = %+v, error %v; want mode %o", stat, err, remoteMode)
 	}
 }
 

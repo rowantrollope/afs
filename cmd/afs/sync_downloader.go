@@ -518,7 +518,7 @@ func (d *downloader) processMkdir(ctx context.Context, op downloadOp) {
 		d.send(downloadResult{Op: op, Err: fmt.Errorf("mkdir local %s: %w", op.Path, err)})
 		return
 	}
-	d.echo.markDir(op.Path)
+	d.echo.markDir(op.Path, op.Mode&0o777)
 	if err := os.Chmod(op.AbsPath, fs.FileMode(op.Mode&0o7777)); err != nil {
 		d.send(downloadResult{Op: op, Err: fmt.Errorf("chmod local directory %s: %w", op.Path, err)})
 		return
@@ -687,6 +687,7 @@ type echoSuppressor struct {
 type echoExpectation struct {
 	kind string // "file" | "symlink" | "dir" | "delete"
 	hash string // sha256 hex for files; symlink target for symlinks
+	mode uint32 // directory permissions expected after our own mutation
 }
 
 func newEchoSuppressor() *echoSuppressor {
@@ -701,8 +702,8 @@ func (e *echoSuppressor) markSymlink(rel, target string) {
 	e.set(rel, echoExpectation{kind: "symlink", hash: target})
 }
 
-func (e *echoSuppressor) markDir(rel string) {
-	e.set(rel, echoExpectation{kind: "dir"})
+func (e *echoSuppressor) markDir(rel string, mode uint32) {
+	e.set(rel, echoExpectation{kind: "dir", mode: mode})
 }
 
 func (e *echoSuppressor) markDelete(rel string) {

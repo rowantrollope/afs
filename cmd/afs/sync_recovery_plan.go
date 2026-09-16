@@ -30,7 +30,33 @@ func (r *reconciler) enqueueTrackedUpload(op uploadOp) {
 	}
 	r.state.mu.Unlock()
 	op.Tracked = true
-	r.queueUpload(op)
+	if !r.queueUpload(op) {
+		r.discardPendingRename(op)
+		r.finishPendingUpload(op.Path)
+		if op.Kind == opUploadRename && op.PrevPath != "" {
+			r.finishPendingUpload(op.PrevPath)
+		}
+		// Request again after clearing provisional state and pending counts;
+		// a concurrent recovery pass may have already seen the first request.
+		r.requestFullSweep()
+	}
+}
+
+// A skipped/deferred rename never created its destination remotely. Forget
+// only that provisional baseline so recovery uploads the local destination
+// instead of mistaking the missing remote path for an inbound deletion.
+func (r *reconciler) discardPendingRename(op uploadOp) {
+	if op.Kind != opUploadRename {
+		return
+	}
+	r.state.mu.Lock()
+	if entry, exists := r.state.state.Entries[op.Path]; exists &&
+		!entry.Deleted && op.RenameVersion != 0 && entry.Version == op.RenameVersion {
+		delete(r.state.state.Entries, op.Path)
+		r.state.dirty = true
+	}
+	r.state.mu.Unlock()
+	r.state.markDirty()
 }
 
 func (r *reconciler) deferScanForPendingUpload(path string) bool {
@@ -148,7 +174,7 @@ func (f *fullReconciler) actionStillCurrent(a syncAction) bool {
 					current = current && info.ModTime().UnixNano() == l.mtimeNs
 				}
 			case "dir":
-				current = info.IsDir()
+				current = info.IsDir() && uint32(info.Mode().Perm()) == l.mode
 			case "symlink":
 				target, err := os.Readlink(a.absPath)
 				current = info.Mode()&os.ModeSymlink != 0 && err == nil && target == l.target

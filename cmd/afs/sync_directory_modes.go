@@ -49,7 +49,7 @@ func (m *syncDirectoryModes) prepare(abs string) error {
 		return fmt.Errorf("sync directory %s is not a directory", rel)
 	}
 	if info.Mode().Perm()&0o700 != 0o700 {
-		m.r.echo.markDir(filepath.ToSlash(rel))
+		m.r.echo.markDir(filepath.ToSlash(rel), uint32(info.Mode().Perm()|0o700))
 		if err := os.Chmod(abs, info.Mode()|0o700); err != nil {
 			return fmt.Errorf("prepare sync directory %s: %w", rel, err)
 		}
@@ -84,7 +84,7 @@ func (m *syncDirectoryModes) restore() error {
 			continue
 		}
 		rel, _ := filepath.Rel(m.r.root, abs)
-		m.r.echo.markDir(filepath.ToSlash(rel))
+		m.r.echo.markDir(filepath.ToSlash(rel), uint32(before.Mode().Perm()))
 		if err := os.Chmod(abs, before.Mode()); err != nil {
 			result = errors.Join(result, fmt.Errorf("restore sync directory %s: %w", rel, err))
 		}

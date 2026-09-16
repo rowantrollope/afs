@@ -37,7 +37,7 @@ func writeSyncSaveEntry(ctx context.Context, r *reconciler, rel string, entry, p
 		if err := r.fs.Ln(ctx, entry.Target, remotePath); err != nil {
 			return err
 		}
-		return finishSyncSaveCreate(ctx, r, rel, entry.Mode, syncSaveEntry{Type: "symlink", Mode: 0o777, Target: entry.Target})
+		return nil // Keep native symlink metadata; only the target is portable.
 	case "file":
 		data, err := readSyncSaveFile(ctx, filepath.Join(r.root, filepath.FromSlash(rel)), entry, r.maxFileBytes)
 		if err != nil {

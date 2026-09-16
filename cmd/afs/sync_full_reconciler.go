@@ -965,7 +965,7 @@ func (f *fullReconciler) execMkdirLocal(a syncAction) error {
 			return err
 		}
 	}
-	f.r.echo.markDir(a.path)
+	f.r.echo.markDir(a.path, a.mode&0o777)
 	f.updateActionState(a, SyncEntry{
 		Type:         "dir",
 		Mode:         a.mode,

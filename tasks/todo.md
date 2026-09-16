@@ -1,5 +1,112 @@
 # AFS extraction
 
+## Rerun on the user-selected replacement Redis database
+
+- [x] Verify the same Mac/Sancho source and binaries from run 9cd72d09b414.
+- [x] Prepare private per-run connection overrides without changing saved configuration.
+- [x] Complete the unchanged 12-scenario workload on both actual systems.
+- [x] Evaluate both reports, capacity counters and cleanup; retain review evidence.
+
+User explicitly selected a different database for this rerun. Preflight reports
+256 maximum clients, no rejected connections and no evictions. Keep the workload,
+timeouts and tested code identical so the results can be compared with the prior
+capacity-limited run. Use fresh workspaces; preserve prior artifacts and data.
+
+Run a7145c3da397: all 12 scenarios pass on both actual systems; both runners exit
+0. All 76 Mac and 80 Sancho saved tree comparisons are clear, including complete
+bulk mutation, checkpoint, fresh hydration and normal unmount checks. No OOM
+evidence, rejected connections, evictions or Redis error replies were recorded.
+Cleanup reports are empty; owned processes and the new tunnel are gone. Saved
+configuration and installed binaries are unchanged. Evaluation and provenance:
+docs/two-system-results-2026-09-16-new-database.md.
+
+Publication scope: the user requested committing the completed fixes, regressions,
+runner diagnostics and result documentation directly to main. Private runtime
+configuration and ignored test artifacts remain outside version control.
+
+## Run fixed build on Sancho and macOS
+
+- [x] Transfer and verify the same source snapshot; build separately on both hosts.
+- [x] Run all 12 scenarios against the Redis configured on both machines.
+- [x] Collect both reports and diagnose every failed/incomplete scenario.
+
+User explicitly authorized this real two-host run against their existing Redis.
+Use fresh named test workspaces and separate binaries/state; preserve existing
+workspaces, installed binaries, server settings and original-run artifacts.
+
+Run 9cd72d09b414: five complete passes (mutations, delete-edit, rename-edit,
+partition, crash), six OOM-blocked cases, and a basic fresh-observer connection
+failure. Redis exposes a 30-client limit and rejected connections rose from 0
+to 9. Both runners exited 1 with no cleanup errors; owned processes and tunnel
+are gone. The chmod and recovery symlink-unmount fixes pass across OSes; bulk
+mutations remain unvalidated because OOM stopped initial creation. Full details:
+docs/two-system-results-2026-09-16-fixed.md. Further acceptance needs memory and
+connection headroom; no data cleanup or server settings change was performed.
+
+
+## Fix failures from the first two-system run
+
+- [x] Normalize folder-sync symlink modes without relaxing target conflicts.
+- [x] Schedule guarded reconciliation for live directory chmods, including echoes.
+- [x] Prevent saturated worker queues from blocking result consumption; recover deferred work.
+- [x] Record Redis memory/error telemetry and distinguish capacity-blocked scenarios.
+- [x] Parallelize bounded small-file save verification after reproducing the delayed checkpoint timeout.
+- [x] Run focused regressions, build/vet/unit/race and disposable Redis process validation.
+
+The subsequent actual Mac/Sancho run is recorded above. Local validation used
+separate binaries and disposable Redis; the authorized real run used the existing
+configured Redis with fresh test workspaces.
+
+Validation: six new focused concurrency/mode/save regressions pass (the initial
+three reproduced symlink-save, swallowed-chmod and full-queue failures before
+fixes); build, vet, unit/race, native dependency checks, isolated CLI integration
+and 38 Python regressions pass. All 12 paired scenarios pass on both local
+processes with default workload and 45-second phases; the existing four-writer
+lab passes all 10 scenarios, including its formerly intermittent rename/delete
+case. A 12 MiB disposable Redis produces capacity-blocked large-file outcomes
+and exit 1 on both peers. Owned cleanup succeeds, and pre-existing fixture
+workspace metadata/cold-hydrated bytes remain unchanged. Credential-free local
+validation reports are in tests/multiwriter/artifacts/two-system-fixes-2026-09-16.
+
+The added 5 ms proxy-delay bulk run completed every mutation oracle, then hit
+its fixed 120-second checkpoint save deadline. Bounded parallel verification
+of files <=1 MiB fixes the serial read bottleneck without increasing that
+limit. A focused 402-file delayed regression passes checkpoint (34.72s), cold
+hydrate, normal cold/writer unmount (30.99/31.63s), exact retained trees and
+cleanup. Full unit/race, CLI integration and all 12 normal paired scenarios
+pass again on the final implementation. The full delayed mutation workload
+itself has not been repeated after the save optimization.
+
+
+
+## Evaluate actual macOS / Sancho acceptance results
+
+- [x] Read completed reports, comparisons, daemon logs and saved baselines on both hosts.
+- [x] Separate functional failures, unresolved backlog and Redis capacity failures.
+- [x] Verify relevant test-owned Redis metadata and memory/eviction metrics read-only.
+- [x] Preserve credential-free evidence and write docs/two-system-results-2026-09-16.md.
+
+Run bdcfc93bc899: four passes, eight failures. Four failures share Linux fresh
+observer symlink-unmount conflicts (0777 locally versus 0755 in Redis/macOS, with
+zero saved modes interpreted as 0777). Directory chmod fails bidirectionally;
+the existing-directory event handler returns without checking mode changes.
+Bulk has 23 stale/missing/obsolete path discrepancies on the Mac at 120 seconds,
+with 775 queued events and 77 tracked uploads on Sancho; root cause is unresolved.
+Large-file edits and a shared-edit checkpoint hit repeated Redis OOM errors.
+Recovery contents and fresh hydration pass before symlink unmount failures.
+All owned-process cleanup reports are empty. Version labels differ, but the
+tested commits have identical production Go code. No data was deleted, server
+settings changed, workloads rerun, or production code modified during evaluation.
+
+- [x] Fix and regress mixed-platform symlink baseline/mode handling at save/unmount.
+- [x] Reproduce and fix bounded worker-queue deadlock; validate delayed bulk propagation.
+- [x] Confirm the fixes in a new actual Mac/Sancho run with Redis headroom.
+- [x] Add harness memory preflight/failure telemetry and capacity-blocked reporting.
+
+The follow-up fixes directory chmod and a reproduced queue deadlock. The complete
+replacement-database run a7145c3da397 above confirms all 12 scenarios across the
+actual Mac and Sancho, including the previously incomplete bulk workload.
+
 ## Two-system synchronization acceptance
 
 - [x] Add a coordinated macOS/Linux runner with isolated state and directories.
@@ -29,7 +136,7 @@ The existing ten-scenario lab passed nine; its rename/delete candidate-preservat
 check timed out once and passed a focused rerun. Retain that intermittent result.
 See docs/two-system-sync.md for run instructions and local findings.
 
-- [ ] Investigate/fix live directory chmod propagation after directory rename.
+- [x] Investigate/fix live directory chmod propagation after directory rename.
 - [ ] Investigate intermittent existing-lab rename/delete candidate loss.
 
 ## Align root help columns

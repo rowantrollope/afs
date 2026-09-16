@@ -251,6 +251,95 @@ def redis_endpoint(url):
     return parsed.hostname, port, parsed.scheme == "rediss", authority, parsed.path or "/0"
 
 
+
+# INFO is advisory: managed services may hide fields or deny the command.
+# Never issue CONFIG, scan keys, or infer a quota from a historical peak.
+INFO_NUMBERS = {"used_memory", "used_memory_peak", "maxmemory", "evicted_keys",
+                "rejected_connections", "total_error_replies"}
+
+
+def redis_memory_snapshot(port, raw_url):
+    result = {"time": time.time(), "unavailable_sections": []}
+    parsed = urllib.parse.urlsplit(raw_url)
+    def reply(stream):
+        line = stream.readline(1 << 20)
+        if not line.endswith(b"\r\n"):
+            raise OSError("incomplete Redis reply")
+        kind, value = line[:1], line[1:-2]
+        if kind == b"-":
+            raise RuntimeError("Redis command rejected")  # no server text/credentials
+        if kind == b"$":
+            size = int(value)
+            if size < 0 or size > 8 << 20:
+                raise ValueError("unexpected INFO size")
+            value = stream.read(size)
+            if len(value) != size or stream.read(2) != b"\r\n":
+                raise OSError("incomplete Redis payload")
+        elif kind != b"+":
+            raise ValueError("unexpected Redis reply")
+        return value.decode("utf-8", errors="replace")
+    try:
+        # The existing gateway provides TLS verification when requested by URL.
+        with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            with sock.makefile("rb") as stream:
+                def command(*args):
+                    parts = [str(arg).encode() for arg in args]
+                    sock.sendall(b"*%d\r\n" % len(parts) + b"".join(
+                        b"$%d\r\n" % len(part) + part + b"\r\n" for part in parts))
+                    return reply(stream)
+                if parsed.password is not None:
+                    password = urllib.parse.unquote(parsed.password)
+                    if parsed.username:
+                        command("AUTH", urllib.parse.unquote(parsed.username), password)
+                    else:
+                        command("AUTH", password)
+                for section in ("memory", "stats", "errorstats"):
+                    try:
+                        data = command("INFO", section)
+                    except RuntimeError:
+                        result["unavailable_sections"].append(section)
+                        continue
+                    for line in data.splitlines():
+                        key, _, value = line.partition(":")
+                        if key in INFO_NUMBERS and value.isdigit():
+                            result[key] = int(value)
+                        elif key == "maxmemory_policy":
+                            if value in ("noeviction", "allkeys-lru", "allkeys-lfu", "allkeys-random",
+                                         "volatile-lru", "volatile-lfu", "volatile-random", "volatile-ttl"):
+                                result[key] = value
+                        elif key == "errorstat_OOM" and value.startswith("count="):
+                            count = value[6:].split(",")[0]
+                            if count.isdigit():
+                                result["oom_errors"] = int(count)
+    except (OSError, ValueError, RuntimeError):
+        result["unavailable"] = True
+    if result.get("maxmemory", 0) > 0 and "used_memory" in result:
+        result["headroom_bytes"] = max(0, result["maxmemory"] - result["used_memory"])
+    return result
+
+
+def memory_delta(before, after):
+    return {key: after[key] - before[key] for key in
+            ("evicted_keys", "oom_errors", "rejected_connections", "total_error_replies")
+            if key in before and key in after and after[key] >= before[key]}
+
+
+def capacity_evidence(directory, error=""):
+    # Attribute capacity failures only to this case's own client logs/error.
+    # Global INFO counters can include unrelated applications using the server.
+    sources = []
+    if "OOM command not allowed" in error:
+        sources.append("scenario error")
+    for pattern in ("*/mount-*.log", "*/cli.jsonl"):
+        for path in sorted(directory.glob(pattern)):
+            try:
+                with path.open(errors="replace") as log:
+                    if any("OOM command not allowed" in line for line in log):
+                        sources.append(str(path.relative_to(directory)))
+            except OSError:
+                continue  # Diagnostics must not prevent owned-process cleanup.
+    return sources
+
 class Case:
     def __init__(self, lab, name):
         self.lab, self.kind = lab, name
@@ -734,6 +823,12 @@ class Runner:
         for result in self.report["cases"]:
             if result.get("error"):
                 lines += ["", f"**{result['name']}:** {result['error']}"]
+        if any(result["status"] == "capacity-blocked" for result in self.report["cases"]):
+            lines += ["", "Capacity-blocked cases encountered OOM in test-owned operations. "
+                      "Their validations remain incomplete; rerun with more Redis headroom. "
+                      "Other failures may coexist. INFO counters cover the entire server."]
+        if self.report.get("capacity_warning"):
+            lines += ["", self.report["capacity_warning"]]
         if self.report.get("error"):
             lines += ["", self.report["error"]]
         if self.report["cleanup_errors"]:
@@ -781,6 +876,16 @@ class Runner:
         host, port, tls, self.redis_auth, self.redis_db = redis_endpoint(raw_url)
         self.gateway = Proxy(port, 0, host=host, tls=ssl.create_default_context() if tls else None)
         self.port = self.gateway.port
+        self.report["redis_preflight"] = redis_memory_snapshot(self.port, raw_url)
+        headroom = self.report["redis_preflight"].get("headroom_bytes")
+        if "large" in self.settings["scenarios"]:
+            fixture_bytes = 2 * ((self.settings["large_mib"] << 20) + 317)
+            self.report["large_fixture_bytes"] = fixture_bytes
+            if headroom is not None and headroom < fixture_bytes:
+                self.report["capacity_warning"] = (
+                    "Redis headroom is below the two initial large-file fixtures. "
+                    "Staging, metadata and retained checkpoints require additional memory.")
+                print("WARNING " + self.report["capacity_warning"], flush=True)
         self.report["redis_endpoint"] = {"host": host, "port": port, "tls": tls, "database": self.redis_db}
         self.report["systems"] = self.peer.exchange("joined", {
             "platform": self.report["platform"], "hostname": self.report["hostname"],
@@ -794,6 +899,7 @@ class Runner:
             for name in self.settings["scenarios"]:
                 print(f"RUN  {name}", flush=True)
                 case = Case(self, name)
+                memory_before = redis_memory_snapshot(self.port, os.environ["AFS_TEST_REDIS"])
                 started = time.monotonic()
                 result = {"name": name, "status": "fail"}
                 self.report["cases"].append(result)
@@ -807,14 +913,23 @@ class Runner:
                 finally:
                     result["seconds"] = time.monotonic() - started
                     result["samples"] = case.samples
+                    memory_after = redis_memory_snapshot(self.port, os.environ["AFS_TEST_REDIS"])
+                    result["redis_memory"] = {"before": memory_before, "after": memory_after,
+                                              "counter_delta": memory_delta(memory_before, memory_after)}
+                    result["capacity_evidence"] = capacity_evidence(case.directory, result.get("error", ""))
+                    if result["status"] != "pass" and result["capacity_evidence"]:
+                        result["status"] = "capacity-blocked"
                     self.report["cleanup_errors"].extend(case.close())
                     self.save()
                 # Both peers finish their owned process cleanup before advancing.
                 outcomes = self.peer.exchange("case done:" + name, {"status": result["status"],
-                                   "error": result.get("error"), "cleanup_errors": self.report["cleanup_errors"]})
+                                   "error": result.get("error"),
+                                   "capacity_evidence": result["capacity_evidence"],
+                                   "cleanup_errors": self.report["cleanup_errors"]})
                 result["systems"] = outcomes
                 if any(s["status"] != "pass" for s in outcomes.values()):
-                    result["status"] = "fail"
+                    result["status"] = ("capacity-blocked" if any(s["status"] == "capacity-blocked"
+                                                               for s in outcomes.values()) else "fail")
                 self.save()
                 print(f"{result['status'].upper()} {name} ({result['seconds']:.1f}s)", flush=True)
             summaries = self.peer.exchange("complete", {"cleanup_errors": self.report["cleanup_errors"]})

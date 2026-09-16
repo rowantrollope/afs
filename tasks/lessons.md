@@ -1,5 +1,20 @@
 # Lessons
 
+## 2026-09-16 — Apply the user's replacement database to both test hosts
+
+When the user supplies a replacement Redis URL for a rerun, use it on both
+systems through private test-only configuration. Keep their saved defaults
+unchanged, exclude credentials from reports, and retain the same source and
+workload when comparing results with the previous database.
+
+## 2026-09-16 — Execute the complete two-host acceptance run
+
+When asked to run end to end on Sancho and the Mac, transfer the current source,
+build and execute on both hosts using their configured Redis, then collect and
+evaluate the results. Do not stop at local-only validation or hand back setup
+instructions when SSH access is available and execution is authorized.
+
+
 ## 2026-09-16 — Two-system testing uses the user's remote Redis
 
 The user already has a remote Redis server and wants both systems to use it.

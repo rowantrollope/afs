@@ -264,6 +264,8 @@ connection state, observed queue counts, conflicts and the most recent error;
 queue counts alone do not prove synchronization. A successful flush receipt does.
 
 AFS preserves regular files, directories, symlinks and supported permission modes.
+Folder sync checks permissions on files and directories; symlink targets sync,
+while symlink permissions remain platform-specific.
 It retains `.afsignore`, original temporary-file ignores, and the default 2 GiB
 sync file cap; optional tuning is documented in the [report](docs/simplification.md).
 Folder sync does not capture every transient application write or provide arbitrary

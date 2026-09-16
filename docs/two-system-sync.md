@@ -36,6 +36,10 @@ go build -o /tmp/afs-sync-test ./cmd/afs
 # Alternatively, pass --binary "$(command -v afs)" below.
 ```
 
+When testing fixes, update both checkouts and rebuild `/tmp/afs-sync-test` on
+both systems. Use that explicit binary path for both `host` and `join`; an
+installed binary may still contain the old code after `git pull`.
+
 On **system A**:
 
 ```sh
@@ -57,6 +61,11 @@ run the **exact join command printed by A**:
 AFS_TEST_TOKEN=TOKEN_PRINTED_BY_A python3 scripts/two_system_sync.py join \
   --binary /tmp/afs-sync-test
 ```
+
+For your Mac and `sancho`, run `host` in the terminal already SSH-connected to
+`sancho` (A). Open a separate **local Mac** terminal for the tunnel, using
+`sancho` in place of `USER@SYSTEM_A`. Run `join` in another local Mac terminal
+(B). The SSH tunnel stays quiet while it runs.
 
 The suite starts once both systems join. A controls the scenarios and workload
 size; B receives those settings automatically. No synchronized clocks, manual
@@ -93,6 +102,9 @@ versions reached Redis, rather than merely surviving on their originating host.
 
 Manifests check **exact path sets, types, byte counts, SHA-256 digests, permission
 modes, and symlink targets** against expectations derived from intended writes.
+Permissions apply to regular files and directories. Symlink permissions differ
+between platforms; folder sync preserves their targets and leaves native Redis
+symlink permissions unchanged during save/unmount.
 Equal-but-wrong trees fail. Missing versions, stale resurrected files, unexpected
 entries/conflicts, read errors, failed CLI commands, and peer timeouts also fail.
 Conflict filenames may vary, but every required version must survive and the
@@ -133,8 +145,15 @@ python3 scripts/two_system_sync.py host --binary /tmp/afs-sync-test \
 applies only to newly created test mounts. `--latency-ms 20` on either runner adds
 delay per proxy read in both directions; it is not an accurate RTT emulator or
 network benchmark. `--timeout` bounds each CLI command, barrier, and convergence
-attempt, not the whole suite. A slow or overloaded server can cause a timeout;
+attempt, not the whole suite. The CLI also has its own two-minute save/unmount
+deadline, which this runner setting does not extend. A slow or overloaded server can cause a timeout;
 inspect the saved differences before concluding that data is lost.
+
+The runner reads Redis `INFO memory`, `INFO stats`, and `INFO errorstats` at
+startup and around each scenario. It warns when reported headroom cannot hold
+even the two initial large fixtures; staging, metadata and retained checkpoints
+need additional space. Missing/denied INFO fields mean unknown capacity. No
+Redis admin permission or server configuration changes are required.
 
 ## Results and retained data
 
@@ -145,10 +164,17 @@ failure releases the other peer and the runner continues with a fresh workspace
 for the next scenario. A lost coordination channel or interrupted runner can end
 the run early; the report remains incomplete and returns nonzero.
 
+`capacity-blocked` means a failed scenario encountered an OOM error in its own
+client operations. It still returns nonzero, and its content checks remain
+incomplete; other bugs may coexist. Make more Redis headroom available or reduce
+the workload before repeating it. Eviction/error counter deltas in the report
+cover the whole server, so they cannot alone attribute a failure to this test.
+
 Each output directory contains:
 
 - `report.md` and `report.json`: per-scenario outcomes, durations, both hosts'
-  platform/binary information, settings, retained workspace names, and cleanup errors.
+  platform/binary information, settings, retained workspace names, cleanup errors,
+  memory snapshots, counter deltas and test-owned OOM evidence filenames.
 - `<scenario>/oracle.json`: independent expected entries and required conflict versions.
 - `<scenario>/check-NNN.json`: most recent observation for that phase, both
   manifests, and exact expected/actual differences. Checks during a simulated
@@ -207,4 +233,25 @@ unrelated pre-existing test workspace retained its metadata and cold-hydrated
 bytes. Build, vet, unit/race and CLI integration checks passed. An additional
 run of the existing local lab had one rename/delete candidate-preservation
 timeout; its focused rerun passed. That intermittent result remains unresolved.
-No real cross-host run or connection to the user's remote Redis was performed.
+That initial harness validation used only disposable local Redis. The subsequent
+[actual macOS/Sancho run](two-system-results-2026-09-16.md) completed with four
+passes and eight failures, grouped into symlink-unmount behavior, directory-mode
+propagation, a bulk backlog/stall, and Redis capacity failures. Its evaluation
+distinguishes recovered content from failures during final unmount.
+
+
+Follow-up fixes normalize symlink metadata during save/unmount, propagate live
+directory chmod through guarded reconciliation, and recover bounded queue
+overflow without blocking the result consumer. Local paired validation after
+these changes passes **12/12 scenarios on both peers** with the same 100-file,
+three-round, 8 MiB workload. A separate capacity-limited disposable server
+correctly reports `capacity-blocked` and exits 1 on both sides. The original
+Mac/Sancho evidence remains unchanged; repeat that run to confirm cross-platform
+acceptance. See the evaluation's follow-up section for regression coverage.
+
+The [updated-code Mac/Sancho run](two-system-results-2026-09-16-fixed.md)
+actually executed on both machines with their configured Redis. Five scenarios
+passed completely; six were blocked by Redis OOM and one failed to connect a
+fresh observer, with the server reporting a 30-client limit and rejected
+connections. Directory chmod and symlink unmount in both recovery scenarios pass
+on the actual OS pair. Full acceptance still requires resource headroom.

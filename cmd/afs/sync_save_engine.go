@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -238,6 +239,8 @@ func scanSyncSaveLocal(ctx context.Context, r *reconciler) (syncSaveTree, error)
 			entry.Type = "dir"
 		case info.Mode()&os.ModeSymlink != 0:
 			entry.Type = "symlink"
+			// Symlink modes are platform-specific; folder sync preserves targets.
+			entry.Mode = 0
 			entry.Target, err = os.Readlink(abs)
 		case info.Mode().IsRegular():
 			entry.Type, entry.Size = "file", info.Size()
@@ -378,6 +381,11 @@ func scanSyncSaveRemote(ctx context.Context, r *reconciler, baseline *SyncState)
 		return nil, fmt.Errorf("Redis root is not a directory")
 	}
 	tree := make(syncSaveTree)
+	type fileJob struct {
+		rel   string
+		entry syncSaveEntry
+	}
+	var smallFiles []fileJob
 	var walk func(string) error
 	walk = func(dir string) error {
 		if err := ctx.Err(); err != nil {
@@ -402,6 +410,19 @@ func scanSyncSaveRemote(ctx context.Context, r *reconciler, baseline *SyncState)
 				return fmt.Errorf("duplicate Redis entry %s", rel)
 			}
 			entry := syncSaveEntry{Type: item.Type, Mode: item.Mode, mtimeMs: item.Mtime}
+			if item.Type == "file" {
+				if item.Size < 0 || item.Size > r.maxFileBytes {
+					return fmt.Errorf("Redis file %s exceeds %d byte cap", rel, r.maxFileBytes)
+				}
+				entry.Size = item.Size
+				if item.Size <= 1<<20 {
+					// Bound concurrent content allocation independently of the
+					// configured file cap. Large files retain serial reads.
+					smallFiles = append(smallFiles, fileJob{rel: rel, entry: entry})
+					tree[rel] = entry
+					continue
+				}
+			}
 			entry.remoteStat, err = r.fs.Stat(ctx, absoluteRemotePath(rel))
 			if err != nil {
 				return err
@@ -416,33 +437,10 @@ func scanSyncSaveRemote(ctx context.Context, r *reconciler, baseline *SyncState)
 					return err
 				}
 			case "symlink":
+				entry.Mode = 0
 				entry.Target, err = r.fs.Readlink(ctx, absoluteRemotePath(rel))
 			case "file":
-				if item.Size < 0 || item.Size > r.maxFileBytes {
-					return fmt.Errorf("Redis file %s exceeds %d byte cap", rel, r.maxFileBytes)
-				}
-				var data []byte
-				data, err = r.fs.Cat(ctx, absoluteRemotePath(rel))
-				if err == nil {
-					if int64(len(data)) != item.Size {
-						return fmt.Errorf("Redis file %s changed during scan", rel)
-					}
-					entry.Size, entry.Hash = int64(len(data)), sha256Hex(data)
-					entry.chunkSize, entry.chunkHashes = syncSaveChunks(data, r)
-					var storedSize int
-					var storedHashes []string
-					storedSize, storedHashes, err = r.fs.ChunkMeta(ctx, absoluteRemotePath(rel))
-					entry.hasChunks = storedSize != 0 || len(storedHashes) != 0
-					entry.chunksCurrent = storedSize == entry.chunkSize && slices.Equal(storedHashes, entry.chunkHashes)
-					if stored := baseline.Entries[rel]; stored.ChunkSize > 0 {
-						var hashes []string
-						for start := 0; start < len(data); start += stored.ChunkSize {
-							end := min(start+stored.ChunkSize, len(data))
-							hashes = append(hashes, sha256Hex(data[start:end]))
-						}
-						entry.baselineHash = compositeHash(hashes)
-					}
-				}
+				entry, err = scanSyncSaveRemoteFile(ctx, r, baseline, rel, entry)
 			default:
 				return fmt.Errorf("unsupported Redis entry %s (%s)", rel, item.Type)
 			}
@@ -453,8 +451,93 @@ func scanSyncSaveRemote(ctx context.Context, r *reconciler, baseline *SyncState)
 		}
 		return nil
 	}
-	err = walk("/")
-	return tree, err
+	if err := walk("/"); err != nil {
+		return nil, err
+	}
+	// Verify small files concurrently instead of paying every network round
+	// trip serially. Always join readers before save applies or resumes workers.
+	readCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan fileJob)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	for i := 0; i < min(defaultParallelWorkers, len(smallFiles)); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				entry, err := scanSyncSaveRemoteFile(readCtx, r, baseline, job.rel, job.entry)
+				mu.Lock()
+				if err != nil {
+					if firstErr == nil {
+						firstErr = fmt.Errorf("%s: %w", job.rel, err)
+						cancel()
+					}
+				} else {
+					tree[job.rel] = entry
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+feed:
+	for _, job := range smallFiles {
+		select {
+		case <-readCtx.Done():
+			break feed
+		case jobs <- job:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return tree, nil
+}
+
+func scanSyncSaveRemoteFile(ctx context.Context, r *reconciler, baseline *SyncState, rel string, entry syncSaveEntry) (syncSaveEntry, error) {
+	var err error
+	if err := ctx.Err(); err != nil {
+		return entry, err
+	}
+	if entry.remoteStat == nil {
+		entry.remoteStat, err = r.fs.Stat(ctx, absoluteRemotePath(rel))
+		if err != nil {
+			return entry, err
+		}
+		if entry.remoteStat == nil {
+			return entry, fmt.Errorf("Redis path disappeared during scan")
+		}
+	}
+	data, err := r.fs.Cat(ctx, absoluteRemotePath(rel))
+	if err != nil {
+		return entry, err
+	}
+	if int64(len(data)) != entry.Size {
+		return entry, fmt.Errorf("Redis file changed during scan")
+	}
+	entry.Hash = sha256Hex(data)
+	entry.chunkSize, entry.chunkHashes = syncSaveChunks(data, r)
+	storedSize, storedHashes, err := r.fs.ChunkMeta(ctx, absoluteRemotePath(rel))
+	if err != nil {
+		return entry, err
+	}
+	entry.hasChunks = storedSize != 0 || len(storedHashes) != 0
+	entry.chunksCurrent = storedSize == entry.chunkSize && slices.Equal(storedHashes, entry.chunkHashes)
+	if stored := baseline.Entries[rel]; stored.ChunkSize > 0 {
+		var hashes []string
+		for start := 0; start < len(data); start += stored.ChunkSize {
+			end := min(start+stored.ChunkSize, len(data))
+			hashes = append(hashes, sha256Hex(data[start:end]))
+		}
+		entry.baselineHash = compositeHash(hashes)
+	}
+	return entry, nil
 }
 
 func syncSaveChunkThreshold(r *reconciler) int {
@@ -533,8 +616,8 @@ func syncSavePathBefore(a, b string) bool {
 }
 
 func syncSaveBaselineMode(stored SyncEntry) uint32 {
-	if stored.Type == "symlink" && stored.Mode == 0 {
-		return 0o777
+	if stored.Type == "symlink" {
+		return 0
 	}
 	return stored.Mode
 }
