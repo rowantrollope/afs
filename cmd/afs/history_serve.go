@@ -16,7 +16,7 @@ import (
 	"github.com/rowantrollope/afs/internal/controlplane"
 )
 
-const serveCommandUsage = `Usage: afs serve [--listen 127.0.0.1:8091] [--database-id local] [--allow-origin URL]
+const historyServeCommandUsage = `Usage: afs history serve [--listen 127.0.0.1:8091] [--database-id local] [--allow-origin URL]
 
 Serve the original UI's file-history, version content, diff, restore, undelete,
 versioning, and path activity APIs for the configured Redis database.
@@ -26,7 +26,7 @@ Set the original UI's VITE_AFS_API_BASE_URL to the displayed address.
 `
 
 func (a *app) serveHistoryCommand(args []string) error {
-	f := flag.NewFlagSet("serve", flag.ContinueOnError)
+	f := flag.NewFlagSet("history serve", flag.ContinueOnError)
 	listen := f.String("listen", "127.0.0.1:8091", "loopback listen address")
 	database := f.String("database-id", "local", "configured database alias")
 	var origins historyGlobs
@@ -36,7 +36,7 @@ func (a *app) serveHistoryCommand(args []string) error {
 		return err
 	}
 	if len(pos) != 0 {
-		return errors.New(serveCommandUsage)
+		return errors.New(historyServeCommandUsage)
 	}
 	host, _, err := net.SplitHostPort(*listen)
 	if err != nil {

@@ -35,6 +35,12 @@ label/client-version fields on activity. The drawer displays the label ahead of
 agent, session, user or source. Metadata fields remain optional when the
 corresponding context does not exist.
 
+The current CLI intentionally consolidates these capabilities under `afs history`
+at the user's request; it does not preserve the original command spelling.
+The measured source hashes and browser/component evidence below predate this
+CLI-only consolidation. The storage/publication engine and HTTP contracts are
+unchanged, and the recorded numeric evidence remains the original measured data.
+
 ## HTTP contract used by the original drawer
 
 The original client uses both unscoped `/v1/workspaces/{workspace}` and

@@ -107,7 +107,7 @@ def main():
     with contextlib.ExitStack() as stack:
         address=stack.enter_context(compare.isolated_redis(args.redis_server,output/"redis"))
         seed=json.loads(compare.command([str(output/"seed"),"-addr",address],env=env))
-        api=stack.enter_context(process([str(output/"afs"),"--redis","redis://"+address+"/0","serve","--listen",f"127.0.0.1:{api_port}","--database-id","local","--allow-origin",ui_base],output/"api.log",env=env))
+        api=stack.enter_context(process([str(output/"afs"),"--redis","redis://"+address+"/0","history","serve","--listen",f"127.0.0.1:{api_port}","--database-id","local","--allow-origin",ui_base],output/"api.log",env=env))
         vite=stack.enter_context(process(["node",str(modules/"vite/bin/vite.js"),"--config","history-parity.config.mjs","--configLoader","native","--port",str(ui_port)],output/"vite.log",cwd=ui,env=env))
         report={"original_revision":revision,"new_source_sha256":new_source_hash,"new_production_sha256":new_production_hash,"original_drawer_sha256":hashlib.sha256((ui/"src/routes/workspace-studio/-file-history-drawer.tsx").read_bytes()).hexdigest(),"seed":seed,"redis_address":address,"api_url":api_base,"live_drawer_url":ui_base+"/history-parity.html","deleted_drawer_url":ui_base+"/history-parity.html?path=/deleted.txt","method":"Original pinned drawer, hooks, HTTP client, components and CSS unchanged. New host adds ReactQuery/theme providers and props only. Original dependencies read via symlink; Vite native config avoids config bundles in original node_modules and all optimization caches stay in disposable UI."}
         (output/"session.json").write_text(json.dumps(report,indent=2)+"\n")

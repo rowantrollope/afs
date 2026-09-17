@@ -1,5 +1,17 @@
 # Lessons
 
+## 2026-09-17 — Keep file history under one command group
+
+User rejected adding `history`, `recover`, `versioning`, `file` and `serve` as
+separate root commands, and selected a single `afs history` group.
+
+- Preserve capabilities without duplicating command families for compatibility.
+- Match the existing `cp` pattern: one group, focused subcommands, one listing
+  format and useful subcommand help. Remove replaced roots rather than hiding
+  aliases behind a smaller help screen.
+- Preserve HTTP compatibility independently of CLI spelling; the latest user
+  correction takes precedence over the earlier original-CLI compatibility goal.
+
 ## 2026-09-17 — Preserve the original versioning capabilities and interfaces
 
 The user requires a capability superset, not a different reduced history feature.

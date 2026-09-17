@@ -28,7 +28,7 @@ func TestHistorySyncAttribution(t *testing.T) {
 			const label, agentVersion = "Review Agent", "test-v1"
 			c.run(nil, "create", workspace)
 			if capture {
-				c.run(nil, "versioning", workspace, "--mode", mode)
+				c.run(nil, "history", "policy", workspace, "--mode", mode)
 			}
 			root := filepath.Join(t.TempDir(), "mounted")
 			sessionFlag := "--session"

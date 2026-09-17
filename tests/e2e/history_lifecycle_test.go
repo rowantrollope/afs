@@ -4,31 +4,26 @@ package e2e
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/rowantrollope/afs/internal/filehistory"
+	"github.com/rowantrollope/afs/internal/controlplane"
 )
 
 func TestHistoryLifecycleCheckpointRestoreAndIndependentFork(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
 	c.run(nil, "create", "history-source")
-	c.run(nil, "versioning", "history-source", "--mode", "all")
-	page := func(workspace, path string) filehistory.Page {
+	c.run(nil, "history", "policy", "history-source", "--mode", "all")
+	page := func(workspace, path string) controlplane.FileHistoryLineage {
 		t.Helper()
-		var result filehistory.Page
-		if err := json.Unmarshal(c.run(nil, "--json", "history", workspace, path), &result); err != nil {
-			t.Fatal(err)
-		}
-		return result
+		return historyLineage(t, readHistoryCLI(t, c, workspace, path), "")
 	}
 	recoverBytes := func(workspace, path, version string, want []byte) {
 		t.Helper()
 		destination := filepath.Join(t.TempDir(), "recovered")
-		c.run(nil, "recover", workspace, path, "--version", version, "--to", destination)
+		c.run(nil, "history", "export", workspace, path, "--version", version, "--to", destination)
 		if got, err := os.ReadFile(destination); err != nil || !bytes.Equal(got, want) {
 			t.Fatalf("recover %s/%s %s = %q, %v", workspace, path, version, got, err)
 		}
@@ -45,11 +40,11 @@ func TestHistoryLifecycleCheckpointRestoreAndIndependentFork(t *testing.T) {
 	if len(sourcePage.Versions) < 2 {
 		t.Fatalf("source history = %+v", sourcePage)
 	}
-	secondID := sourcePage.Versions[0].ID
+	secondID := sourcePage.Versions[0].VersionID
 
 	c.run(nil, "fork", "history-source", "history-fork", "--checkpoint", "first")
 	forkPage := page("history-fork", "file")
-	if forkPage.FileID != sourcePage.FileID || forkPage.Versions[0].Operation != "checkpoint_fork" {
+	if forkPage.FileID != sourcePage.FileID || len(forkPage.Versions) == 0 || forkPage.Versions[0].Source != "checkpoint_fork" || forkPage.Versions[0].Op != "put" {
 		t.Fatalf("fork history = %+v", forkPage)
 	}
 	if got := c.published("history-fork", "file"); !bytes.Equal(got, first) {
@@ -58,13 +53,13 @@ func TestHistoryLifecycleCheckpointRestoreAndIndependentFork(t *testing.T) {
 	recoverBytes("history-fork", "file", secondID, second)
 	recoverBytes("history-fork", "empty", "latest", []byte{})
 	forkLater := page("history-fork", "later")
-	if len(forkLater.Versions) < 2 || !forkLater.Versions[0].Deleted {
+	if len(forkLater.Versions) < 2 || forkLater.Versions[0].Kind != controlplane.FileVersionKindTombstone {
 		t.Fatalf("fork omitted the post-checkpoint file tombstone: %+v", forkLater)
 	}
 
 	c.run(nil, "cp", "restore", "history-source", "first", "--yes")
 	restored := page("history-source", "file")
-	if restored.FileID != sourcePage.FileID || restored.Versions[0].Operation != "checkpoint_restore" {
+	if restored.FileID != sourcePage.FileID || len(restored.Versions) == 0 || restored.Versions[0].Source != "checkpoint_restore" || restored.Versions[0].Op != "put" {
 		t.Fatalf("restored history = %+v", restored)
 	}
 	recoverBytes("history-source", "file", secondID, second)

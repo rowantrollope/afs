@@ -22,6 +22,23 @@ Original stored histories use different Redis keys and records; there is no
 migration or mixed-writer guarantee. All writers must be upgraded before enabling
 new history. See [compatibility limits](file-history-compatibility.md).
 
+After the recorded measurements, a user-requested CLI consolidation moved all
+history actions under `afs history`. The recorded source hashes identify the
+pre-consolidation snapshot. This command-dispatch and help change leaves the
+measured storage/publication engine and HTTP contracts unchanged; the numeric
+evidence has not been rerun or rewritten for the new command spelling.
+
+The CLI consolidation passed `go build ./...`, `go vet ./...`, full unit and race
+suites with `-p 1 -count=1`, and
+`go test -tags=integration -timeout=15m -count=1 ./tests/e2e ./internal/filehistory`.
+Process coverage exercises grouped pagination, policy, exact local export,
+restore, undelete, lineage, checkpoints and independent writers. Offline help
+and rejection of the removed root commands have focused regressions. The original
+unchanged drawer passed all four component tests in jsdom against a freshly built
+`afs history serve` and disposable Redis, including restored/deleted contents,
+activity with capture off, and actor attribution. This is new CLI/component
+acceptance, separate from the earlier browser, benchmark and kernel evidence.
+
 ## Paired measurements
 
 5 repetitions ran on each of standard Redis 7.2.5 and the experimental Array

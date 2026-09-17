@@ -6,7 +6,7 @@ import (
 )
 
 func TestFileHistoryCompatibilityHelpAndValidationStayOffline(t *testing.T) {
-	for _, command := range [][]string{{"file", "history", "--help"}, {"file", "restore", "--help"}, {"serve", "--help"}} {
+	for _, command := range [][]string{{"history", "list", "--help"}, {"history", "restore", "--help"}, {"history", "serve", "--help"}} {
 		out, err := captureStdout(t, func() error {
 			return runCLI(append([]string{"--config", "/missing", "--redis", "invalid"}, command...))
 		})
@@ -16,11 +16,11 @@ func TestFileHistoryCompatibilityHelpAndValidationStayOffline(t *testing.T) {
 	}
 	a := &app{}
 	for _, args := range [][]string{
-		{}, {"unknown"}, {"history", "ws", "file", "--order", "wrong"}, {"history", "ws", "file", "--limit", "1001"},
+		{}, {"unknown"}, {"list", "ws", "file", "--order", "wrong"}, {"list", "ws", "file", "--limit", "1001"},
 		{"show", "ws", "file"}, {"restore", "ws", "file", "--file-id", "x"}, {"restore", "ws", "file", "--version", "x", "--ordinal", "1"},
 		{"diff", "ws", "file"}, {"diff", "ws", "file", "--from-ref", "head", "--from-version", "x"}, {"undelete", "ws", "../escape"},
 	} {
-		if err := a.fileCommand(args); err == nil {
+		if err := a.historyCommand(args); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}
