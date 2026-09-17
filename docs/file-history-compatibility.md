@@ -1,22 +1,27 @@
 # File history interface compatibility
 
 AFS exposes the original file history drawer's HTTP contracts through an optional
-local server. The same service methods back the compatibility CLI. Existing
-`afs history`, `afs recover`, and `afs versioning` commands remain available.
+local server. The same service methods back a single `afs history` command group.
+At the user's request, the CLI spelling differs from the original: `list`, `show`,
+`diff`, `restore`, `undelete`, `export`, `policy` and `serve` all live under
+`history`. There are no root `recover`, `versioning`, `file` or `serve` commands,
+including hidden aliases. HTTP routes and response contracts remain unchanged.
 
 ## CLI
 
 Workspace names or storage IDs are explicit:
 
 ```sh
-afs file history project notes.txt --order desc --limit 50
-afs file history project notes.txt --order desc --cursor '<next_cursor>'
-afs file show project notes.txt --version '<version_id>'
-afs file show project notes.txt --file-id '<file_id>' --ordinal 2
-afs file diff project notes.txt --from-version '<version_id>' --to-ref working-copy
-afs file diff project notes.txt --from-file-id '<file_id>' --from-ordinal 2 --to-ref head
-afs file restore project notes.txt --version '<version_id>'
-afs file undelete project notes.txt
+afs history list project notes.txt --order desc --limit 50
+afs history list project notes.txt --order desc --cursor '<next_cursor>'
+afs history show project notes.txt --version '<version_id>'
+afs history show project notes.txt --file-id '<file_id>' --ordinal 2
+afs history diff project notes.txt --from-version '<version_id>' --to-ref working-copy
+afs history diff project notes.txt --from-file-id '<file_id>' --from-ordinal 2 --to-ref head
+afs history restore project notes.txt --version '<version_id>'
+afs history undelete project notes.txt
+afs history export project notes.txt --version 2 --to ./notes-recovered.txt
+afs history policy project --mode all --max-versions 100
 ```
 
 `--json` returns the original lineage, version-content, diff, restore, and
@@ -24,16 +29,20 @@ undelete response structures. History supports ascending and descending cursor
 pagination. Diff operands accept version IDs, lineage ordinals, `head`,
 `working-copy`, or a retained checkpoint ID/name.
 
-The subcommands and selectors match the original file-history CLI, but workspace
-selection is explicit; the original optional workspace inference is not retained.
+The history workflows and selectors preserve the original capabilities; the
+single command group is an intentional user-requested spelling change, not a
+claim of unchanged original CLI syntax. Workspace selection is explicit; the
+original optional workspace inference is not retained.
 Pages default to 50 versions and accept limits of 1–1,000. The original's
 zero/unlimited page mode is replaced by cursor traversal, including for callers
 of `GetFileHistory` without an explicit limit. Clients must follow `next_cursor`
 to retrieve the complete retained history. Human-readable tables follow the
 current AFS CLI style rather than the original terminal formatting.
+`list` has one grouped lineage/cursor response format. It includes file IDs for
+historical incarnations; there is no compact `--before` or `--lineages` mode.
 
 Normal file reads and writes use mounted directories. The removed `ws` and
-`fs` command aliases are not restored. `afs recover ... --to ...` remains the
+`fs` command aliases are not restored. `afs history export ... --to ...` remains the
 option for inspecting a historical copy locally before publishing it.
 
 ## Connect the original history drawer
@@ -41,7 +50,7 @@ option for inspecting a historical copy locally before publishing it.
 Start the adapter using the Redis configuration selected by the normal CLI:
 
 ```sh
-afs serve --listen 127.0.0.1:8091 --database-id local \
+afs history serve --listen 127.0.0.1:8091 --database-id local \
   --allow-origin http://localhost:5173
 ```
 
@@ -96,7 +105,7 @@ number and size; it is not a bounded history-page operation.
 
 Policy names map to the shared engine as follows:
 
-| Original UI/API field | Compact CLI option |
+| Original UI/API field | `history policy` option |
 |---|---|
 | `mode` | `--mode` |
 | `include_globs` | `--include` |
@@ -208,7 +217,7 @@ and worker restart, with capture both enabled and disabled.
 
 `tests/e2e/history_compatibility_test.go` builds the actual AFS executable and
 uses a disposable Redis process plus private synchronization directories. It
-exercises the compatibility CLI, starts `afs serve` on a dynamic loopback port,
+exercises the compatibility CLI, starts `afs history serve` on a dynamic loopback port,
 uses scoped HTTP routes, checks browser origin handling, and verifies graceful
 server shutdown. These tests do not use the original installation or user data.
 

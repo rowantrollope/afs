@@ -1,5 +1,30 @@
 # AFS extraction
 
+## Consolidate the file-history CLI
+
+- [x] Review the overlapping root commands and confirm one `history` group with the user.
+- [x] Consolidate listing, content, diff, restore, undelete, export, policy and the optional server under `afs history`.
+- [x] Validate help, removed commands and the complete history process workflows; retain the original HTTP contracts.
+- [x] Prepare the tested simplification for a focused follow-up PR after #5 merged.
+
+User rejected the five added roots (`history`, `recover`, `versioning`, `file`,
+`serve`) and selected one history group. Keep only `history` at the root and use
+`list`, `show`, `diff`, `restore`, `undelete`, `export`, `policy`, and `serve`
+beneath it. Use one grouped cursor-paginated listing, with all file lineages;
+remove the competing compact listing and the old root commands without aliases.
+The history engine and original web UI's HTTP contracts remain unchanged. This
+user correction supersedes retaining the original CLI spelling.
+
+Review: build, vet, full unit/race suites and isolated real-Redis process tests
+pass. CLI regressions cover offline nested help, rejection of removed roots,
+grouped pagination, export safety, policy, restore and undelete. The unchanged
+original drawer passed all four component tests through `afs history serve`,
+including actor attribution and activity while capture is off. Storage, sync and
+HTTP implementation files are unchanged; earlier benchmark and kernel evidence
+continues to identify its measured commit, not this CLI follow-up.
+Publication uses `codex/history-command-group`; PR #5 already merged the engine
+and its original CLI surface before this simplification was ready.
+
 ## Original file-history capability superset
 
 - [x] Pin the original source and enumerate storage, policy, CLI and web UI contracts.
