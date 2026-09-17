@@ -28,16 +28,31 @@ pre-consolidation snapshot. This command-dispatch and help change leaves the
 measured storage/publication engine and HTTP contracts unchanged; the numeric
 evidence has not been rerun or rewritten for the new command spelling.
 
-The CLI consolidation passed `go build ./...`, `go vet ./...`, full unit and race
+The earlier CLI consolidation passed `go build ./...`, `go vet ./...`, full unit and race
 suites with `-p 1 -count=1`, and
 `go test -tags=integration -timeout=15m -count=1 ./tests/e2e ./internal/filehistory`.
 Process coverage exercises grouped pagination, policy, exact local export,
 restore, undelete, lineage, checkpoints and independent writers. Offline help
 and rejection of the removed root commands have focused regressions. The original
 unchanged drawer passed all four component tests in jsdom against a freshly built
-`afs history serve` and disposable Redis, including restored/deleted contents,
-activity with capture off, and actor attribution. This is new CLI/component
+then-available `afs history serve` and disposable Redis, including restored/deleted contents,
+activity with capture off, and actor attribution. This records that stage's CLI/component
 acceptance, separate from the earlier browser, benchmark and kernel evidence.
+
+The subsequent boundary correction removes that CLI server entry point. The
+seven-action history CLI remains, while `NewFileHistoryHandler` stays in the
+control-plane package for future server integration and test-only hosts. No
+runnable product control plane is delivered. The paragraph above records the
+earlier consolidation test; its command spelling is historical, and the existing
+benchmark/browser results and source hashes are preserved unchanged.
+
+After removing CLI serving, build, vet, full unit/race and the same isolated
+real-Redis process suite passed again. All four unchanged original-drawer tests
+passed in jsdom against `NewFileHistoryHandler` hosted by the disposable
+`ui_server.go.in` fixture, with exact restored/undeleted contents and ordinals
+verified. All fixture listeners closed afterward. Removed-command tests reject
+`history serve` before configuration or Redis access; control-plane tests retain
+origin enforcement and HTTP contract coverage.
 
 ## Paired measurements
 
@@ -206,7 +221,8 @@ in its description.
   `agent_sync` source; activity also carries a display label and client version.
   Native mounts retain the original `mount` default. These labels and explicit
   API action headers do not authenticate identities or open managed sessions.
-  The optional server provides history interfaces on loopback; the original
+  The internal control-plane handler retains the history interfaces, with
+  loopback hosts used only by tests. AFS ships no server runtime; the original
   application's identity and deployment infrastructure remains outside AFS.
 - Local tests and deterministic fault injection are evidence, not proof of zero
   defects. Customer-scale workloads, remote deployments and production soak time

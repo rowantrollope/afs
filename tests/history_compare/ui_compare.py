@@ -22,10 +22,21 @@ def free_port():
         return listener.getsockname()[1]
 
 
+def wait_for_api(child, ready):
+    deadline=time.monotonic()+10
+    while time.monotonic()<deadline:
+        if child.poll() is not None:
+            raise RuntimeError("disposable API fixture exited; inspect api.log")
+        if ready.is_file():
+            return json.loads(ready.read_text())["url"]
+        time.sleep(.02)
+    raise RuntimeError("disposable API fixture readiness timed out")
+
+
 def verify_actions(api_base):
     base=api_base+"/v1/databases/local/workspaces/history-ui"
     def get(route,**query):
-        with urllib.request.urlopen(base+route+"?"+urllib.parse.urlencode(query)) as response:
+        with urllib.request.urlopen(base+route+"?"+urllib.parse.urlencode(query),timeout=10) as response:
             return json.load(response)
     result={}
     for path,want,ordinal in (("/story.txt","draft revision 2\n",56),("/deleted.txt","recover this deleted content\n",3)):
@@ -67,6 +78,7 @@ def main():
     parser.add_argument("--duration",type=int,default=1800,help="maximum server lifetime in seconds")
     parser.add_argument("--component-test",action="store_true",help="run supplemental original-component tests in jsdom against real API/Redis, then exit; this is not a browser test")
     args=parser.parse_args()
+    if args.duration <= 0: parser.error("--duration must be positive")
     output=args.output.resolve()
     if output.exists(): parser.error("--output must be a new directory")
     output.mkdir(parents=True)
@@ -96,20 +108,25 @@ def main():
     seed_source=new_copy/".ui-comparison"
     seed_source.mkdir()
     shutil.copy2(compare.HERE/"ui_seed.go.in",seed_source/"main.go")
-    for package,binary in (("./.ui-comparison","seed"),("./cmd/afs","afs")):
+    server_source=new_copy/".ui-server"
+    server_source.mkdir()
+    shutil.copy2(compare.HERE/"ui_server.go.in",server_source/"main.go")
+    for package,binary in (("./.ui-comparison","seed"),("./.ui-server","ui-server")):
         result=subprocess.run(["go","build","-o",str(output/binary),package],cwd=new_copy,env=env,capture_output=True,text=True)
         (output/(binary+"-build.log")).write_text(result.stdout+result.stderr)
         result.check_returncode()
-    ui_port,api_port=free_port(),free_port()
-    ui_base,api_base=f"http://127.0.0.1:{ui_port}",f"http://127.0.0.1:{api_port}"
+    ui_port=free_port()
+    ui_base=f"http://127.0.0.1:{ui_port}"
     env["VITE_AFS_CLIENT_MODE"]="http"
-    env["VITE_AFS_API_BASE_URL"]=api_base
     with contextlib.ExitStack() as stack:
         address=stack.enter_context(compare.isolated_redis(args.redis_server,output/"redis"))
         seed=json.loads(compare.command([str(output/"seed"),"-addr",address],env=env))
-        api=stack.enter_context(process([str(output/"afs"),"--redis","redis://"+address+"/0","history","serve","--listen",f"127.0.0.1:{api_port}","--database-id","local","--allow-origin",ui_base],output/"api.log",env=env))
+        ready=output/"api-ready.json"
+        api=stack.enter_context(process([str(output/"ui-server"),"-addr",address,"-origin",ui_base,"-ready",str(ready),"-lifetime",str(args.duration)+"s"],output/"api.log",env=env))
+        api_base=wait_for_api(api,ready)
+        env["VITE_AFS_API_BASE_URL"]=api_base
         vite=stack.enter_context(process(["node",str(modules/"vite/bin/vite.js"),"--config","history-parity.config.mjs","--configLoader","native","--port",str(ui_port)],output/"vite.log",cwd=ui,env=env))
-        report={"original_revision":revision,"new_source_sha256":new_source_hash,"new_production_sha256":new_production_hash,"original_drawer_sha256":hashlib.sha256((ui/"src/routes/workspace-studio/-file-history-drawer.tsx").read_bytes()).hexdigest(),"seed":seed,"redis_address":address,"api_url":api_base,"live_drawer_url":ui_base+"/history-parity.html","deleted_drawer_url":ui_base+"/history-parity.html?path=/deleted.txt","method":"Original pinned drawer, hooks, HTTP client, components and CSS unchanged. New host adds ReactQuery/theme providers and props only. Original dependencies read via symlink; Vite native config avoids config bundles in original node_modules and all optimization caches stay in disposable UI."}
+        report={"original_revision":revision,"new_source_sha256":new_source_hash,"new_production_sha256":new_production_hash,"original_drawer_sha256":hashlib.sha256((ui/"src/routes/workspace-studio/-file-history-drawer.tsx").read_bytes()).hexdigest(),"seed":seed,"redis_address":address,"api_url":api_base,"live_drawer_url":ui_base+"/history-parity.html","deleted_drawer_url":ui_base+"/history-parity.html?path=/deleted.txt","method":"Original pinned drawer, hooks, HTTP client, components and CSS unchanged. Test-only HTTP fixture hosts internal/controlplane.NewFileHistoryHandler; no product server command. New UI host adds ReactQuery/theme providers and props only. Original dependencies read via symlink; Vite native config avoids config bundles in original node_modules and all optimization caches stay in disposable UI."}
         (output/"session.json").write_text(json.dumps(report,indent=2)+"\n")
         print(json.dumps(report,indent=2),flush=True)
         if args.component_test:

@@ -1,11 +1,12 @@
 # File history interface compatibility
 
-AFS exposes the original file history drawer's HTTP contracts through an optional
-local server. The same service methods back a single `afs history` command group.
+AFS retains the original file history drawer's HTTP contracts in an internal
+control-plane handler. The same service methods back a single `afs history` command group.
 At the user's request, the CLI spelling differs from the original: `list`, `show`,
-`diff`, `restore`, `undelete`, `export`, `policy` and `serve` all live under
-`history`. There are no root `recover`, `versioning`, `file` or `serve` commands,
-including hidden aliases. HTTP routes and response contracts remain unchanged.
+`diff`, `restore`, `undelete`, `export` and `policy` all live under `history`.
+There is no server command, including `history serve`, no root `recover`,
+`versioning` or `file` commands, and no hidden aliases. HTTP routes and response
+contracts remain unchanged, but AFS does not deliver a runnable control plane.
 
 ## CLI
 
@@ -45,34 +46,30 @@ Normal file reads and writes use mounted directories. The removed `ws` and
 `fs` command aliases are not restored. `afs history export ... --to ...` remains the
 option for inspecting a historical copy locally before publishing it.
 
-## Connect the original history drawer
+## Control-plane integration point
 
-Start the adapter using the Redis configuration selected by the normal CLI:
+`internal/controlplane.NewFileHistoryHandler` returns an `http.Handler` over an
+existing `Service`. It implements the history drawer and its versioning/activity
+dependencies. `FileHistoryHTTPOptions.DatabaseID` names the one configured Redis
+connection in scoped routes, and `AllowedOrigins` lists accepted browser origins.
+The handler does not start a listener, manage server lifecycle, or provide
+authentication. A future control-plane host must supply those responsibilities.
+The [lightweight control-plane proposal](lightweight-control-plane.md) remains a
+draft for a separate executable; its name and deployment lifecycle are undecided.
 
-```sh
-afs history serve --listen 127.0.0.1:8091 --database-id local \
-  --allow-origin http://localhost:5173
-```
+Integration tests host this handler on disposable loopback listeners. The original
+drawer fixture points `VITE_AFS_API_BASE_URL` at that test host and supplies
+`databaseId="local"`, a workspace name or ID, an absolute path, and the `editable`
+prop. It does not install or modify the original UI. These fixtures validate the
+handler contracts; they are not a shipped control-plane service.
 
-Point the original UI's `VITE_AFS_API_BASE_URL` at
-`http://127.0.0.1:8091`. Its history drawer can use `databaseId="local"`,
-`workspaceId="<workspace name or ID>"`, and an absolute workspace path such as
-`/notes.txt`. Set `editable` to enable restore and undelete.
-
-`--database-id` is the compatibility alias for the one Redis database selected
-by `--redis`, environment, or saved configuration. It does not select another
-connection. Repeat `--allow-origin` for additional trusted UI origins. The
-listener requires a loopback address, refuses unapproved browser origins, and
-shuts down on SIGINT/SIGTERM. It does not install or modify the original UI.
-
-The adapter implements the history drawer and its versioning/activity
-dependencies. The original application's unrelated catalog, sessions, cloud,
-search, and volume APIs are outside this server.
+The original application's unrelated catalog, sessions, cloud, search and volume
+APIs are outside the retained handler.
 
 This is interface compatibility for histories stored by the new AFS engine.
 There is no importer for the original installation's Redis history schema,
 workspace catalog, saved cursors, or identities. Pointing an unmodified complete
-original application at this server does not supply its missing application APIs.
+original application at a host of this handler does not supply its missing application APIs.
 The verified browser integration hosts the original drawer, hooks, transport,
 and shared components with the required providers and workspace/path props.
 
@@ -127,7 +124,7 @@ Requests to restore such a version fail before changing live state.
 Detected MIME types may be more specific, or include a charset, compared with
 the original's small extension-based mapping.
 
-The server accepts optional `X-AFS-Session-ID`, `X-AFS-Agent-ID`, and
+The handler accepts optional `X-AFS-Session-ID`, `X-AFS-Agent-ID`, and
 `X-AFS-User` labels for explicit actions. These are recorded provenance labels,
 not authenticated identities. Successful restore/undelete responses identify
 the exact committed record. Concurrent policy updates return the policy that
@@ -155,7 +152,7 @@ folder sync, and never reinterpret the Redis username as a history user.
 
 Unlike the original `--session`, this label does not open a managed application
 session. Original session detail links and identity lookups still require
-application services outside this adapter. Native mounts keep the original
+application services outside this handler. Native mounts keep the original
 `source: mount` behavior and an opaque publisher `origin`; an origin is not a
 user identity. Direct filesystem API callers can supply mutation context using
 `client.WithFileVersionMutationMetadata`. Explicit HTTP recovery actions retain
@@ -217,9 +214,12 @@ and worker restart, with capture both enabled and disabled.
 
 `tests/e2e/history_compatibility_test.go` builds the actual AFS executable and
 uses a disposable Redis process plus private synchronization directories. It
-exercises the compatibility CLI, starts `afs history serve` on a dynamic loopback port,
-uses scoped HTTP routes, checks browser origin handling, and verifies graceful
-server shutdown. These tests do not use the original installation or user data.
+exercises the seven-action history CLI. HTTP behavior is covered by the handler
+tests above and the test-only host compiled from
+`tests/history_compare/ui_server.go.in`; that host invokes
+`NewFileHistoryHandler` on a disposable loopback listener. The Python component
+runner builds it only in a temporary source snapshot. These tests do not use
+the original installation or user data.
 
 Browser validation of the unchanged original drawer is recorded in the
 [parity evidence](file-history-parity.md#browser-compatibility-gate). That evidence

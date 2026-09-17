@@ -23,7 +23,6 @@ Commands:
   undelete <workspace> <path>   Recover a deleted file into the workspace
   export <workspace> <path>     Write a version to a new local path
   policy <workspace>           Show or change capture and retention settings
-  serve                        Run the optional local history API
 
 Use mounted directories for normal file access. History records published
 mutations, not every transient local edit. Run 'afs history <command> --help'
@@ -66,7 +65,6 @@ version in the workspace.
 `,
 	"export": historyExportCommandUsage,
 	"policy": historyPolicyCommandUsage,
-	"serve":  historyServeCommandUsage,
 }
 
 func (a *app) historyCommand(args []string) error {
@@ -80,8 +78,6 @@ func (a *app) historyCommand(args []string) error {
 		return a.exportHistoryCommand(args[1:])
 	case "policy":
 		return a.historyPolicyCommand(args[1:])
-	case "serve":
-		return a.serveHistoryCommand(args[1:])
 	default:
 		return fmt.Errorf("unknown history command %q; run afs history --help", args[0])
 	}

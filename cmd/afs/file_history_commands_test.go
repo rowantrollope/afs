@@ -6,7 +6,7 @@ import (
 )
 
 func TestFileHistoryCompatibilityHelpAndValidationStayOffline(t *testing.T) {
-	for _, command := range [][]string{{"history", "list", "--help"}, {"history", "restore", "--help"}, {"history", "serve", "--help"}} {
+	for _, command := range [][]string{{"history", "list", "--help"}, {"history", "restore", "--help"}} {
 		out, err := captureStdout(t, func() error {
 			return runCLI(append([]string{"--config", "/missing", "--redis", "invalid"}, command...))
 		})
@@ -22,11 +22,6 @@ func TestFileHistoryCompatibilityHelpAndValidationStayOffline(t *testing.T) {
 	} {
 		if err := a.historyCommand(args); err == nil {
 			t.Fatalf("accepted %v", args)
-		}
-	}
-	for _, args := range [][]string{{"extra"}, {"--listen", "0.0.0.0:8091"}, {"--listen", ":8091"}, {"--allow-origin", "http://localhost:5173/path"}} {
-		if err := a.serveHistoryCommand(args); err == nil {
-			t.Fatalf("accepted serve %v", args)
 		}
 	}
 	if a.rdb != nil {

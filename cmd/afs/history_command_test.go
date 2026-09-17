@@ -19,8 +19,11 @@ func TestHistoryCommandHelpIsOffline(t *testing.T) {
 		if err != nil || !strings.Contains(out, "Usage: afs history <command>") {
 			t.Fatalf("group help %v: %q %v", args, out, err)
 		}
+		if strings.Contains(out, "serve") {
+			t.Fatalf("group help exposes server lifecycle: %q", out)
+		}
 	}
-	for _, action := range []string{"list", "show", "diff", "restore", "undelete", "export", "policy", "serve"} {
+	for _, action := range []string{"list", "show", "diff", "restore", "undelete", "export", "policy"} {
 		t.Run(action, func(t *testing.T) {
 			out, err := captureStdout(t, func() error {
 				return runCLI([]string{"--config", "/missing/config", "--redis", "invalid", "history", action, "--help"})
@@ -33,7 +36,7 @@ func TestHistoryCommandHelpIsOffline(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{{"history", "unknown"}, {"history", "unknown", "--help"}} {
+	for _, args := range [][]string{{"history", "unknown"}, {"history", "unknown", "--help"}, {"history", "serve"}, {"history", "serve", "--help"}, {"history", "serve", "--listen", "127.0.0.1:8091"}} {
 		err := runCLI(append([]string{"--config", "/missing/config", "--redis", "invalid"}, args...))
 		if err == nil || !strings.Contains(err.Error(), "unknown history command") {
 			t.Fatalf("unknown subcommand: %v", err)
@@ -44,7 +47,7 @@ func TestHistoryCommandHelpIsOffline(t *testing.T) {
 func TestHistoryCommandInvalidArgumentsDoNotConnect(t *testing.T) {
 	a := &app{}
 	for _, args := range [][]string{
-		{}, {"unknown"}, {"list"}, {"list", "repo"}, {"list", "repo", "file", "--limit", "0"},
+		{}, {"unknown"}, {"serve"}, {"list"}, {"list", "repo"}, {"list", "repo", "file", "--limit", "0"},
 		{"list", "repo", "file", "--limit", "1001"}, {"list", "repo", "file", "--order", "wrong"},
 		{"list", "repo", "file", "--before", "1"}, {"list", "repo", "file", "--lineages"},
 		{"list", "repo", "../outside"}, {"list", "repo", "file", "--unknown"},

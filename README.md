@@ -304,7 +304,7 @@ afs status ~/agent-a       # connection, pending work, conflicts and errors
 
 Workspace actions are `create`, `list`, `info`, `fork` and `delete` at the root,
 alongside `mount`, `unmount` and `status`. Optional file history stays under
-`history`: `list`, `show`, `diff`, `restore`, `undelete`, `export`, `policy` and `serve`.
+`history`: `list`, `show`, `diff`, `restore`, `undelete`, `export` and `policy`.
 Checkpoints stay under `cp`:
 `afs delete shared` deletes a workspace; `afs cp delete shared old-checkpoint`
 deletes a checkpoint. Both retain their confirmation and safety checks.
@@ -384,11 +384,13 @@ afs history undelete shared documents/deleted.txt
 ```
 
 Restore and undelete publish a new version into the workspace after checking for
-concurrent changes. The optional `afs history serve` adapter supports the original web
-history drawer; see [CLI and web UI compatibility](docs/file-history-compatibility.md).
-The command spelling intentionally consolidates these actions under `history`;
-the original HTTP interfaces remain compatible. There are no separate root
-`recover`, `versioning`, `file` or `serve` commands or hidden aliases.
+concurrent changes. The original web history contracts remain available as an
+internal control-plane HTTP handler, verified with test-only hosts. AFS does not
+ship a server command or a runnable control-plane service. See
+[CLI and web UI compatibility](docs/file-history-compatibility.md) for the boundary.
+The seven history actions are consolidated under `history`; there are no separate
+root `recover`, `versioning`, `file` or `serve` commands, no `history serve`, and
+no hidden aliases.
 The Redis namespace and history storage format are separate from the original
 project; this interface compatibility does not migrate original stored histories.
 

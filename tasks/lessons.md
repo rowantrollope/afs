@@ -1,5 +1,14 @@
 # Lessons
 
+## 2026-09-17 — HTTP serving belongs in the control plane
+
+User rejected `history serve` as CLI bloat even under a single history group.
+Keep the CLI focused on client actions; the control plane owns HTTP hosting and
+server lifecycle. Retain reusable handlers and their compatibility tests without
+adding a production server command merely to demonstrate the original web UI.
+Use disposable test hosts for drawer validation until the separate control plane
+is implemented. This correction supersedes the earlier optional CLI server.
+
 ## 2026-09-17 — Keep file history under one command group
 
 User rejected adding `history`, `recover`, `versioning`, `file` and `serve` as

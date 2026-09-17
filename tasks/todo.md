@@ -1,5 +1,29 @@
 # AFS extraction
 
+## Keep HTTP serving in the control plane
+
+- [x] Remove `history serve` and its listener/signal lifecycle from `cmd/afs`.
+- [x] Retain control-plane HTTP contracts and test the original drawer with a test-only host.
+- [x] Update current docs and the draft control-plane boundary; record the user correction.
+- [x] Pass build, vet, unit/race and isolated real-Redis process tests; prepare the tested correction for PR #6.
+
+User rejected HTTP serving in the CLI as bloat. History has seven client actions:
+`list`, `show`, `diff`, `restore`, `undelete`, `export` and `policy`. HTTP handlers
+remain in `internal/controlplane`; server hosting belongs to a separate control
+plane, which is still a draft rather than a shipped runtime. Do not replace the
+removed command with another CLI server or build the full proposed control plane
+as part of this correction. Preserve compatibility through disposable test hosts.
+This supersedes the prior optional `history serve` decision below.
+
+Review: build, vet, full unit/race and isolated real-Redis process acceptance
+pass. The original unchanged drawer passed all four component tests using the
+direct control-plane handler fixture, including pagination, content/diff,
+restore/undelete, capture-off activity and attribution. Recovered bytes and
+ordinals match; fixture listeners closed and the original checkout stayed clean.
+Removed-command regressions reject `history serve` before loading configuration
+or connecting to Redis. Independent review found no lost handler capability or
+remaining product server entry point. Storage and sync implementation are unchanged.
+
 ## Consolidate the file-history CLI
 
 - [x] Review the overlapping root commands and confirm one `history` group with the user.

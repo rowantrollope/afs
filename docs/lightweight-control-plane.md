@@ -7,17 +7,18 @@ and the engineering decisions still needed. It does not change the current CLI.
 ## Purpose and scope
 
 Make shared AFS workspaces easier to discover and administer without rebuilding
-the original platform. Add an optional `afs serve` mode to the existing executable:
+the original platform. A future separate control-plane executable would provide
 a small HTTPS management service using the same Go workspace and checkpoint
-engine as the CLI. File access continues directly between clients and Redis over
-TLS. Standalone, direct-to-Redis AFS remains the default.
+engine as the CLI. Its executable name and deployment lifecycle are not finalized.
+It would not add a server mode to `afs`. File access continues directly between
+clients and Redis over TLS. Standalone, direct-to-Redis AFS remains the default.
 
 Start with one administrator-configured Redis backend per server; one workspace
 is one tree. Redis remains the only database. Keep the management surface
 thin; concentrate design effort on enforceable storage permissions and correct
 grant provisioning, revocation and restart recovery.
 
-The first version is CLI first. A browser dashboard can follow later. Accounts,
+The first version would support CLI clients first. A browser dashboard can follow later. Accounts,
 organizations, volume composition, search, hosted MCP, templates, cloud
 provisioning, multi-database management and broad provider integrations are out
 of scope. This refines the original management/direct-Redis split; it is not a
@@ -33,6 +34,12 @@ manifest/blob checkpoints and recovery. The original HTTP server, catalog,
 tenancy, search and composition services were removed. Existing commands and
 guarantees are described in the [README](../README.md) and
 [native mount guide](native-mounts.md).
+
+Subsequent file-history work retained `NewFileHistoryHandler` in
+`internal/controlplane` and validated its original UI contracts through test-only
+hosts. The current CLI has seven history actions and no `serve` command.
+This package handler is an integration point, not a runnable control-plane
+service; the proposed server and its management lifecycle remain unimplemented.
 
 The original was inspected at
 [`c3897ac`](https://github.com/redis/agent-filesystem/tree/c3897ac05265444568a3819c21728a38a4ed254b).
@@ -57,7 +64,7 @@ proposed column is a design choice or requirement, not delivered functionality.
 | Area | Original control plane | Proposed lightweight control plane |
 | --- | --- | --- |
 | Purpose | Broad workspace platform and administration | Discovery, explicit access grants and workspace/checkpoint management |
-| Executable and deployment | Separate `afs-control-plane` executable; embeds the web app when built | Optional `afs serve` in the existing executable; reuse Go Service/Store |
+| Executable and deployment | Separate `afs-control-plane` executable; embeds the web app when built | Separate control-plane executable with independent lifecycle; name and packaging undecided; reuse Go Service/Store |
 | Backing databases | Multiple Redis profiles through `DatabaseManager` | One configured Redis backend per server initially; changing backing storage requires migration |
 | Management metadata | SQLite by default; optional Postgres catalog for workspaces, sessions, tokens and registries | Existing Redis workspace metadata plus protected grants, expiring presence and bounded management events; no second catalog |
 | Workspace composition | Workspaces can compose volumes | One workspace is one tree |
@@ -76,7 +83,7 @@ proposed column is a design choice or requirement, not delivered functionality.
 
 ```mermaid
 flowchart LR
-    C[AFS client] -->|HTTPS management| S[afs serve]
+    C[AFS client] -->|HTTPS management| S[Separate control-plane executable]
     S --> E[Shared Go Service and Store]
     E -->|Redis over TLS| R[(One Redis backend)]
     C -->|Direct file access over Redis TLS| R
@@ -88,6 +95,12 @@ endpoint; exact flags, configuration fields and HTTP routes remain open. CLI
 and server share storage and lifecycle behavior;
 they do not maintain separate implementations. Client-local work, such as
 flushing a mount's pending edits, remains a client responsibility.
+
+Server build and packaging, startup, configuration, supervision and shutdown
+would be independent of the `afs` client. Their exact interface remains open;
+this proposal does not introduce a finalized executable name or startup command.
+The retained file-history handler can be mounted by that future process once its
+authentication and listener lifecycle are designed.
 
 Managed discovery reads existing workspace metadata and exposes only workspaces
 the requester is permitted to discover. The server uses its configured backend;
@@ -235,8 +248,10 @@ outcomes; they do not imply comprehensive data-access auditing.
    traversal and any necessary key or client changes.
 4. Grant state transitions and durable ordering across records and identities;
    restart reconciliation, partial failure and backup recovery without resurrection.
-5. Minimal API/CLI shape, management permission vocabulary, bounded event
+5. Minimal API/client shape, management permission vocabulary, bounded event
    retention and an explicit storage migration procedure.
+6. Separate server executable name, packaging, configuration, process supervision
+   and graceful startup/shutdown behavior, without adding a server mode to `afs`.
 
 These decisions should resolve the access and recovery contract before the
 HTTP directory or optional UI expands. No implementation schedule or estimate is

@@ -3,6 +3,9 @@
 File history recovers published file contents between checkpoints. It is an
 optional workspace feature, off by default. Checkpoints still capture a whole
 tree at explicit points; file versions do not create or change checkpoints.
+The CLI has seven history actions: `list`, `show`, `diff`, `restore`, `undelete`,
+`export` and `policy`. HTTP compatibility belongs to the internal control-plane
+package; there is no server command or runnable control-plane service in AFS.
 
 ## Enable and filter history
 
@@ -105,7 +108,7 @@ with a new history record, preserving the current file if another writer changes
 it during the operation. They also record an explicit action when automatic
 capture is disabled or the selected content equals the current content. See
 [history commands and web UI compatibility](file-history-compatibility.md) for the
-history, content, diff, restore, undelete and HTTP interfaces.
+history, content, diff, restore, undelete and retained control-plane HTTP handler.
 
 ## Retention and storage cost
 

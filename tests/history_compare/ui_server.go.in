@@ -1,0 +1,85 @@
+// Disposable original-UI compatibility fixture, built only by ui_compare.py.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/rowantrollope/afs/internal/controlplane"
+)
+
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	addr := flag.String("addr", "", "owned disposable Redis")
+	origin := flag.String("origin", "", "disposable original UI origin")
+	ready := flag.String("ready", "", "readiness JSON file")
+	lifetime := flag.Duration("lifetime", 30*time.Minute, "maximum fixture lifetime")
+	flag.Parse()
+	host, _, err := net.SplitHostPort(*addr)
+	if err != nil || !net.ParseIP(host).IsLoopback() || *ready == "" || *lifetime <= 0 || os.Getenv("AFS_HISTORY_COMPARISON_ISOLATED") != "1" {
+		return errors.New("run tests/history_compare/ui_compare.py with its owned Redis fixture")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, *lifetime)
+	defer cancel()
+	rdb := redis.NewClient(&redis.Options{Addr: *addr})
+	defer rdb.Close()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+	service := controlplane.NewService(controlplane.NewStore(rdb))
+	server := &http.Server{
+		Handler: controlplane.NewFileHistoryHandler(service, controlplane.FileHistoryHTTPOptions{
+			DatabaseID: "local", AllowedOrigins: []string{*origin},
+		}),
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
+		WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second,
+	}
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		<-ctx.Done()
+		shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		if err := server.Shutdown(shutdown); err != nil {
+			_ = server.Close()
+		}
+	}()
+	defer func() { cancel(); <-stopped }()
+	data, err := json.Marshal(map[string]string{"url": "http://" + listener.Addr().String()})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*ready+".tmp", data, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(*ready+".tmp", *ready); err != nil {
+		return err
+	}
+	if err := server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
