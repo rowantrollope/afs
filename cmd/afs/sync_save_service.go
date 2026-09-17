@@ -30,6 +30,7 @@ func startSyncSaveService(ctx context.Context, daemon *syncDaemon) *syncSaveServ
 }
 
 func startSyncSaveServiceWithToken(ctx context.Context, daemon *syncDaemon, token string) *syncSaveService {
+	ctx = daemon.mutationContext(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	service := &syncSaveService{ctx: ctx, cancel: cancel, done: make(chan struct{}), active: daemon,
 		workspace: daemon.cfg.Workspace, localRoot: daemon.cfg.LocalRoot, token: token}
@@ -209,7 +210,7 @@ func (s *syncSaveService) saveWithResume(request syncControlRequest, resume bool
 	if !time.Now().Before(deadline) {
 		return fail(context.DeadlineExceeded)
 	}
-	ctx, cancel := context.WithDeadline(s.ctx, deadline)
+	ctx, cancel := context.WithDeadline(daemon.mutationContext(s.ctx), deadline)
 	defer cancel()
 	if daemon.cfg.Readonly {
 		// Readers have no writes to flush. Join the retained worker drain and

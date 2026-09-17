@@ -122,6 +122,8 @@ type SyncOptions struct {
 	// namespace. Safe only when the workspace is known to be empty
 	// (fresh import, or right after DeleteWorkspace).
 	SkipNamespaceReset bool
+	// History preserves file lineage across checkpoint inode rematerialization.
+	History map[string]workspaceHistoryBinding
 }
 
 // SyncWorkspaceRootWithOptions materializes a manifest into the live workspace
@@ -340,6 +342,9 @@ func writeWorkspaceFSNodes(ctx context.Context, store *Store, workspace, fsKey s
 			rediscontent.QueueWriteFull(ctx, pipe, workspaceFSContentKey(fsKey, node.ID), contentRef, content)
 		}
 		pipe.HSet(ctx, workspaceFSInodeKey(fsKey, node.ID), fields)
+		if binding, ok := opts.History[node.Path]; ok && binding.FileID != "" {
+			pipe.HSet(ctx, workspaceHistoryPrefix(workspace)+"file:"+binding.FileID, "inode_id", node.ID)
+		}
 		if node.ParentID != "" {
 			pipe.HSet(ctx, workspaceFSDirentsKey(fsKey, node.ParentID), node.Name, node.ID)
 		}
@@ -372,6 +377,11 @@ func workspaceFSNodeFields(ctx context.Context, store *Store, workspace string, 
 		"name":           node.Name,
 		"path":           node.Path,
 		"path_ancestors": workspaceFSIndexedPathAncestors(node.Path),
+	}
+	if binding, ok := opts.History[node.Path]; ok && binding.FileID != "" {
+		fields["history_id"] = binding.FileID
+		fields["history_revision"] = binding.HistoryRevision
+		fields["revision"] = binding.Revision
 	}
 
 	switch node.Entry.Type {

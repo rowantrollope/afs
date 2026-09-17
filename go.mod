@@ -5,6 +5,7 @@ go 1.22.2
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 )

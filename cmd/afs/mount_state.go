@@ -23,6 +23,11 @@ type mountRecord struct {
 	UID           *uint32   `json:"uid,omitempty"`
 	GID           *uint32   `json:"gid,omitempty"`
 	AllowOther    bool      `json:"allow_other,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
+	AgentID       string    `json:"agent_id,omitempty"`
+	User          string    `json:"user,omitempty"`
+	Label         string    `json:"label,omitempty"`
+	AgentVersion  string    `json:"agent_version,omitempty"`
 	ID            string    `json:"id"`
 	Workspace     string    `json:"workspace"`
 	WorkspaceID   string    `json:"workspace_id"`

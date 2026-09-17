@@ -775,8 +775,9 @@ func (f *fullReconciler) planDownload(path, abs string, r observedMeta, stored S
 
 // metaMatch decides whether local and remote are equivalent using only
 // metadata (no content read). For files we compare size and check if both
-// sides match the stored state. For cold start (no stored state) where both
-// sides have matching size+mtime, we assume they're in sync.
+// sides match the stored state. Equal local and remote timestamps alone do not
+// establish a shared version: an old download and a newer same-size remote
+// write can land in the same millisecond.
 func metaMatch(l, r observedMeta, stored SyncEntry, hasStored bool) bool {
 	if l.kind != r.kind {
 		return false
@@ -795,13 +796,6 @@ func metaMatch(l, r observedMeta, stored SyncEntry, hasStored bool) bool {
 			if l.mtimeMs == stored.LocalMtimeMs && r.mtimeMs == stored.RemoteMtimeMs {
 				return true
 			}
-		}
-		// Cold start or no stored mtime: same size + same remote mtime as
-		// stored = probably unchanged. We accept a false-positive here
-		// (skipping a file that changed to the exact same size) because the
-		// alternative is reading every file on every startup.
-		if l.size == r.size && l.mtimeMs == r.mtimeMs {
-			return true
 		}
 		return false
 	}

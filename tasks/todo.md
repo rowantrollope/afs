@@ -1,5 +1,79 @@
 # AFS extraction
 
+## Original file-history capability superset
+
+- [x] Pin the original source and enumerate storage, policy, CLI and web UI contracts.
+- [x] Restore content deduplication, equivalent-write suppression, hashes, attribution and metadata-only large-file records while retaining atomic capture.
+- [x] Restore original history/content/diff/restore/undelete/checkpoint interfaces and a usable web UI compatibility transport.
+- [x] Preserve history, shared-body ownership, lineage and retention through fork/restore/delete and concurrent writers.
+- [x] Execute original-versus-new capability and performance comparisons on disposable Redis; record measurable improvements and remaining costs.
+- [x] Pass build/vet/unit/race/process gates and review the complete capability matrix.
+- [x] Prepare the tested commit and comparison evidence for the authorized GitHub PR.
+- [x] Preserve ordinary sync session/agent/user attribution through background worker restarts and the unchanged history drawer.
+- [x] Repeat final acceptance and paired measurements after attribution; reproduce and fix the stale-sync defect found during eight-client CI.
+- [x] Prepare the final follow-up and evidence for PR #5, with remote kernel acceptance tracked in its checks.
+
+User requires all original per-file versioning capabilities, including compatible
+web UI interfaces unless an evidenced compromise warrants a UI change. Passing
+the earlier reduced feature tests does not satisfy this goal. Retain the atomic
+publication core and original retained sync/checkpoint code. Tests must use
+owned infrastructure and leave the original installation and user data untouched.
+Do not claim absolute absence of defects or production superiority from local
+tests; measure both implementations with the same workload. Publication is
+authorized through a PR, superseding the earlier main-only preference for this work.
+
+Review: paired five-repetition runs on standard Redis and Array confirm
+improvements in tested capture/recovery, retention memory and local write latency,
+with higher memory in some unlimited-history cases. The exact final-code
+measurements cover 240 scenario executions: the new version was faster in nine
+of ten workload/backend pairs (1.75–3.20 times), while standard Redis retention
+was 1.9% slower (1.159 to 1.181 ms). Five-version retention used 84.8–88.4% less
+workspace memory. Costs
+include up to 6.5% higher standard Redis memory and about 9% higher Array append
+memory. These local measurements do not establish production superiority. Original drawer workflow
+passed in a real browser; final component integration uses jsdom because supported
+browser automation is unavailable while the desktop is locked. Compatibility
+limits, attribution and storage differences are explicit in the report.
+
+Build/vet, full unit/race, all isolated CLI/process acceptance, Array history and
+recovery checks, native dependency races and 38 Python harness checks pass.
+Regressions reproduced and fixed checkpoint recovery, empty-head diff fallback,
+metadata-only pruning and safe test fixture port handling. No production
+installation or user Redis has changed. The unchanged original component passed
+all four final tests against the benchmarked source, including named actor attribution. Publication uses
+`codex/file-history-superset` and the associated GitHub PR; remote CI supplies
+the separate Linux and actual kernel mount gates. See docs/file-history-validation.md
+for evidence, source hashes and the explicit production and compatibility limits.
+
+## Initial optional per-file versioning implementation
+
+- [x] Inspect upstream policy, lineage, recovery and retention behavior.
+- [x] Capture immutable versions with accepted file, range, rename and delete publication.
+- [x] Add root `history`, `versioning` and safe local `recover` commands.
+- [x] Preserve independent history through forks, checkpoint restore and deletion.
+- [x] Verify focused safety regressions, build/vet/unit/race and disposable-Redis process workflows.
+- [x] Document default-off capture, retention, upgrade requirements and snapshot costs.
+
+Design: workspace-wide Redis policy; history records published mutations and stays
+separate from checkpoints. Recover into a new local destination without replacing
+existing content, retaining exact bytes, modes and symlink targets. Stable lineage
+survives rename; recreation gets a new lineage. Upgrade every writer before
+enabling. Retention uses bounded batches and history-owned snapshots; logical
+byte budgets are not total Redis memory limits. Original installation and user
+Redis data remain untouched. See docs/file-history.md.
+
+Review: build/vet and full unit/race suites pass; final unit/race runs use `-p 1`
+after parallel acceptance suites exposed a disposable-server port collision.
+Full CLI process acceptance, real-Redis storage tests, two independent history
+writers with Redis restart, and standard/Array-backed history/fork/restore tests
+pass. Regressions cover failed/lost-ack publication, first deletion, exact binary
+and symlink recovery, stale writers, retention corruption/budget eviction,
+checkpoint retries, rename lineage, source-name reuse and independent forks.
+Local whole/range-write benchmarks measure retained memory and Redis script time;
+see docs/file-history-validation.md. Actual kernel mounts and remote deployments
+were not rerun. History remains off by default; enable only after upgrading all
+writers. Source changes are local to this checkout; no installation or push.
+
 ## Integrate upstream parity and explicit sync verification
 
 - [x] Integrate useful parity code/tests; preserve current main and existing edits.

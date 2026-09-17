@@ -23,7 +23,7 @@ jobs:
       - name: Native mount dependency regressions
         run: make native-deps-test
       - name: Independent processes against real Redis
-        run: go test -tags=integration -timeout=15m -count=1 -v ./tests/e2e
+        run: go test -tags=integration -timeout=15m -count=1 -v ./tests/e2e ./internal/filehistory
       - name: Lab oracle and cleanup checks
         run: python3 -m unittest discover -s tests/multiwriter -p 'test_*.py' -v
       - name: Concurrent agent workload smoke

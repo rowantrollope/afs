@@ -3,12 +3,14 @@ package client
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,67 +69,147 @@ func countRootHMGet(cmd redis.Cmder, rootKey string, count *atomic.Int64) {
 
 func setupTestRedis(t *testing.T) (*redis.Client, context.Context) {
 	t.Helper()
-
-	port := freeTCPPort(t)
-	cmd := exec.Command(
-		"redis-server",
-		"--port", strconv.Itoa(port),
-		"--save", "",
-		"--appendonly", "no",
-	)
-	logPath := filepath.Join(t.TempDir(), "redis-server.log")
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		t.Fatalf("create redis-server log: %v", err)
-	}
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		t.Fatalf("start redis-server: %v", err)
-	}
-	var exitErr error
-	exited := make(chan struct{})
-	go func() {
-		exitErr = cmd.Wait()
-		close(exited)
-	}()
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		select {
-		case <-exited:
-		case <-time.After(5 * time.Second):
-			t.Errorf("owned redis-server pid %d did not exit after kill", cmd.Process.Pid)
-		}
-		_ = logFile.Close()
-	})
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:" + strconv.Itoa(port)})
-	t.Cleanup(func() { _ = rdb.Close() })
-
-	deadline := time.Now().Add(5 * time.Second)
-	var lastPing error
-	for {
-		if lastPing = rdb.Ping(ctx).Err(); lastPing == nil {
-			break
-		}
-		select {
-		case <-exited:
-			log, _ := os.ReadFile(logPath)
-			t.Fatalf("owned redis-server pid %d exited before ready: %v; last ping: %v\nserver log:\n%s", cmd.Process.Pid, exitErr, lastPing, log)
-		default:
-		}
-		if time.Now().After(deadline) {
-			log, _ := os.ReadFile(logPath)
-			t.Fatalf("owned redis-server pid %d did not become ready (child still running); last ping: %v\nserver log:\n%s", cmd.Process.Pid, lastPing, log)
-		}
-		time.Sleep(50 * time.Millisecond)
+	rdb, err := startOwnedTestRedis(t, ctx, func() int { return freeTCPPort(t) })
+	if err != nil {
+		t.Fatal(err)
 	}
-
 	return rdb, ctx
+}
+
+// Port reservation and Redis bind cannot be atomic. Retry only a confirmed
+// bind collision in our child's log, and never accept another server's PING.
+func startOwnedTestRedis(t *testing.T, ctx context.Context, nextPort func() int, extraArgs ...string) (*redis.Client, error) {
+	t.Helper()
+	for attempt := 0; attempt < 5; attempt++ {
+		port := nextPort()
+		dir := t.TempDir()
+		args := []string{"--bind", "127.0.0.1", "--port", strconv.Itoa(port), "--save", "", "--appendonly", "no", "--dir", dir}
+		cmd := exec.Command("redis-server", append(args, extraArgs...)...)
+		logPath := filepath.Join(dir, "redis-server.log")
+		logFile, err := os.Create(logPath)
+		if err != nil {
+			return nil, fmt.Errorf("create redis-server log: %w", err)
+		}
+		cmd.Stdout, cmd.Stderr = logFile, logFile
+		if err := cmd.Start(); err != nil {
+			_ = logFile.Close()
+			return nil, fmt.Errorf("start redis-server: %w", err)
+		}
+		var exitErr error
+		exited := make(chan struct{})
+		go func() { exitErr = cmd.Wait(); close(exited) }()
+		var stopOnce sync.Once
+		stop := func() {
+			stopOnce.Do(func() {
+				_ = cmd.Process.Kill()
+				select {
+				case <-exited:
+				case <-time.After(5 * time.Second):
+					t.Errorf("owned redis-server pid %d did not exit after kill", cmd.Process.Pid)
+				}
+				_ = logFile.Close()
+			})
+		}
+		t.Cleanup(stop)
+		rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:" + strconv.Itoa(port), DialTimeout: 100 * time.Millisecond, ReadTimeout: time.Second, MaxRetries: -1})
+		t.Cleanup(func() { _ = rdb.Close() })
+		deadline := time.Now().Add(5 * time.Second)
+		var readinessErr error
+		for {
+			info, err := rdb.Info(ctx, "server").Result()
+			readinessErr = err
+			if err == nil {
+				pid := ""
+				for _, line := range strings.Split(info, "\n") {
+					if value, ok := strings.CutPrefix(strings.TrimSpace(line), "process_id:"); ok {
+						pid = value
+					}
+				}
+				if pid == strconv.Itoa(cmd.Process.Pid) {
+					select {
+					case <-exited:
+						// Report an owned child that exited after answering INFO.
+					default:
+						return rdb, nil
+					}
+				}
+				readinessErr = fmt.Errorf("INFO process_id=%q, want owned pid %d", pid, cmd.Process.Pid)
+			}
+			select {
+			case <-exited:
+				log, readErr := os.ReadFile(logPath)
+				failure := fmt.Errorf("owned redis-server pid %d exited before ready: %v; readiness: %v; read log: %v\nserver log:\n%s", cmd.Process.Pid, exitErr, readinessErr, readErr, log)
+				_ = rdb.Close()
+				stop()
+				lowerLog := strings.ToLower(string(log))
+				if exitErr != nil && readErr == nil && strings.Contains(lowerLog, "bind") && strings.Contains(lowerLog, "address already in use") && attempt < 4 {
+					t.Logf("retrying startup bind collision on port %d: %v", port, failure)
+					goto retry
+				}
+				return nil, failure
+			default:
+			}
+			if time.Now().After(deadline) || ctx.Err() != nil {
+				log, readErr := os.ReadFile(logPath)
+				_ = rdb.Close()
+				stop()
+				return nil, fmt.Errorf("owned redis-server pid %d did not become ready; readiness: %v; context: %v; read log: %v\nserver log:\n%s", cmd.Process.Pid, readinessErr, ctx.Err(), readErr, log)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	retry:
+	}
+	return nil, fmt.Errorf("owned Redis startup exhausted bind retries")
+}
+
+func TestOwnedRedisStartupRetriesPortCollisionWithoutUsingOtherServer(t *testing.T) {
+	other, ctx := setupTestRedis(t)
+	if err := other.Set(ctx, "owned-sentinel", "untouched", 0).Err(); err != nil {
+		t.Fatal(err)
+	}
+	_, occupied, err := net.SplitHostPort(other.Options().Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	occupiedPort, err := strconv.Atoi(occupied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	rdb, err := startOwnedTestRedis(t, ctx, func() int {
+		attempts++
+		if attempts == 1 {
+			return occupiedPort
+		}
+		return freeTCPPort(t)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts < 2 || rdb.Options().Addr == other.Options().Addr {
+		t.Fatal("startup accepted a server owned by another fixture")
+	}
+	if err := rdb.Set(ctx, "owned-sentinel", "new fixture", 0).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if got := other.Get(ctx, "owned-sentinel").Val(); got != "untouched" {
+		t.Fatalf("other fixture was mutated: %q", got)
+	}
+}
+
+func TestOwnedRedisStartupPreservesNonBindFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	attempts := 0
+	_, err := startOwnedTestRedis(t, ctx, func() int { attempts++; return freeTCPPort(t) }, "--afs-invalid-test-option", "1")
+	if err == nil || !strings.Contains(err.Error(), "afs-invalid-test-option") || !strings.Contains(err.Error(), "server log:") {
+		t.Fatalf("startup failure lost diagnostics: %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("non-bind failure retried %d times", attempts)
+	}
 }
 
 func setupArrayRedisFromEnv(t *testing.T) (*redis.Client, context.Context) {

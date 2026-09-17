@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
@@ -71,7 +72,14 @@ func (h *publicationCommandHook) ProcessPipelineHook(next redis.ProcessPipelineH
 }
 func (h *publicationCommandHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
-		publication := cmd.Name() == "eval" || cmd.Name() == "evalsha"
+		publication := false
+		if args := cmd.Args(); len(args) > 1 {
+			script := fmt.Sprint(args[1])
+			publication = cmd.Name() == "eval" && strings.Contains(script, "local tracked=history_capture")
+			if cmd.Name() == "evalsha" {
+				publication = script == publishFileScript.Hash() || script == deleteInodeScript.Hash() || script == updateInodeScript.Hash()
+			}
+		}
 		if publication && !h.fired && h.before != nil {
 			h.fired = true
 			h.before()
@@ -248,7 +256,7 @@ func (h *generationBoundaryHook) ProcessPipelineHook(next redis.ProcessPipelineH
 	return func(ctx context.Context, cmds []redis.Cmder) error {
 		if !h.fired {
 			for _, cmd := range cmds {
-				if cmd.Name() == "hset" || cmd.Name() == "hdel" {
+				if cmd.Name() == "hset" || cmd.Name() == "hdel" || cmd.Name() == "eval" || cmd.Name() == "evalsha" {
 					h.fired = true
 					h.advance()
 					break

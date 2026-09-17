@@ -48,6 +48,9 @@ type InvalidateEvent struct {
 	// Paths are the affected absolute paths. Most events have a single path;
 	// rename-prefix events may carry two (src and dst).
 	Paths []string `json:"paths"`
+	// Activity distinguishes user actions from supplemental cache notifications.
+	// A nil value preserves fallback behavior for older journal entries.
+	Activity *bool `json:"activity,omitempty"`
 }
 
 // encodeInvalidate marshals an event for transport. JSON keeps the wire format
@@ -90,6 +93,10 @@ func PublishInvalidation(ctx context.Context, rdb *redis.Client, fsKey string, e
 	ev.Paths = cleaned
 	if ev.Origin == "" {
 		ev.Origin = "server"
+	}
+	if ev.Activity == nil {
+		activity := true
+		ev.Activity = &activity
 	}
 	payload, err := encodeInvalidate(ev)
 	if err != nil {
@@ -137,7 +144,8 @@ func (c *nativeClient) invalidationPayload(op string, paths ...string) string {
 	if c.publishDisabled.Load() {
 		return ""
 	}
-	payload, _ := encodeInvalidate(InvalidateEvent{Origin: c.originID, Op: op, Paths: paths})
+	activity := false
+	payload, _ := encodeInvalidate(InvalidateEvent{Origin: c.originID, Op: op, Paths: paths, Activity: &activity})
 	return string(payload)
 }
 

@@ -1,0 +1,57 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+
+	"github.com/redis/go-redis/v9"
+	cp "github.com/rowantrollope/afs/internal/controlplane"
+	fh "github.com/rowantrollope/afs/internal/filehistory"
+	fs "github.com/rowantrollope/afs/mount/client"
+)
+
+func main() {
+	addr := flag.String("addr", "", "owned disposable Redis")
+	flag.Parse()
+	if *addr == "" || os.Getenv("AFS_HISTORY_COMPARISON_ISOLATED") != "1" {
+		panic("run ui_compare.py")
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: *addr})
+	defer rdb.Close()
+	ctx := context.Background()
+	service := cp.NewService(cp.NewStore(rdb))
+	meta, err := service.CreateWorkspace(ctx, "history-ui")
+	check(err)
+	id := cp.WorkspaceStorageID(meta)
+	generation, err := service.WorkspaceGeneration(ctx, id)
+	check(err)
+	ctx = fs.WithWorkspaceGeneration(ctx, generation)
+	check(fh.SetPolicy(ctx, rdb, id, fh.Policy{Mode: "all"}))
+	client := fs.New(rdb, id)
+	check(client.Echo(ctx, "/story.txt", []byte("checkpoint text\n")))
+	_, err = service.SaveCheckpointFromLive(ctx, id, "base")
+	check(err)
+	for n := 2; n <= 55; n++ {
+		check(client.Echo(ctx, "/story.txt", []byte(fmt.Sprintf("draft revision %d\n", n))))
+	}
+	check(client.Echo(ctx, "/deleted.txt", []byte("recover this deleted content\n")))
+	check(client.Rm(ctx, "/deleted.txt"))
+	check(fh.SetPolicy(ctx, rdb, id, fh.Policy{Mode: "off"}))
+	check(client.Echo(ctx, "/activity-only.txt", []byte("activity with history disabled\n")))
+	check(fh.SetPolicy(ctx, rdb, id, fh.Policy{Mode: "all"}))
+	attributed := fs.WithFileVersionMutationMetadata(ctx, fs.FileVersionMutationMetadata{
+		Source: "agent_sync", SessionID: "parity-session", AgentID: "parity-agent", User: "parity-user",
+		Label: "Named sync agent", AgentVersion: "parity-version",
+	})
+	check(client.Echo(attributed, "/attributed.txt", []byte("attributed sync publication\n")))
+	check(json.NewEncoder(os.Stdout).Encode(map[string]any{"workspace": "history-ui", "workspace_id": id, "live_path": "/story.txt", "live_versions": 55, "deleted_path": "/deleted.txt", "deleted_versions": 2, "activity_only_path": "/activity-only.txt", "attributed_path": "/attributed.txt"}))
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
+}

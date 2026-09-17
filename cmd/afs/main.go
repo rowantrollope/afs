@@ -37,6 +37,11 @@ Commands:
   fork <source> <new-workspace>  Fork a workspace from a checkpoint
   delete <workspace>             Delete a workspace
   cp                             Create and manage checkpoints
+  history <workspace> <path>     Show published file versions
+  recover <workspace> <path>     Recover a version to a new local path
+  versioning <workspace>         Show or change the file history policy
+  file                           History, show, diff, restore, and undelete
+  serve                          Serve compatible local file-history APIs
   config set <key> <value>       Save a configuration setting
 
 Options:
@@ -54,7 +59,12 @@ Run 'afs <command> --help' for details.
 `
 
 var commandUsage = map[string]string{
-	"sync": syncCommandUsage,
+	"sync":       syncCommandUsage,
+	"history":    historyCommandUsage,
+	"recover":    recoverCommandUsage,
+	"versioning": versioningCommandUsage,
+	"file":       fileCommandUsage,
+	"serve":      serveCommandUsage,
 	"config": `Usage: afs [--config <file>] config set <key> <value>
 
 Settings (defaults):
@@ -110,6 +120,13 @@ Use the same read-only setting when remounting a sync directory, or use a new on
 Native read-only mounts also reject filesystem writes.
 FUSE only: --uid <id> and --gid <id> override ownership (including 0);
 --allow-other permits access by other local users when the FUSE driver allows it.
+
+Sync provenance: --session <label> (alias --session-id), --agent-id <id>,
+--user <label>, --label <display-name>, and --agent-version <version> attach
+optional caller-supplied attribution to published file history and activity.
+Defaults: AFS_SESSION_ID, AFS_AGENT_ID, AFS_USER, AFS_AGENT_LABEL,
+AFS_AGENT_VERSION; the agent version otherwise identifies this AFS build.
+These labels do not authenticate a user or create a managed application session.
 `,
 	"unmount": `Usage: afs unmount <directory> [--force]
 
@@ -174,7 +191,7 @@ func runCLI(args []string) error {
 			return nil
 		}
 	}
-	if (args[0] == "cp" || args[0] == "sync") && len(args) == 1 {
+	if (args[0] == "cp" || args[0] == "sync" || args[0] == "file") && len(args) == 1 {
 		fmt.Print(usage)
 		return nil
 	}
@@ -204,6 +221,16 @@ func runCLI(args []string) error {
 		return a.status(args[1:])
 	case "sync":
 		return a.syncCommand(args[1:])
+	case "history":
+		return a.historyCommand(args[1:])
+	case "recover":
+		return a.recoverCommand(args[1:])
+	case "versioning":
+		return a.versioningCommand(args[1:])
+	case "file":
+		return a.fileCommand(args[1:])
+	case "serve":
+		return a.serveHistoryCommand(args[1:])
 	}
 	return nil
 }
