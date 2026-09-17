@@ -75,7 +75,17 @@ def main():
         payload_savings.append(rate(old["historical_payload_memory_usage_bytes"], new["historical_payload_memory_usage_bytes"]))
     standard_memory_changes = [-rate(std[(case, "original")]["workspace_memory_usage_bytes"], std[(case, "new")]["workspace_memory_usage_bytes"]) for case in ("overwrite", "identical", "metadata", "append")]
     old_append, new_append = arr[("append", "original")], arr[("append", "new")]
-    speed = f"Across these timed scenarios, the new version was {min(ratios):.2f}–{max(ratios):.2f} times faster." if min(ratios) >= 1 else f"Original/new latency ratios ranged from {min(ratios):.2f} to {max(ratios):.2f}; ratios below one mean the new version was slower."
+    speed = f"Across these timed scenarios, the new version was {min(ratios):.2f}–{max(ratios):.2f} times faster."
+    if min(ratios) < 1:
+        faster = [ratio for ratio in ratios if ratio > 1]
+        speed = f"Original/new latency ratios ranged from {min(ratios):.2f} to {max(ratios):.2f}; ratios below one mean the new version was slower."
+        if faster:
+            speed += f" The new version was faster in {len(faster)} of {len(ratios)} workload/backend pairs ({min(faster):.2f}–{max(faster):.2f} times)."
+        for backend, group in (("standard Redis", std), ("Array", arr)):
+            for case, label in CASES:
+                old, new = group[(case, "original")]["median_us"], group[(case, "new")]["median_us"]
+                if new > old:
+                    speed += f" {label} on {backend} was {(new / old - 1) * 100:.1f}% slower ({old / 1000:.3f} to {new / 1000:.3f} ms)."
     measurements = f"""## Paired measurements
 
 {reps} repetitions ran on each of standard Redis 7.2.5 and the experimental Array

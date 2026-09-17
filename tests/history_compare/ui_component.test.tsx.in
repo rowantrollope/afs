@@ -25,6 +25,13 @@ test("original activity list displays a publication made with capture off", asyn
   expect(screen.queryByRole("button",{name:/^v\d/})).toBeNull();
 });
 
+test("original activity list displays the configured sync actor label", async () => {
+  mount("/attributed.txt");
+  expect(await screen.findByText("attributed sync publication")).toBeVisible();
+  expect(await screen.findByRole("button",{name:/^put .*Named sync agent v1$/})).toBeVisible();
+  expect(screen.getByText("agent_sync",{selector:"td"})).toBeVisible();
+});
+
 test("original pagination, content, head diff and restore", async () => {
   mount("/story.txt");
   expect(await screen.findByText("draft revision 55")).toBeVisible();

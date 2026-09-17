@@ -19,6 +19,8 @@ type FileHistoryChange struct {
 	SessionID    string    `json:"session_id,omitempty"`
 	AgentID      string    `json:"agent_id,omitempty"`
 	User         string    `json:"user,omitempty"`
+	Label        string    `json:"label,omitempty"`
+	AgentVersion string    `json:"agent_version,omitempty"`
 	Op           string    `json:"op"`
 	Path         string    `json:"path"`
 	PrevPath     string    `json:"prev_path,omitempty"`

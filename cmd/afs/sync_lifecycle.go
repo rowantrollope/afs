@@ -63,6 +63,7 @@ func (a *app) mount(args []string) error {
 	if err := validateMountOptions(flags, *backend); err != nil {
 		return err
 	}
+	mountOpts.normalizeAttribution()
 	if *backend != "sync" {
 		return a.mountNative(pos[0], pos[1], *backend, *foreground, *mountOpts)
 	}
@@ -125,8 +126,9 @@ func (a *app) mount(args []string) error {
 	id := sha256Hex([]byte(redisIdentity(a.config) + "\x00" + meta.ID + "\x00" + localRoot))[:32]
 	runtimeDir := filepath.Join(baseStateDir(), "clients", id)
 	rec := mountRecord{ID: id, Workspace: meta.Name, WorkspaceID: meta.ID, LocalPath: localRoot,
-		ReadOnly: mountOpts.ReadOnly,
-		Redis:    redisDisplay(a.config), RedisIdentity: redisIdentity(a.config), RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation,
+		ReadOnly:  mountOpts.ReadOnly,
+		SessionID: mountOpts.SessionID, AgentID: mountOpts.AgentID, User: mountOpts.User, Label: mountOpts.Label, AgentVersion: mountOpts.AgentVersion,
+		Redis: redisDisplay(a.config), RedisIdentity: redisIdentity(a.config), RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation,
 		Token: token, RuntimeDir: runtimeDir, SyncLog: filepath.Join(runtimeDir, "sync.log"), StartedAt: time.Now().UTC()}
 	boot := syncDaemonBootstrap{Config: a.config, Record: rec, Foreground: *foreground}
 	if *foreground {
@@ -307,7 +309,8 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 	if current != rec.Generation {
 		return errors.New("workspace changed while mounting; retry")
 	}
-	d, err := newSyncDaemon(syncDaemonConfig{Workspace: rec.WorkspaceID, LocalRoot: rec.LocalPath, FS: client.New(rdb, rec.RedisKey), Store: newAFSStore(rdb), MaxFileBytes: syncSizeCapBytes(boot.Config), WatcherQueueCapacity: syncWatcherQueueCapacity(boot.Config), Interactive: boot.Foreground, Readonly: rec.ReadOnly})
+	d, err := newSyncDaemon(syncDaemonConfig{Workspace: rec.WorkspaceID, LocalRoot: rec.LocalPath, FS: client.New(rdb, rec.RedisKey), Store: newAFSStore(rdb), MaxFileBytes: syncSizeCapBytes(boot.Config), WatcherQueueCapacity: syncWatcherQueueCapacity(boot.Config), Interactive: boot.Foreground, Readonly: rec.ReadOnly,
+		SessionID: rec.SessionID, AgentID: rec.AgentID, User: rec.User, Label: rec.Label, AgentVersion: rec.AgentVersion})
 	if err != nil {
 		return err
 	}

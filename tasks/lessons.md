@@ -10,6 +10,12 @@ improvement. The original already records native range writes; its separate
 post-publication observer is the consistency distinction. The user explicitly
 authorizes a commit and PR after full verification.
 
+The user asks for an objective assessment of both strengths and weaknesses.
+Separate measured local improvements from production maturity, memory costs,
+write-availability tradeoffs and incomplete gates. A documented missing original
+capability is still missing: audit ordinary sync attribution and worker restart
+paths as well as explicit recovery APIs before claiming parity.
+
 ## 2026-09-16 — Describe automatic sync with an explicit wait boundary
 
 User rejected a standalone save verb because it implies sync requires manual action.

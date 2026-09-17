@@ -30,8 +30,10 @@ or providing local exports does not cover its full per-file versioning surface.
 
 Checkpoint references are record annotations. The original SavepointMeta does
 not contain a separate VersionIDs registry. Native mount observer records only
-the mount source; sync uploader passes session/agent/user/source. Metadata fields
-must remain optional when the corresponding context does not exist.
+the mount source; sync uploader passes session/agent/user/source and includes
+label/client-version fields on activity. The drawer displays the label ahead of
+agent, session, user or source. Metadata fields remain optional when the
+corresponding context does not exist.
 
 ## HTTP contract used by the original drawer
 
@@ -90,19 +92,19 @@ median of the per-run median operation times, including history handling.
 
 | Workload | Original / new, standard Redis (ms) | Original / new, Array (ms) |
 | --- | ---: | ---: |
-| Forty distinct 64 KiB rewrites | 1.679 / 0.914 | 1.868 / 0.755 |
-| Forty identical 64 KiB rewrites | 2.925 / 0.914 | 3.167 / 0.805 |
-| Forty permission changes | 1.631 / 0.668 | 1.723 / 0.646 |
-| Forty 64 KiB rewrites, retain five | 1.180 / 0.988 | 1.353 / 0.924 |
-| Sixteen 64-byte appends to a 1 MiB file | 4.731 / 2.303 | 6.060 / 2.759 |
+| Forty distinct 64 KiB rewrites | 1.546 / 0.828 | 1.770 / 0.934 |
+| Forty identical 64 KiB rewrites | 2.978 / 0.961 | 3.191 / 0.998 |
+| Forty permission changes | 1.613 / 0.668 | 1.753 / 0.613 |
+| Forty 64 KiB rewrites, retain five | 1.159 / 1.181 | 1.422 / 0.811 |
+| Sixteen 64-byte appends to a 1 MiB file | 4.769 / 2.245 | 5.989 / 2.771 |
 
-Across these timed scenarios, the new version was 1.19–3.93 times faster.
+Original/new latency ratios ranged from 0.98 to 3.20; ratios below one mean the new version was slower. The new version was faster in 9 of 10 workload/backend pairs (1.75–3.20 times). Forty 64 KiB rewrites, retain five on standard Redis was 1.9% slower (1.159 to 1.181 ms).
 The concurrent-writer scenario is excluded from speed comparisons because the
 implementations did not acknowledge the same number of writes.
 
 With five-version retention, summed workspace `MEMORY USAGE` changed from
 4,153,440 to 632,448 bytes on standard Redis (84.8% less), and from
-4,125,164 to 479,356 bytes on Array (88.4% less). History payload memory fell
+4,125,175 to 479,352 bytes on Array (88.4% less). History payload memory fell
 87.8% and 90.8%, respectively. The principal
 improvement is reclamation: original pruning removed version metadata while
 retaining immutable blob bodies. Both implementations suppressed identical
@@ -111,7 +113,7 @@ versions and shared one body across the 41 mode-change records.
 The new version is not consistently smaller. Unlimited-history standard Redis
 workloads used up to 6.5% more workspace memory.
 The Array append case used 21,360,982 bytes
-versus 19,594,306 bytes
+versus 19,594,274 bytes
 (9.0% more),
 and its history payload memory was
 9.6% more.
@@ -121,7 +123,7 @@ for small appends to large files. Logical byte limits remain per-version
 accounting, separate from physical sharing and Redis overhead.
 
 Both backends used production Go/Lua fingerprint
-`049f82f3231c87136e85e5e8511c467bf3892c785618a7aa0ad5d7aa646da0c5`. Recorded host: `macOS-15.8-arm64-arm-64bit-Mach-O`;
+`acd3be64274c204bb792e8f74c0abd52e30edff8873770042fb80fa566fc519e`. Recorded host: `macOS-15.8-arm64-arm-64bit-Mach-O`;
 toolchain: `go version go1.26.1 darwin/arm64`. Both servers used the libc allocator. Implementation order alternated
 by repetition, and heavy validation paused during measurement. Raw timing rows,
 tail latencies, source/harness hashes and API fields are retained in
@@ -144,7 +146,7 @@ samples do not establish statistical significance or universal superiority.
 
 Concurrent runs attempted 40 writes without retrying conflicts.
 The new implementation acknowledged 20 writes in every run;
-original acknowledged counts ranged from 2 to 26.
+original acknowledged counts ranged from 5 to 22.
 These are consistency stress results, not an equal-success-count throughput
 comparison. All rejected counts and error text remain in the raw reports.
 The deterministic crash experiment targets the original observer gap; it does
@@ -175,16 +177,18 @@ the same lineage; selecting that version displayed the exact deleted content.
 Screenshots were visually inspected at the loaded, diff and undeleted states,
 and the browser reported no console errors.
 
-The final run used the same production fingerprint as the final paired measurements,
-`049f82f3231c87136e85e5e8511c467bf3892c785618a7aa0ad5d7aa646da0c5`,
-and passed all three original component integration tests against real
-HTTP/Redis, including pagination/diff/restore/undelete and activity recorded while
-capture was off. This rerun used **jsdom**, because the desktop was locked and
-neither Chrome nor the hidden in-app browser was available through the supported
-CUA tools. It is supplementary component evidence; the actual-browser evidence
-covers the earlier snapshot. [UI evidence](evidence/file-history-ui.json) keeps
-the runs distinct and includes independent backend verification. All owned
-processes were stopped, and the original checkout remained clean.
+The final component run used the same production fingerprint as the paired measurements,
+`acd3be64274c204bb792e8f74c0abd52e30edff8873770042fb80fa566fc519e`
+and passed all four original component integration tests against real
+HTTP/Redis. It covered pagination/diff/restore/undelete, activity recorded while
+capture was off, and an attributed `agent_sync` publication whose activity
+rendered `Named sync agent` and linked to version 1. Backend verification also
+confirmed the exact session, agent, user, label and client-version fields.
+This rerun used **jsdom**, because the desktop was locked and neither Chrome nor
+the hidden in-app browser was available through the supported CUA tools. It is
+supplementary component evidence; the actual-browser evidence covers the earlier
+snapshot. [UI evidence](evidence/file-history-ui.json) keeps the runs distinct.
+All owned processes were stopped, and the original checkout remained clean.
 
 The paired service scenario independently checks ID and ordinal content
 selection, ascending lineage ordinals returned through descending cursor pages,

@@ -116,7 +116,7 @@ local changes={
  {id=ARGV[1],path=after.path,after=after,body=KEYS[2],operation=ARGV[5]=='1' and 'create' or 'write'}
 }
 local prefix=publication_prefix(KEYS[1])
-local tracked=history_capture(prefix,ARGV[4],publication_origin(ARGV[9]),changes)
+local tracked=history_capture(prefix,ARGV[4],publication_origin(ARGV[9],changes),changes)
 ARGV[9]=publication_payload(ARGV[9],prefix,changes,tracked)
 if ARGV[8] == '0' then
  redis.call('DEL', KEYS[2], KEYS[4])
@@ -166,7 +166,7 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	args := []interface{}{inode.ID, inode.Name, inode.Revision, revision, create, inode.MtimeMs, generation, inode.Size, c.invalidationPayload(InvalidateOpInode, p)}
+	args := []interface{}{inode.ID, inode.Name, inode.Revision, revision, create, inode.MtimeMs, generation, inode.Size, c.mutationPayload(ctx, InvalidateOpInode, p)}
 	for _, key := range keys {
 		args = append(args, key, fields[key])
 	}
@@ -417,7 +417,7 @@ local changes={
  {id=ARGV[1],path=ARGV[9],after=false,operation='delete'}
 }
 local prefix=publication_prefix(KEYS[1])
-local tracked=history_capture(prefix,ARGV[8],publication_origin(ARGV[7]),changes)
+local tracked=history_capture(prefix,ARGV[8],publication_origin(ARGV[7],changes),changes)
 ARGV[7]=publication_payload(ARGV[7],prefix,changes,tracked)
 redis.call('DEL',KEYS[1],KEYS[2],KEYS[4])
 redis.call('HDEL',KEYS[3],ARGV[2])
@@ -442,7 +442,7 @@ func (c *nativeClient) deletePublishedInode(ctx context.Context, p string, inode
 	}
 	generation, _ := ctx.Value(workspaceGenerationKey{}).(string)
 	operationID := newOriginID()
-	code, err := c.runPreparedMutation(ctx, deleteInodeScript, false, operationID, []filehistory.PrepareRequest{{InodeID: inode.ID, ExpectedRevision: inode.Revision, Path: p}}, []string{c.keys.inode(inode.ID), c.keys.content(inode.ID), c.keys.dirents(inode.Parent), c.keys.dirents(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, inode.ID, inode.Name, inode.Revision, generation, nowMs(), c.keys.inodePrefix(), c.invalidationPayload(InvalidateOpInode, p), operationID, p)
+	code, err := c.runPreparedMutation(ctx, deleteInodeScript, false, operationID, []filehistory.PrepareRequest{{InodeID: inode.ID, ExpectedRevision: inode.Revision, Path: p}}, []string{c.keys.inode(inode.ID), c.keys.content(inode.ID), c.keys.dirents(inode.Parent), c.keys.dirents(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, inode.ID, inode.Name, inode.Revision, generation, nowMs(), c.keys.inodePrefix(), c.mutationPayload(ctx, InvalidateOpInode, p), operationID, p)
 	if err != nil {
 		return err
 	}
@@ -479,7 +479,7 @@ local changes={
  {id=ARGV[1],path=after.path,after=after,operation='metadata'}
 }
 local prefix=publication_prefix(KEYS[1])
-local tracked=history_capture(prefix,ARGV[5],publication_origin(ARGV[6]),changes)
+local tracked=history_capture(prefix,ARGV[5],publication_origin(ARGV[6],changes),changes)
 ARGV[6]=publication_payload(ARGV[6],prefix,changes,tracked)
 for i=7,#ARGV,2 do redis.call('HSET',KEYS[1],ARGV[i],ARGV[i+1]) end
 redis.call('HSET',KEYS[1],'revision',ARGV[5])
@@ -499,7 +499,7 @@ func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode
 	}
 	revision := newOriginID()
 	generation, _ := ctx.Value(workspaceGenerationKey{}).(string)
-	args := []interface{}{inode.ID, inode.Name, inode.Revision, generation, revision, c.invalidationPayload(InvalidateOpInode, p)}
+	args := []interface{}{inode.ID, inode.Name, inode.Revision, generation, revision, c.mutationPayload(ctx, InvalidateOpInode, p)}
 	names := make([]string, 0, len(fields))
 	for name := range fields {
 		names = append(names, name)

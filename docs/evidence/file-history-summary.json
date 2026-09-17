@@ -1,10 +1,10 @@
 {
-  "production_sha256": "049f82f3231c87136e85e5e8511c467bf3892c785618a7aa0ad5d7aa646da0c5",
+  "production_sha256": "acd3be64274c204bb792e8f74c0abd52e30edff8873770042fb80fa566fc519e",
   "scenario_executions": 240,
-  "speedup_min": 1.1935338966588966,
-  "speedup_max": 3.9335403726708074,
+  "speedup_min": 0.9817880261778065,
+  "speedup_max": 3.1991966253049995,
   "standard_retention_workspace_saved_percent": 84.77291112908819,
-  "array_retention_workspace_saved_percent": 88.37971047938943,
+  "array_retention_workspace_saved_percent": 88.37983843109687,
   "standard_unlimited_workspace_increase_max_percent": 6.541768192750141,
-  "array_append_workspace_increase_percent": 9.016272380353762
+  "array_append_workspace_increase_percent": 9.01645041811705
 }

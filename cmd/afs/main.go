@@ -120,6 +120,13 @@ Use the same read-only setting when remounting a sync directory, or use a new on
 Native read-only mounts also reject filesystem writes.
 FUSE only: --uid <id> and --gid <id> override ownership (including 0);
 --allow-other permits access by other local users when the FUSE driver allows it.
+
+Sync provenance: --session <label> (alias --session-id), --agent-id <id>,
+--user <label>, --label <display-name>, and --agent-version <version> attach
+optional caller-supplied attribution to published file history and activity.
+Defaults: AFS_SESSION_ID, AFS_AGENT_ID, AFS_USER, AFS_AGENT_LABEL,
+AFS_AGENT_VERSION; the agent version otherwise identifies this AFS build.
+These labels do not authenticate a user or create a managed application session.
 `,
 	"unmount": `Usage: afs unmount <directory> [--force]
 

@@ -124,13 +124,34 @@ not authenticated identities. Successful restore/undelete responses identify
 the exact committed record. Concurrent policy updates return the policy that
 that request committed, even if another writer changes it immediately afterward.
 
-Ordinary native and folder-sync publications currently identify `source: mount`
-and an opaque publisher `origin`. They do not automatically populate the
-original sync uploader's session, agent, or user labels, and an origin is not a
-user identity. Explicit HTTP actions retain supplied actor labels; CLI actions
-have no actor labels. A restore records the current caller, not the author of
-the selected historical version. Original session detail links and identity
-lookups require application services outside this adapter.
+Folder-sync publications use the original `source: agent_sync` and accept the
+original optional session, agent and user fields through `syncDaemonConfig`.
+The daemon carries this metadata through initial reconciliation, automatic
+uploads, explicit verification, and resumed workers. Activity also retains the
+original optional display label and agent-version fields. The CLI supplies these
+through per-mount flags and environment defaults:
+
+```sh
+afs mount project ./project --session review-session --agent-id review-agent \
+  --user reviewer --label 'Review Agent' --agent-version '1.2'
+```
+
+`--session-id` is an alias for `--session`. Defaults come from `AFS_SESSION_ID`,
+`AFS_AGENT_ID`, `AFS_USER`, `AFS_AGENT_LABEL` and `AFS_AGENT_VERSION`; explicit
+flags override them. Without an agent-version override, activity identifies the
+actual AFS build. Session, agent and user labels remain empty when omitted.
+They are saved in the mount's private registry/bootstrap so a background process
+or `sync --wait` worker restart does not change the actor. These flags apply to
+folder sync, and never reinterpret the Redis username as a history user.
+
+Unlike the original `--session`, this label does not open a managed application
+session. Original session detail links and identity lookups still require
+application services outside this adapter. Native mounts keep the original
+`source: mount` behavior and an opaque publisher `origin`; an origin is not a
+user identity. Direct filesystem API callers can supply mutation context using
+`client.WithFileVersionMutationMetadata`. Explicit HTTP recovery actions retain
+their supplied actor labels; CLI recovery actions have no actor labels. A
+restore records the current caller, not the author of the historical version.
 
 Checkpoint IDs on versions describe available mutation context. Ordinary mount
 and folder-sync writes do not automatically annotate the current checkpoint
@@ -178,6 +199,12 @@ existing checkpoint lacks a newly created path.
 `internal/controlplane/file_history_changes_test.go` checks activity with capture
 disabled, absence of duplicate cache notifications, rename filtering, original
 exclusive stream cursors, sparse bounded pagination, and legacy entries.
+
+`cmd/afs/sync_attribution_test.go` checks flag/environment precedence, daemon
+bootstrap persistence, and attribution through initial upload, explicit save,
+and resumed automatic workers. `tests/e2e/history_attribution_test.go` verifies
+the actual background CLI process across creates, updates, deletes, verification
+and worker restart, with capture both enabled and disabled.
 
 `tests/e2e/history_compatibility_test.go` builds the actual AFS executable and
 uses a disposable Redis process plus private synchronization directories. It

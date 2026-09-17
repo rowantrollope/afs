@@ -35,6 +35,10 @@ def verify_actions(api_base):
         result[path]={"live_content":live.get("content"),"expected_content_matches":live.get("content")==want,"latest_ordinal":latest["ordinal"],"expected_ordinal_matches":latest["ordinal"]==ordinal,"latest_source":latest.get("source"),"lineage_state":history["lineages"][0]["state"]}
     activity=get("/changes",path="/activity-only.txt",direction="desc",limit=25)
     result["activity_while_off"]={"entries":activity.get("entries",[])}
+    attributed=get("/changes",path="/attributed.txt",direction="desc",limit=25)
+    result["attributed_activity"]={"entries":attributed.get("entries",[])}
+    history=get("/files/history",path="/attributed.txt",direction="desc",limit=1)
+    result["attributed_version"]=history["lineages"][0]["versions"][0]
     return result
 
 

@@ -645,7 +645,7 @@ func (c *nativeClient) createInodeUnderParent(ctx context.Context, childPath str
 			result = createMetadataScript.Eval(ctx, pipe, []string{
 				c.keys.inode(id), c.keys.dirents(parent.ID), c.keys.inode(parent.ID),
 				c.keys.info(), c.keys.changesStream(), c.keys.invalidateChannel(), c.keys.rootDirty(),
-			}, id, childPath, string(encoded), c.invalidationPayload(InvalidateOpInode, childPath))
+			}, id, childPath, string(encoded), c.mutationPayload(ctx, InvalidateOpInode, childPath))
 			return nil
 		})
 		if err == nil {
@@ -877,7 +877,7 @@ func (c *nativeClient) renamePath(ctx context.Context, resolvedSrc string, srcIn
 					c.keys.inode(oldParentID), c.keys.inode(newParent.ID), c.keys.info(),
 					c.keys.changesStream(), c.keys.invalidateChannel(), c.keys.rootDirty(),
 				}, nextSrc.ID, oldName, newName, newParent.ID, currentSrc.Revision,
-					nextSrc.Revision, nextSrc.CtimeMs, c.invalidationPayload(InvalidateOpPrefix, resolvedSrc, dst),
+					nextSrc.Revision, nextSrc.CtimeMs, c.mutationPayload(ctx, InvalidateOpPrefix, resolvedSrc, dst),
 					replacedID, replacedRevision, dst, resolvedSrc, indexedPathAncestors(dst))
 				return nil
 			})

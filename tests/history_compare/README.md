@@ -101,6 +101,8 @@ Use a real browser on the printed live drawer URL:
    verify `recover this deleted content`, a live lineage and `version_undelete`.
 7. Open the same host with `?path=/activity-only.txt`; verify a `put` path event
    exists even though that file was created while capture was off.
+8. Open the same host with `?path=/attributed.txt`; verify the activity actor is
+   `Named sync agent`, links to `v1`, and the version source is `agent_sync`.
 
 Inspect screenshots at the loaded, diff and undeleted states, and check browser
 console errors. This is component integration evidence, not a reintroduction or

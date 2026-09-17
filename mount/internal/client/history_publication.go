@@ -53,13 +53,21 @@ end
 local function publication_prefix(inodeKey)
  return string.match(inodeKey,'^(.*):inode:')..':history:'
 end
-local function publication_origin(payload)
+local function publication_origin(payload,changes)
  if payload=='' then return '' end
- return cjson.decode(payload).origin or ''
+ local value=cjson.decode(payload)
+ if value.mutation_metadata then
+  local metadata=value.mutation_metadata
+  if metadata.checkpoint_id then metadata.checkpoint_ids={metadata.checkpoint_id} end
+  for _,change in ipairs(changes) do change.metadata=metadata end
+ end
+ return value.origin or ''
 end
 local function publication_payload(payload,prefix,changes,tracked)
  if payload=='' or not changes[1] then return payload end
  local value=cjson.decode(payload)
+ if value.suppress_notification then return '' end
+ value.mutation_metadata=nil
  local change=changes[1]
  local before=change.before
  if before==nil then before=history_hash(string.sub(prefix,1,#prefix-8)..'inode:'..change.id) end
@@ -77,7 +85,8 @@ local function publication_payload(payload,prefix,changes,tracked)
  local event={op=op,path=path,kind=after and fields.type or 'tombstone',size_bytes=after and tonumber(fields.size or 0) or 0,
   delta_bytes=(after and tonumber(fields.size or 0) or 0)-(before and tonumber(before.size or 0) or 0),
   mode=tonumber(fields.mode or 0),source=metadata.source or 'mount',session_id=metadata.session_id,
-  agent_id=metadata.agent_id,user=metadata.user,origin=value.origin}
+  agent_id=metadata.agent_id,user=metadata.user,label=metadata.label,agent_version=metadata.agent_version,
+  checkpoint_id=metadata.checkpoint_id,origin=value.origin}
  if oldPath~=path then event.prev_path=oldPath end
  if tracked and change._record then
   local record=change._record
@@ -107,7 +116,7 @@ local changes={
  {id=ARGV[1],path=ARGV[2],after=after,operation='create'}
 }
 local prefix=publication_prefix(KEYS[1])
-local tracked=history_capture(prefix,after.revision,publication_origin(ARGV[4]),changes)
+local tracked=history_capture(prefix,after.revision,publication_origin(ARGV[4],changes),changes)
 ARGV[4]=publication_payload(ARGV[4],prefix,changes,tracked)
 for field,value in pairs(after) do redis.call('HSET',KEYS[1],field,value) end
 redis.call('HSET',KEYS[2],after.name,ARGV[1])
@@ -146,7 +155,7 @@ if linked then
  if replaced.type=='file' then publication_counter(KEYS[6],'total_data_bytes',-tonumber(replaced.size or '0')) end
  table.insert(changes,{id=linked,path=ARGV[11],after=false,operation='replace'})
 end
-local tracked=history_capture(prefix,ARGV[6],publication_origin(ARGV[8]),changes)
+local tracked=history_capture(prefix,ARGV[6],publication_origin(ARGV[8],changes),changes)
 ARGV[8]=publication_payload(ARGV[8],prefix,changes,tracked)
 redis.call('HDEL',KEYS[2],ARGV[2])
 redis.call('HSET',KEYS[3],ARGV[3],ARGV[1])

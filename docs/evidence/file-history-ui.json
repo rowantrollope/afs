@@ -64,28 +64,29 @@
   "limitations": [
     "The original browser run used the actual unchanged original drawer in Chrome and screenshots were inspected in the Codex CUA transcript.",
     "The final frozen-source rerun used jsdom plus real HTTP/Redis because CUA reported the Mac locked and no available Chrome or hidden in-app browser. It is component integration evidence, not a second real-browser run.",
-    "The final paired benchmarks and final component run use the same production Go/Lua fingerprint and include all production fixes. The earlier actual-Chrome run is retained separately and is not claimed to cover the final source."
+    "The final paired benchmarks and final four-test component run use the same production Go/Lua fingerprint, including optional attribution propagation and the sync timestamp-equality fix. The earlier actual-Chrome run is retained separately and is not claimed to cover this final source."
   ],
   "cleanup": "All owned Redis/API/Vite processes stopped; original checkout git status remained clean.",
   "final_source_component_run": {
     "session": {
       "original_revision": "1ff1fa0589b0e01891f5137fe0ed6fb7cf3d5d2e",
-      "new_source_sha256": "318b893b1ff2a72c27cc2bef9cbca26fdb41d94acc15d92f03335acfe6e6bfc7",
-      "new_production_sha256": "049f82f3231c87136e85e5e8511c467bf3892c785618a7aa0ad5d7aa646da0c5",
+      "new_source_sha256": "fae91d5f8e56c348ff49ac8e21dd9bf5c2a48766f595df970ce383f5322f0d05",
+      "new_production_sha256": "acd3be64274c204bb792e8f74c0abd52e30edff8873770042fb80fa566fc519e",
       "original_drawer_sha256": "5ce024f8282a7eec7bf1c3b4f555e751a09c0723c5e5985f4e0ff92f7ccbe59a",
       "seed": {
         "activity_only_path": "/activity-only.txt",
+        "attributed_path": "/attributed.txt",
         "deleted_path": "/deleted.txt",
         "deleted_versions": 2,
         "live_path": "/story.txt",
         "live_versions": 55,
         "workspace": "history-ui",
-        "workspace_id": "ws_39aa69fc94f02202"
+        "workspace_id": "ws_0709500b2a943b6f"
       },
-      "redis_address": "127.0.0.1:64092",
-      "api_url": "http://127.0.0.1:64091",
-      "live_drawer_url": "http://127.0.0.1:64090/history-parity.html",
-      "deleted_drawer_url": "http://127.0.0.1:64090/history-parity.html?path=/deleted.txt",
+      "redis_address": "127.0.0.1:57228",
+      "api_url": "http://127.0.0.1:57227",
+      "live_drawer_url": "http://127.0.0.1:57226/history-parity.html",
+      "deleted_drawer_url": "http://127.0.0.1:57226/history-parity.html?path=/deleted.txt",
       "method": "Original pinned drawer, hooks, HTTP client, components and CSS unchanged. New host adds ReactQuery/theme providers and props only. Original dependencies read via symlink; Vite native config avoids config bundles in original node_modules and all optimization caches stay in disposable UI."
     },
     "results": {
@@ -93,8 +94,8 @@
       "numPassedTestSuites": 1,
       "numFailedTestSuites": 0,
       "numPendingTestSuites": 0,
-      "numTotalTests": 3,
-      "numPassedTests": 3,
+      "numTotalTests": 4,
+      "numPassedTests": 4,
       "numFailedTests": 0,
       "numPendingTests": 0,
       "numTodoTests": 0,
@@ -114,7 +115,7 @@
         "updated": 0,
         "didUpdate": false
       },
-      "startTime": 1789680448532,
+      "startTime": 1789682256462,
       "success": true,
       "testResults": [
         {
@@ -124,7 +125,17 @@
               "fullName": "original activity list displays a publication made with capture off",
               "status": "passed",
               "title": "original activity list displays a publication made with capture off",
-              "duration": 68.15541600000006,
+              "duration": 66.73649999999998,
+              "failureMessages": [],
+              "meta": {},
+              "tags": []
+            },
+            {
+              "ancestorTitles": [],
+              "fullName": "original activity list displays the configured sync actor label",
+              "status": "passed",
+              "title": "original activity list displays the configured sync actor label",
+              "duration": 33.95095900000001,
               "failureMessages": [],
               "meta": {},
               "tags": []
@@ -134,7 +145,7 @@
               "fullName": "original pagination, content, head diff and restore",
               "status": "passed",
               "title": "original pagination, content, head diff and restore",
-              "duration": 596.901333,
+              "duration": 575.546542,
               "failureMessages": [],
               "meta": {},
               "tags": []
@@ -144,17 +155,17 @@
               "fullName": "original tombstone undelete restores readable content in the same lineage",
               "status": "passed",
               "title": "original tombstone undelete restores readable content in the same lineage",
-              "duration": 41.43179199999986,
+              "duration": 40.96904200000017,
               "failureMessages": [],
               "meta": {},
               "tags": []
             }
           ],
-          "startTime": 1789680449915,
-          "endTime": 1789680450621.432,
+          "startTime": 1789682257864,
+          "endTime": 1789682258581.969,
           "status": "passed",
           "message": "",
-          "name": "/private/tmp/afs-history-ui-accepted-component/original-source/ui/history-parity.test.tsx"
+          "name": "/private/tmp/afs-history-ui-release-final/original-source/ui/history-parity.test.tsx"
         }
       ]
     },
@@ -178,8 +189,8 @@
       "activity_while_off": {
         "entries": [
           {
-            "id": "1789680448357-2",
-            "occurred_at": "2026-09-17T21:27:28.357Z",
+            "id": "1789682256285-2",
+            "occurred_at": "2026-09-17T21:57:36.285Z",
             "workspace_id": "history-ui",
             "op": "put",
             "path": "/activity-only.txt",
@@ -188,9 +199,53 @@
             "delta_bytes": 31,
             "mode": 420,
             "source": "mount",
-            "origin": "a63504191f8810655180f4c82cfb3a56"
+            "origin": "2baa8440181bdd141ae322e9b4f73eb9"
           }
         ]
+      },
+      "attributed_activity": {
+        "entries": [
+          {
+            "id": "1789682256286-0",
+            "occurred_at": "2026-09-17T21:57:36.286Z",
+            "workspace_id": "history-ui",
+            "session_id": "parity-session",
+            "agent_id": "parity-agent",
+            "user": "parity-user",
+            "label": "Named sync agent",
+            "agent_version": "parity-version",
+            "op": "put",
+            "path": "/attributed.txt",
+            "kind": "file",
+            "size_bytes": 28,
+            "delta_bytes": 28,
+            "content_hash": "1d7f5d1e3edd3e28fd944f45307667bb5e8820860feb29652975079691f7c6f9",
+            "mode": 420,
+            "file_id": "5c46310d00244e96abfce419cfb268e0-5",
+            "version_id": "5c46310d00244e96abfce419cfb268e0-5-a",
+            "source": "agent_sync",
+            "origin": "2baa8440181bdd141ae322e9b4f73eb9"
+          }
+        ]
+      },
+      "attributed_version": {
+        "version_id": "5c46310d00244e96abfce419cfb268e0-5-a",
+        "file_id": "5c46310d00244e96abfce419cfb268e0-5",
+        "ordinal": 1,
+        "path": "/attributed.txt",
+        "op": "put",
+        "kind": "file",
+        "blob_id": "1d7f5d1e3edd3e28fd944f45307667bb5e8820860feb29652975079691f7c6f9",
+        "content_hash": "1d7f5d1e3edd3e28fd944f45307667bb5e8820860feb29652975079691f7c6f9",
+        "size_bytes": 28,
+        "delta_bytes": 28,
+        "mode": 420,
+        "source": "agent_sync",
+        "session_id": "parity-session",
+        "agent_id": "parity-agent",
+        "user": "parity-user",
+        "created_at": "2026-09-17T21:57:36.286Z",
+        "sequence": 58
       }
     }
   }

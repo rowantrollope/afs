@@ -9,6 +9,9 @@
 - [x] Execute original-versus-new capability and performance comparisons on disposable Redis; record measurable improvements and remaining costs.
 - [x] Pass build/vet/unit/race/process gates and review the complete capability matrix.
 - [x] Prepare the tested commit and comparison evidence for the authorized GitHub PR.
+- [x] Preserve ordinary sync session/agent/user attribution through background worker restarts and the unchanged history drawer.
+- [x] Repeat final acceptance and paired measurements after attribution; reproduce and fix the stale-sync defect found during eight-client CI.
+- [x] Prepare the final follow-up and evidence for PR #5, with remote kernel acceptance tracked in its checks.
 
 User requires all original per-file versioning capabilities, including compatible
 web UI interfaces unless an evidenced compromise warrants a UI change. Passing
@@ -22,8 +25,10 @@ authorized through a PR, superseding the earlier main-only preference for this w
 Review: paired five-repetition runs on standard Redis and Array confirm
 improvements in tested capture/recovery, retention memory and local write latency,
 with higher memory in some unlimited-history cases. The exact final-code
-measurements cover 240 scenario executions: timed operations were 1.19–3.93 times
-faster, and five-version retention used 84.8–88.4% less workspace memory. Costs
+measurements cover 240 scenario executions: the new version was faster in nine
+of ten workload/backend pairs (1.75–3.20 times), while standard Redis retention
+was 1.9% slower (1.159 to 1.181 ms). Five-version retention used 84.8–88.4% less
+workspace memory. Costs
 include up to 6.5% higher standard Redis memory and about 9% higher Array append
 memory. These local measurements do not establish production superiority. Original drawer workflow
 passed in a real browser; final component integration uses jsdom because supported
@@ -35,7 +40,7 @@ recovery checks, native dependency races and 38 Python harness checks pass.
 Regressions reproduced and fixed checkpoint recovery, empty-head diff fallback,
 metadata-only pruning and safe test fixture port handling. No production
 installation or user Redis has changed. The unchanged original component passed
-all three final tests against the benchmarked source. Publication uses
+all four final tests against the benchmarked source, including named actor attribution. Publication uses
 `codex/file-history-superset` and the associated GitHub PR; remote CI supplies
 the separate Linux and actual kernel mount gates. See docs/file-history-validation.md
 for evidence, source hashes and the explicit production and compatibility limits.

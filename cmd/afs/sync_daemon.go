@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rowantrollope/afs/internal/version"
 	"github.com/rowantrollope/afs/mount/client"
 )
 
@@ -35,6 +36,13 @@ type syncDaemonConfig struct {
 	ChunkThreshold   int // minimum file size to enable chunked sync (default 1 MB)
 	StorageID        string
 	HeadCheckpointID string
+	// Optional caller-supplied provenance; these labels do not authenticate a
+	// user or create a managed session in the original application.
+	SessionID    string
+	AgentID      string
+	User         string
+	Label        string
+	AgentVersion string
 }
 
 // syncDaemon orchestrates the watcher, reconciler, uploader, downloader, and
@@ -81,6 +89,9 @@ func newSyncDaemon(cfg syncDaemonConfig) (*syncDaemon, error) {
 	if cfg.WatcherDebounce <= 0 {
 		cfg.WatcherDebounce = 100 * time.Millisecond
 	}
+	if strings.TrimSpace(cfg.AgentVersion) == "" {
+		cfg.AgentVersion = version.String()
+	}
 
 	if err := os.MkdirAll(cfg.LocalRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create local root: %w", err)
@@ -121,7 +132,7 @@ func newSyncDaemon(cfg syncDaemonConfig) (*syncDaemon, error) {
 		ignore:      ignore,
 		done:        make(chan struct{}),
 	}
-	d.reconciler = newReconciler(stateWriter, cfg.LocalRoot, cfg.Workspace, cfg.StorageID, cfg.HeadCheckpointID, "", cfg.Store, cfg.FS, echo, conflict, ignore, cfg.MaxFileBytes, cfg.Readonly, log, cfg.ChunkSize, cfg.ChunkThreshold)
+	d.reconciler = newReconciler(stateWriter, cfg.LocalRoot, cfg.Workspace, cfg.StorageID, cfg.HeadCheckpointID, cfg.SessionID, cfg.Store, cfg.FS, echo, conflict, ignore, cfg.MaxFileBytes, cfg.Readonly, log, cfg.ChunkSize, cfg.ChunkThreshold)
 	d.full = newFullReconciler(d.reconciler)
 	d.uploader = newUploader(cfg.FS, d.reconciler.uploadOut(), cfg.MaxFileBytes, cfg.Readonly, log)
 	d.uploader.localRoot = cfg.LocalRoot
@@ -164,6 +175,7 @@ func (d *syncDaemon) start(ctx context.Context, onProgress ProgressFunc, skipRec
 	if d.cancel != nil {
 		return errors.New("syncDaemon: already started")
 	}
+	ctx = d.mutationContext(ctx)
 	dctx, cancel := context.WithCancel(ctx)
 	d.cancel = cancel
 	d.reconciler.stopCh = dctx.Done()
@@ -323,6 +335,13 @@ func (d *syncDaemon) start(ctx context.Context, onProgress ProgressFunc, skipRec
 	}()
 
 	return nil
+}
+
+func (d *syncDaemon) mutationContext(ctx context.Context) context.Context {
+	return client.WithFileVersionMutationMetadata(ctx, client.FileVersionMutationMetadata{
+		Source: "agent_sync", SessionID: strings.TrimSpace(d.cfg.SessionID), AgentID: strings.TrimSpace(d.cfg.AgentID),
+		User: strings.TrimSpace(d.cfg.User), Label: strings.TrimSpace(d.cfg.Label), AgentVersion: strings.TrimSpace(d.cfg.AgentVersion),
+	})
 }
 
 func (d *syncDaemon) recoverWatcherOverflow(ctx context.Context) error {
