@@ -1,0 +1,166 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/redis/go-redis/v9"
+	cp "github.com/rowantrollope/afs/internal/controlplane"
+	fh "github.com/rowantrollope/afs/internal/filehistory"
+	fs "github.com/rowantrollope/afs/mount/client"
+)
+
+const implementation = "new"
+const namespace = "afs-lite:{comparison}:"
+
+var bodyPrefixes = []string{namespace + "history:body:", namespace + "history:blob:"}
+
+type adapter struct {
+	evidence map[string]any
+	rdb      *redis.Client
+	store    *cp.Store
+	fs       fs.Client
+}
+
+func newAdapter(rdb *redis.Client) *adapter {
+	return &adapter{rdb: rdb, store: cp.NewStore(rdb), fs: fs.New(rdb, "comparison")}
+}
+func (a *adapter) setup(ctx context.Context) error {
+	if err := a.rdb.Set(ctx, namespace+"generation", "g_comparison", 0).Err(); err != nil {
+		return err
+	}
+	if err := a.store.PutWorkspaceMeta(ctx, cp.WorkspaceMeta{ID: "comparison", Name: "comparison", HeadSavepoint: "initial"}); err != nil {
+		return err
+	}
+	return cp.SyncWorkspaceRoot(ctx, a.store, "comparison", cp.Manifest{Workspace: "comparison", Savepoint: "initial", Entries: map[string]cp.ManifestEntry{"/": {Type: "dir", Mode: 0755}}})
+}
+func (a *adapter) policy(ctx context.Context, enabled bool, n int, cutoff int64) error {
+	mode := "off"
+	if enabled {
+		mode = "all"
+	}
+	return fh.SetPolicy(ctx, a.rdb, "comparison", fh.Policy{Mode: mode, MaxVersions: n, MaxFileBytes: cutoff})
+}
+func (a *adapter) write(ctx context.Context, b []byte) error { return a.fs.Echo(ctx, "/data", b) }
+func (a *adapter) read(ctx context.Context) ([]byte, error)  { return a.fs.Cat(ctx, "/data") }
+func (a *adapter) append(ctx context.Context, b []byte) error {
+	return a.fs.EchoAppend(ctx, "/data", b)
+}
+func (a *adapter) chmod(ctx context.Context, m uint32) error { return a.fs.Chmod(ctx, "/data", m) }
+func (a *adapter) remove(ctx context.Context) error          { return a.fs.Rm(ctx, "/data") }
+func (a *adapter) records(ctx context.Context) ([]record, error) {
+	p, err := fh.List(ctx, a.rdb, "comparison", "/data", 1000, 0, "")
+	if err != nil {
+		return nil, err
+	}
+	rows := []record{}
+	for _, v := range p.Versions {
+		rows = append(rows, record{v.ID, v.FileID, v.Version, v.Size, v.Deleted, !v.MetadataOnly && (v.Type == "symlink" || v.ContentRef != "")})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Version < rows[j].Version })
+	return rows, nil
+}
+func (a *adapter) content(ctx context.Context, r record) ([]byte, error) {
+	_, b, err := fh.Get(ctx, a.rdb, "comparison", "/data", r.ID, r.FileID)
+	return b, err
+}
+func (a *adapter) crashWrite(ctx context.Context) error { return a.write(ctx, []byte("after crash")) }
+
+func (a *adapter) api(ctx context.Context) (map[string]bool, error) {
+	service := cp.NewService(a.store)
+	checks := map[string]bool{}
+	a.evidence = map[string]any{}
+	initial := cp.Manifest{Workspace: "comparison", Savepoint: "initial", Entries: map[string]cp.ManifestEntry{"/": {Type: "dir", Mode: 0755}}}
+	if err := a.store.PutSavepoint(ctx, cp.SavepointMeta{ID: "initial", Name: "initial", Workspace: "comparison"}, initial); err != nil {
+		return checks, err
+	}
+	if err := a.write(ctx, []byte("alpha\n")); err != nil {
+		return checks, err
+	}
+	first, err := a.records(ctx)
+	if err != nil || len(first) == 0 {
+		return checks, fmt.Errorf("initial history: %v", err)
+	}
+	selected := first[0]
+	if _, err := service.SaveCheckpointFromLive(ctx, "comparison", "comparison-cp"); err != nil {
+		return checks, fmt.Errorf("checkpoint: %w", err)
+	}
+	if err := a.write(ctx, []byte("beta\n")); err != nil {
+		return checks, err
+	}
+	byID, err := service.GetFileVersionContent(ctx, "comparison", selected.ID)
+	if err != nil {
+		return checks, fmt.Errorf("content ID: %w", err)
+	}
+	byOrdinal, err := service.GetFileVersionContentAtOrdinal(ctx, "comparison", selected.FileID, selected.Version)
+	if err != nil {
+		return checks, fmt.Errorf("content ordinal: %w", err)
+	}
+	contentFields := func(v cp.FileVersionContentResponse) map[string]any {
+		return map[string]any{"path": v.Path, "kind": v.Kind, "content": v.Content, "target": v.Target, "binary": v.Binary, "encoding": v.Encoding, "content_type": v.ContentType, "size": v.Size, "ordinal": v.Ordinal}
+	}
+	a.evidence["content_by_id"], a.evidence["content_by_ordinal"] = contentFields(byID), contentFields(byOrdinal)
+	checks["content_selectors"] = byID.Content == "alpha\n" && byOrdinal.Content == byID.Content && byOrdinal.VersionID == byID.VersionID && byID.Ordinal == 1
+	page, err := service.GetFileHistoryPage(ctx, "comparison", cp.FileHistoryRequest{Path: "/data", NewestFirst: true, Limit: 1})
+	if err != nil {
+		return checks, fmt.Errorf("history page: %w", err)
+	}
+	next, err := service.GetFileHistoryPage(ctx, "comparison", cp.FileHistoryRequest{Path: "/data", NewestFirst: true, Limit: 1, Cursor: page.NextCursor})
+	if err != nil {
+		return checks, fmt.Errorf("history next: %w", err)
+	}
+	checks["history_pagination"] = page.Order == "desc" && page.NextCursor != "" && len(page.Lineages) == 1 && len(next.Lineages) == 1 && len(page.Lineages[0].Versions) == 1 && len(next.Lineages[0].Versions) == 1 && page.Lineages[0].Versions[0].Ordinal == 2 && next.Lineages[0].Versions[0].Ordinal == 1 && next.NextCursor == ""
+	historyFields := func(v cp.FileHistoryResponse) map[string]any {
+		ordinals := []int64{}
+		states := []string{}
+		for _, lineage := range v.Lineages {
+			states = append(states, lineage.State)
+			for _, version := range lineage.Versions {
+				ordinals = append(ordinals, version.Ordinal)
+			}
+		}
+		return map[string]any{"path": v.Path, "order": v.Order, "states": states, "ordinals": ordinals, "has_next_cursor": v.NextCursor != ""}
+	}
+	a.evidence["history_first_page"], a.evidence["history_second_page"] = historyFields(page), historyFields(next)
+	diff, err := service.DiffFileVersions(ctx, "comparison", "/data", cp.FileVersionDiffOperand{FileID: selected.FileID, Ordinal: selected.Version}, cp.FileVersionDiffOperand{Ref: "working-copy"})
+	if err != nil {
+		return checks, fmt.Errorf("working-copy diff: %w", err)
+	}
+	checks["working_copy_diff"] = strings.Contains(diff.Diff, "-alpha") && strings.Contains(diff.Diff, "+beta") && !diff.Binary
+	a.evidence["working_copy_diff"] = map[string]any{"diff": strings.ReplaceAll(diff.Diff, selected.FileID, "file"), "binary": diff.Binary}
+	diff, err = service.DiffFileVersions(ctx, "comparison", "/data", cp.FileVersionDiffOperand{VersionID: selected.ID}, cp.FileVersionDiffOperand{Ref: "head"})
+	if err != nil {
+		return checks, fmt.Errorf("head diff: %w", err)
+	}
+	checks["head_is_checkpoint"] = diff.Diff == ""
+	a.evidence["head_diff"] = map[string]any{"diff": diff.Diff, "binary": diff.Binary}
+	restored, err := service.RestoreFileVersion(ctx, "comparison", "/data", cp.FileVersionSelector{VersionID: selected.ID})
+	if err != nil {
+		return checks, fmt.Errorf("restore: %w", err)
+	}
+	live, err := a.read(ctx)
+	if err != nil {
+		return checks, err
+	}
+	checks["restore_content"] = bytes.Equal(live, []byte("alpha\n"))
+	checks["restore_new_version"] = restored.VersionID != "" && restored.VersionID != selected.ID && restored.FileID == selected.FileID
+	a.evidence["restore"] = map[string]any{"dirty": restored.Dirty, "path": restored.Path, "selected_ordinal": restored.RestoredFromOrdinal, "content": string(live), "same_lineage": restored.FileID == selected.FileID, "new_version": restored.VersionID != "" && restored.VersionID != selected.ID}
+	if err := a.remove(ctx); err != nil {
+		return checks, err
+	}
+	undeleted, err := service.UndeleteFileVersion(ctx, "comparison", "/data", cp.FileVersionSelector{})
+	if err != nil {
+		return checks, fmt.Errorf("undelete: %w", err)
+	}
+	live, err = a.read(ctx)
+	if err != nil {
+		return checks, err
+	}
+	checks["undelete_content"] = bytes.Equal(live, []byte("alpha\n"))
+	checks["undelete_same_lineage"] = undeleted.FileID == selected.FileID && undeleted.VersionID != restored.VersionID
+	a.evidence["undelete"] = map[string]any{"dirty": undeleted.Dirty, "path": undeleted.Path, "selected_ordinal": undeleted.UndeletedFromOrdinal, "content": string(live), "same_lineage": undeleted.FileID == selected.FileID, "new_version": undeleted.VersionID != "" && undeleted.VersionID != restored.VersionID}
+	return checks, nil
+}

@@ -92,7 +92,20 @@ func (r *redisServer) start() {
 		r.t.Fatal(err)
 	}
 	_ = log.Close()
-	eventually(r.t, 10*time.Second, "Redis readiness", func() bool { return r.client.Ping(context.Background()).Err() == nil })
+	eventually(r.t, 10*time.Second, "owned Redis readiness", func() bool {
+		info, err := r.client.Info(context.Background(), "server").Result()
+		if err != nil {
+			return false
+		}
+		// A released ephemeral port can be claimed by another process before
+		// Redis binds. Never run mutations merely because that peer answers.
+		for _, line := range strings.Split(info, "\n") {
+			if strings.TrimSpace(line) == "process_id:"+strconv.Itoa(r.command.Process.Pid) {
+				return true
+			}
+		}
+		return false
+	})
 }
 func (r *redisServer) stop() {
 	if r.command != nil {

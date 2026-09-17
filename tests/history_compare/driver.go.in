@@ -1,0 +1,278 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type record struct {
+	ID        string `json:"id"`
+	FileID    string `json:"file_id"`
+	Version   int64  `json:"version"`
+	Size      int64  `json:"size"`
+	Deleted   bool   `json:"deleted"`
+	Available bool   `json:"available"`
+}
+type result struct {
+	Implementation       string          `json:"implementation"`
+	Case                 string          `json:"case"`
+	Operations           int             `json:"operations"`
+	PayloadBytes         int             `json:"payload_bytes"`
+	MedianUS             float64         `json:"median_us"`
+	P95US                float64         `json:"p95_us"`
+	TotalMS              float64         `json:"total_ms"`
+	WorkspaceMemory      int64           `json:"workspace_memory_usage_bytes"`
+	HistoryPayloadMemory int64           `json:"historical_payload_memory_usage_bytes"`
+	KeyCount             int             `json:"key_count"`
+	Versions             int             `json:"versions"`
+	UnavailableVersions  int             `json:"unavailable_versions"`
+	LiveSHA256           string          `json:"live_sha256,omitempty"`
+	Recoverable          bool            `json:"recoverable"`
+	AcceptedWrites       int             `json:"accepted_writes,omitempty"`
+	RejectedWrites       int             `json:"rejected_writes,omitempty"`
+	Checks               map[string]bool `json:"checks,omitempty"`
+	Contracts            map[string]any  `json:"normalized_contracts,omitempty"`
+	WriteErrors          map[string]int  `json:"write_errors,omitempty"`
+	Error                string          `json:"error,omitempty"`
+}
+
+func fail(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+func main() {
+	addr := flag.String("addr", "", "isolated runner Redis address")
+	scenario := flag.String("case", "overwrite", "scenario")
+	count := flag.Int("writes", 40, "operations")
+	size := flag.Int("size", 65536, "initial file bytes")
+	flag.Parse()
+	if os.Getenv("AFS_HISTORY_COMPARISON_ISOLATED") != "1" || *addr == "" {
+		panic("use compare.py, which owns disposable Redis")
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: *addr, MaxRetries: -1})
+	defer rdb.Close()
+	ctx := context.Background()
+	a := newAdapter(rdb)
+	out := result{Implementation: implementation, Case: *scenario, Operations: *count, PayloadBytes: *size}
+	if *scenario == "crash_write" {
+		fail(a.crashWrite(ctx))
+		os.Exit(86)
+	}
+	if *scenario != "crash_inspect" {
+		fail(a.setup(ctx))
+	}
+	limit, cutoff := 0, int64(0)
+	if *scenario == "retention" {
+		limit = 5
+	}
+	if *scenario == "delete_retention" {
+		limit = 1
+	}
+	if *scenario == "large_cutoff" {
+		cutoff = 4
+	}
+	if *scenario != "first_delete" && *scenario != "crash_inspect" {
+		fail(a.policy(ctx, true, limit, cutoff))
+	}
+	payload := bytes.Repeat([]byte("x"), *size)
+	var timings []float64
+	started := time.Now()
+	switch *scenario {
+	case "first_delete":
+		fail(a.write(ctx, []byte("before deletion")))
+		fail(a.policy(ctx, true, 0, 0))
+		fail(a.remove(ctx))
+		out.Operations = 1
+		out.Recoverable = hasContent(ctx, a, []byte("before deletion"))
+	case "delete_retention":
+		fail(a.write(ctx, []byte("first")))
+		fail(a.write(ctx, []byte("last recoverable")))
+		fail(a.remove(ctx))
+		out.Operations = 3
+		out.Recoverable = hasContent(ctx, a, []byte("last recoverable"))
+	case "large_cutoff":
+		fail(a.write(ctx, []byte("abc")))
+		fail(a.write(ctx, []byte("oversized")))
+		out.Operations = 2
+		out.Recoverable = hasContent(ctx, a, []byte("abc"))
+	case "disable":
+		fail(a.write(ctx, []byte("tracked")))
+		fail(a.policy(ctx, false, 0, 0))
+		fail(a.write(ctx, []byte("after disable")))
+		out.Operations = 2
+		out.Recoverable = hasContent(ctx, a, []byte("tracked"))
+	case "crash_seed":
+		fail(a.write(ctx, []byte("before crash")))
+		out.Operations = 1
+	case "crash_inspect":
+		out.Operations = 1
+		out.Recoverable = hasContent(ctx, a, []byte("after crash"))
+	case "api":
+		out.Operations = 6
+		checks, err := a.api(ctx)
+		fail(err)
+		out.Checks = checks
+		out.Contracts = a.evidence
+		out.Recoverable = hasLatestContent(ctx, a)
+	case "multiwriter":
+		fail(a.write(ctx, payload))
+		var lock sync.Mutex
+		var workers sync.WaitGroup
+		var accepted [][32]byte
+		out.WriteErrors = map[string]int{}
+		started = time.Now()
+		for worker := 0; worker < 2; worker++ {
+			workers.Add(1)
+			go func(worker int) {
+				defer workers.Done()
+				peer := newAdapter(rdb)
+				for i := 0; i < *count/2; i++ {
+					body := append([]byte(nil), payload...)
+					binary.LittleEndian.PutUint64(body, uint64(worker*(*count)+i+1))
+					begin := time.Now()
+					err := peer.write(ctx, body)
+					elapsed := float64(time.Since(begin).Nanoseconds()) / 1000
+					lock.Lock()
+					if err == nil {
+						accepted = append(accepted, sha256.Sum256(body))
+						timings = append(timings, elapsed)
+					} else {
+						out.RejectedWrites++
+						out.WriteErrors[err.Error()]++
+					}
+					lock.Unlock()
+				}
+			}(worker)
+		}
+		workers.Wait()
+		out.AcceptedWrites = len(accepted)
+		retained := map[[32]byte]bool{}
+		rows, err := a.records(ctx)
+		fail(err)
+		for _, row := range rows {
+			if row.Deleted || !row.Available {
+				continue
+			}
+			body, err := a.content(ctx, row)
+			fail(err)
+			retained[sha256.Sum256(body)] = true
+		}
+		all := true
+		for _, hash := range accepted {
+			if !retained[hash] {
+				all = false
+			}
+		}
+		out.Checks = map[string]bool{"all_accepted_writes_recoverable": all}
+		out.Recoverable = hasLatestContent(ctx, a)
+	case "overwrite", "retention", "identical", "metadata", "append":
+		fail(a.write(ctx, payload))
+		started = time.Now()
+		for i := 0; i < *count; i++ {
+			next := append([]byte(nil), payload...)
+			if *scenario == "overwrite" || *scenario == "retention" {
+				binary.LittleEndian.PutUint64(next, uint64(i+1))
+			}
+			begin := time.Now()
+			var err error
+			switch *scenario {
+			case "metadata":
+				err = a.chmod(ctx, uint32(0600+(i%2)*044))
+			case "append":
+				err = a.append(ctx, bytes.Repeat([]byte("a"), 64))
+			default:
+				err = a.write(ctx, next)
+			}
+			if err != nil {
+				out.Error = err.Error()
+				break
+			}
+			timings = append(timings, float64(time.Since(begin).Nanoseconds())/1000)
+		}
+		out.Recoverable = hasLatestContent(ctx, a)
+	default:
+		panic("unknown scenario")
+	}
+	out.TotalMS = float64(time.Since(started).Nanoseconds()) / 1e6
+	if len(timings) > 0 {
+		out.TotalMS = 0
+		for _, elapsed := range timings {
+			out.TotalMS += elapsed / 1000
+		}
+		sort.Float64s(timings)
+		out.MedianUS = timings[len(timings)/2]
+		out.P95US = timings[(len(timings)*95-1)/100]
+	}
+	records, err := a.records(ctx)
+	fail(err)
+	out.Versions = len(records)
+	for _, v := range records {
+		if !v.Deleted && !v.Available {
+			out.UnavailableVersions++
+		}
+	}
+	if live, err := a.read(ctx); err == nil {
+		sum := sha256.Sum256(live)
+		out.LiveSHA256 = hex.EncodeToString(sum[:])
+	}
+	var cursor uint64
+	for {
+		keys, next, err := rdb.Scan(ctx, cursor, namespace+"*", 128).Result()
+		fail(err)
+		for _, key := range keys {
+			n, err := rdb.MemoryUsage(ctx, key).Result()
+			fail(err)
+			out.WorkspaceMemory += n
+			out.KeyCount++
+			for _, prefix := range bodyPrefixes {
+				if strings.HasPrefix(key, prefix) {
+					out.HistoryPayloadMemory += n
+					break
+				}
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	fail(json.NewEncoder(os.Stdout).Encode(out))
+}
+func hasContent(ctx context.Context, a *adapter, want []byte) bool {
+	rows, err := a.records(ctx)
+	if err != nil {
+		return false
+	}
+	for _, r := range rows {
+		if !r.Deleted && r.Available {
+			b, err := a.content(ctx, r)
+			if err == nil && bytes.Equal(b, want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+func hasLatestContent(ctx context.Context, a *adapter) bool {
+	live, err := a.read(ctx)
+	if err != nil {
+		return false
+	}
+	return hasContent(ctx, a, live)
+}
+
+var _ = fmt.Sprint

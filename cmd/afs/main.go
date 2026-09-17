@@ -37,6 +37,11 @@ Commands:
   fork <source> <new-workspace>  Fork a workspace from a checkpoint
   delete <workspace>             Delete a workspace
   cp                             Create and manage checkpoints
+  history <workspace> <path>     Show published file versions
+  recover <workspace> <path>     Recover a version to a new local path
+  versioning <workspace>         Show or change the file history policy
+  file                           History, show, diff, restore, and undelete
+  serve                          Serve compatible local file-history APIs
   config set <key> <value>       Save a configuration setting
 
 Options:
@@ -54,7 +59,12 @@ Run 'afs <command> --help' for details.
 `
 
 var commandUsage = map[string]string{
-	"sync": syncCommandUsage,
+	"sync":       syncCommandUsage,
+	"history":    historyCommandUsage,
+	"recover":    recoverCommandUsage,
+	"versioning": versioningCommandUsage,
+	"file":       fileCommandUsage,
+	"serve":      serveCommandUsage,
 	"config": `Usage: afs [--config <file>] config set <key> <value>
 
 Settings (defaults):
@@ -174,7 +184,7 @@ func runCLI(args []string) error {
 			return nil
 		}
 	}
-	if (args[0] == "cp" || args[0] == "sync") && len(args) == 1 {
+	if (args[0] == "cp" || args[0] == "sync" || args[0] == "file") && len(args) == 1 {
 		fmt.Print(usage)
 		return nil
 	}
@@ -204,6 +214,16 @@ func runCLI(args []string) error {
 		return a.status(args[1:])
 	case "sync":
 		return a.syncCommand(args[1:])
+	case "history":
+		return a.historyCommand(args[1:])
+	case "recover":
+		return a.recoverCommand(args[1:])
+	case "versioning":
+		return a.versioningCommand(args[1:])
+	case "file":
+		return a.fileCommand(args[1:])
+	case "serve":
+		return a.serveHistoryCommand(args[1:])
 	}
 	return nil
 }

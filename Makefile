@@ -58,7 +58,7 @@ native-deps-test:
 	go -C third_party/go-nfs test -race ./...
 
 integration:
-	go test -tags=integration -timeout=15m -count=1 -v ./tests/e2e
+	go test -tags=integration -timeout=15m -count=1 -v ./tests/e2e ./internal/filehistory
 
 cli-test: integration
 

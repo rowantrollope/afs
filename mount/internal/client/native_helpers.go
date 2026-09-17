@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rowantrollope/afs/internal/filehistory"
 	"github.com/rowantrollope/afs/internal/rediscontent"
 )
 
@@ -604,6 +606,16 @@ func (c *nativeClient) createInodeUnderParent(ctx context.Context, childPath str
 		if err := c.selectContentRef(ctx, inode); err != nil {
 			return err
 		}
+		stage, err := c.stageFullFile(ctx, inode)
+		if err != nil {
+			return err
+		}
+		defer c.discardStage(stage)
+		if err := c.publishStagedFile(ctx, childPath, inode, stage, true, nil); err != nil {
+			return err
+		}
+		c.invalidateDirListing(ctx, parentOf(childPath))
+		return nil
 	}
 
 	err = c.retryWatch(ctx, []string{c.keys.dirents(parent.ID), c.keys.inode(parent.ID)}, func(tx *redis.Tx) error {
@@ -621,20 +633,31 @@ func (c *nativeClient) createInodeUnderParent(ctx context.Context, childPath str
 		if existsName {
 			return ErrAlreadyExists
 		}
+		inode.Revision = newOriginID()
+		fields := c.inodeFieldsAtPath(inode, childPath, false)
+		fields["revision"] = inode.Revision
+		encoded, err := json.Marshal(fields)
+		if err != nil {
+			return err
+		}
+		var result *redis.Cmd
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			if inode.Type == "file" && isExternalContentRef(inode.ContentRef) {
-				// Content goes to the external backend; metadata-only to the HASH.
-				rediscontent.QueueWriteFull(ctx, pipe, c.keys.content(id), inode.ContentRef, []byte(inode.Content))
-				pipe.HSet(ctx, c.keys.inode(id), c.inodeFieldsAtPath(inode, childPath, false))
-			} else {
-				pipe.HSet(ctx, c.keys.inode(id), c.inodeFieldsAtPath(inode, childPath, inode.Type == "file"))
-			}
-			pipe.HSet(ctx, c.keys.dirents(parent.ID), name, id)
-			c.queueTouchTimes(pipe, parent.ID, now)
-			c.queueCreateInfo(pipe, inode)
-			c.queueInvalidation(ctx, pipe, InvalidateOpInode, childPath)
+			result = createMetadataScript.Eval(ctx, pipe, []string{
+				c.keys.inode(id), c.keys.dirents(parent.ID), c.keys.inode(parent.ID),
+				c.keys.info(), c.keys.changesStream(), c.keys.invalidateChannel(), c.keys.rootDirty(),
+			}, id, childPath, string(encoded), c.invalidationPayload(InvalidateOpInode, childPath))
 			return nil
 		})
+		if err == nil {
+			code, resultErr := result.Int()
+			if resultErr != nil {
+				return resultErr
+			}
+			if code == -1 {
+				return ErrWriteConflict
+			}
+			c.pruneHistory(ctx, code)
+		}
 		return err
 	})
 	if err != nil {
@@ -759,6 +782,13 @@ func (c *nativeClient) renamePath(ctx context.Context, resolvedSrc string, srcIn
 		}
 
 		var nextDstDirID string
+		operationID := newOriginID()
+		prepared := false
+		defer func() {
+			if prepared {
+				filehistory.DiscardPreparation(c.rdb, c.key, operationID)
+			}
+		}()
 		err := c.retryWatch(ctx, keys, func(tx *redis.Tx) error {
 			live, err := tx.Exists(ctx, parentKeys...).Result()
 			if err != nil {
@@ -831,34 +861,43 @@ func (c *nativeClient) renamePath(ctx context.Context, resolvedSrc string, srcIn
 			nextSrc.Name = newName
 			nextSrc.CtimeMs = nowMs()
 
+			nextSrc.Revision = operationID
+			requests := []filehistory.PrepareRequest{{InodeID: nextSrc.ID, ExpectedRevision: currentSrc.Revision, Path: dst, AfterType: nextSrc.Type}}
+			if replaced != nil {
+				requests = append(requests, filehistory.PrepareRequest{InodeID: replaced.ID, ExpectedRevision: replaced.Revision, Path: dst})
+			}
+			replacedID, replacedRevision := "", ""
+			if replaced != nil {
+				replacedID, replacedRevision = replaced.ID, replaced.Revision
+			}
+			var result *redis.Cmd
 			_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-				pipe.HDel(ctx, c.keys.dirents(oldParentID), oldName)
-				pipe.HSet(ctx, c.keys.dirents(newParent.ID), newName, nextSrc.ID)
-				pipe.HSet(ctx, c.keys.inode(nextSrc.ID), map[string]interface{}{
-					"parent":         nextSrc.Parent,
-					"name":           nextSrc.Name,
-					"ctime_ms":       nextSrc.CtimeMs,
-					"path":           dst,
-					"path_ancestors": indexedPathAncestors(dst),
-				})
-				c.queueTouchTimes(pipe, oldParentID, nextSrc.CtimeMs)
-				if newParent.ID != oldParentID {
-					c.queueTouchTimes(pipe, newParent.ID, nextSrc.CtimeMs)
-				}
-				if replaced != nil {
-					pipe.Del(ctx, c.keys.inode(replaced.ID))
-					if replaced.Type == "file" {
-						pipe.Del(ctx, c.keys.content(replaced.ID))
-
-					}
-					if replaced.Type == "dir" {
-						pipe.Del(ctx, c.keys.dirents(replaced.ID))
-					}
-					c.queueDeleteInfo(pipe, replaced)
-				}
-				c.queueInvalidation(ctx, pipe, InvalidateOpPrefix, resolvedSrc, dst)
+				result = renameMetadataScript.Eval(ctx, pipe, []string{
+					c.keys.inode(nextSrc.ID), c.keys.dirents(oldParentID), c.keys.dirents(newParent.ID),
+					c.keys.inode(oldParentID), c.keys.inode(newParent.ID), c.keys.info(),
+					c.keys.changesStream(), c.keys.invalidateChannel(), c.keys.rootDirty(),
+				}, nextSrc.ID, oldName, newName, newParent.ID, currentSrc.Revision,
+					nextSrc.Revision, nextSrc.CtimeMs, c.invalidationPayload(InvalidateOpPrefix, resolvedSrc, dst),
+					replacedID, replacedRevision, dst, resolvedSrc, indexedPathAncestors(dst))
 				return nil
 			})
+			if err == nil {
+				code, resultErr := result.Int()
+				if resultErr != nil {
+					return resultErr
+				}
+				if code == -1 {
+					return ErrWriteConflict
+				}
+				c.pruneHistory(ctx, code)
+			}
+			if err != nil && strings.Contains(err.Error(), "HISTORY_PREPARATION_REQUIRED") {
+				if err := c.prepareHistory(ctx, operationID, requests); err != nil {
+					return err
+				}
+				prepared = true
+				return redis.TxFailedErr
+			}
 			if err != nil {
 				return err
 			}
@@ -866,6 +905,7 @@ func (c *nativeClient) renamePath(ctx context.Context, resolvedSrc string, srcIn
 			srcInode.Parent = nextSrc.Parent
 			srcInode.Name = nextSrc.Name
 			srcInode.CtimeMs = nextSrc.CtimeMs
+			srcInode.Revision = nextSrc.Revision
 			return nil
 		})
 		switch {

@@ -240,6 +240,9 @@ func TestPublishInvalidationWritesStreamAndPubSub(t *testing.T) {
 	if len(entries) != 1 || entries[0].Event.Op != InvalidateOpRootReplace || entries[0].Event.Paths[0] != "/" {
 		t.Fatalf("stream entries = %#v, want one root-replace event", entries)
 	}
+	if entries[0].Event.Activity == nil || !*entries[0].Event.Activity {
+		t.Fatal("server mutation must be marked as activity")
+	}
 }
 
 // waitForSubscriber blocks until PUBSUB NUMSUB reports at least one

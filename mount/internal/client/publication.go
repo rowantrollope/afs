@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rowantrollope/afs/internal/filehistory"
 	"github.com/rowantrollope/afs/internal/rediscontent"
 )
 
@@ -87,7 +88,7 @@ func checkWriteCondition(ctx context.Context, inode *inodeData, creating bool) e
 // operation identity makes its automatic network retries safe.
 const publicationTTL = time.Hour
 
-var publishFileScript = redis.NewScript(`
+var publishFileScript = redis.NewScript(filehistory.CaptureLua + historyPublicationLua + `
 if ARGV[7] ~= '' and redis.call('GET', KEYS[7]) ~= ARGV[7] then return -2 end
 if KEYS[11] ~= KEYS[7] and redis.call('EXISTS',KEYS[11]) == 0 then return -5 end
 local current = redis.call('HGET', KEYS[1], 'revision') or ''
@@ -105,7 +106,18 @@ end
 -- Every publication consumes staging, including an empty file. A missing
 -- stage after a concurrent delete must never let a transport retry recreate it.
 if redis.call('EXISTS', KEYS[2]) == 0 then return -3 end
+if redis.call('HGET',KEYS[6],'type')~='dir' then return -1 end
 local previous = tonumber(redis.call('HGET', KEYS[1], 'size') or '0')
+publication_counter(KEYS[5],'files',1)
+publication_counter(KEYS[5],'total_data_bytes',tonumber(ARGV[8])-previous)
+local after={revision=ARGV[4]}
+for i=10,#ARGV,2 do after[ARGV[i]]=ARGV[i+1] end
+local changes={
+ {id=ARGV[1],path=after.path,after=after,body=KEYS[2],operation=ARGV[5]=='1' and 'create' or 'write'}
+}
+local prefix=publication_prefix(KEYS[1])
+local tracked=history_capture(prefix,ARGV[4],publication_origin(ARGV[9]),changes)
+ARGV[9]=publication_payload(ARGV[9],prefix,changes,tracked)
 if ARGV[8] == '0' then
  redis.call('DEL', KEYS[2], KEYS[4])
 else
@@ -126,7 +138,7 @@ if ARGV[9] ~= '' then
  redis.call('XADD',KEYS[9],'MAXLEN','~',10000,'*','payload',ARGV[9])
  redis.call('PUBLISH',KEYS[10],ARGV[9])
 end
-return 1
+return tracked and 3 or 1
 `)
 
 func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *inodeData, stage string, creating bool, extra map[string]interface{}) error {
@@ -158,7 +170,14 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 	for _, key := range keys {
 		args = append(args, key, fields[key])
 	}
-	result, err := c.runMutationScript(ctx, publishFileScript, false, []string{
+	request := filehistory.PrepareRequest{InodeID: inode.ID, ExpectedRevision: inode.Revision, Path: p, AfterType: "file", AfterBody: stage, AfterRef: inode.ContentRef, AfterSize: inode.Size}
+	_, chunked := extra["chunk_size"]
+	_, ranged := ctx.Value(nativeRangeKey{}).(bool)
+	if !chunked && !ranged && int64(len(inode.Content)) == inode.Size {
+		request.KnownContent = inode.Content
+		request.HasKnownContent = true
+	}
+	result, err := c.runPreparedMutation(ctx, publishFileScript, false, revision, []filehistory.PrepareRequest{request}, []string{
 		c.keys.inode(inode.ID), stage, c.keys.dirents(inode.Parent), c.keys.content(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx),
 	}, args...)
 	if err != nil {
@@ -183,6 +202,7 @@ func (c *nativeClient) publishStagedFile(ctx context.Context, p string, inode *i
 		}
 	}
 	inode.Revision = revision
+	c.pruneHistory(ctx, result)
 	if _, ranged := ctx.Value(nativeRangeKey{}).(bool); !ranged {
 		c.cachePath(p, inode)
 	}
@@ -372,7 +392,7 @@ func (c *nativeClient) publishChunks(ctx context.Context, p string, chunks map[i
 	return c.recordVersionMutation(ctx, before, after)
 }
 
-var deleteInodeScript = redis.NewScript(`
+var deleteInodeScript = redis.NewScript(filehistory.CaptureLua + historyPublicationLua + `
 if ARGV[4] ~= '' and redis.call('GET',KEYS[7]) ~= ARGV[4] then return -2 end
 if KEYS[11] ~= KEYS[7] and redis.call('EXISTS',KEYS[11]) == 0 then return -5 end
 local streamtype=redis.call('TYPE',KEYS[9]).ok
@@ -388,11 +408,20 @@ if kind == 'dir' then
  end
 end
 local size=tonumber(redis.call('HGET',KEYS[1],'size') or '0')
+local counter='files'
+if kind=='dir' then counter='directories' elseif kind=='symlink' then counter='symlinks' end
+publication_counter(KEYS[5],counter,-1)
+publication_counter(KEYS[5],'total_data_bytes',-size)
+history_type(KEYS[6],'hash')
+local changes={
+ {id=ARGV[1],path=ARGV[9],after=false,operation='delete'}
+}
+local prefix=publication_prefix(KEYS[1])
+local tracked=history_capture(prefix,ARGV[8],publication_origin(ARGV[7]),changes)
+ARGV[7]=publication_payload(ARGV[7],prefix,changes,tracked)
 redis.call('DEL',KEYS[1],KEYS[2],KEYS[4])
 redis.call('HDEL',KEYS[3],ARGV[2])
 redis.call('HSET',KEYS[6],'mtime_ms',ARGV[5],'ctime_ms',ARGV[5])
-local counter='files'
-if kind=='dir' then counter='directories' elseif kind=='symlink' then counter='symlinks' end
 redis.call('HINCRBY',KEYS[5],counter,-1)
 -- Redis 7 serializes negative zero as '-0', which HINCRBY rejects.
 if kind=='file' and size>0 then redis.call('HINCRBY',KEYS[5],'total_data_bytes',-size) end
@@ -401,7 +430,7 @@ if ARGV[7] ~= '' then
  redis.call('XADD',KEYS[9],'MAXLEN','~',10000,'*','payload',ARGV[7])
  redis.call('PUBLISH',KEYS[10],ARGV[7])
 end
-return 1
+return tracked and 3 or 1
 `)
 
 func (c *nativeClient) deletePublishedInode(ctx context.Context, p string, inode *inodeData) error {
@@ -412,7 +441,8 @@ func (c *nativeClient) deletePublishedInode(ctx context.Context, p string, inode
 		return err
 	}
 	generation, _ := ctx.Value(workspaceGenerationKey{}).(string)
-	code, err := c.runMutationScript(ctx, deleteInodeScript, false, []string{c.keys.inode(inode.ID), c.keys.content(inode.ID), c.keys.dirents(inode.Parent), c.keys.dirents(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, inode.ID, inode.Name, inode.Revision, generation, nowMs(), c.keys.inodePrefix(), c.invalidationPayload(InvalidateOpInode, p))
+	operationID := newOriginID()
+	code, err := c.runPreparedMutation(ctx, deleteInodeScript, false, operationID, []filehistory.PrepareRequest{{InodeID: inode.ID, ExpectedRevision: inode.Revision, Path: p}}, []string{c.keys.inode(inode.ID), c.keys.content(inode.ID), c.keys.dirents(inode.Parent), c.keys.dirents(inode.ID), c.keys.info(), c.keys.inode(inode.Parent), c.keys.generation(), c.keys.rootDirty(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, inode.ID, inode.Name, inode.Revision, generation, nowMs(), c.keys.inodePrefix(), c.invalidationPayload(InvalidateOpInode, p), operationID, p)
 	if err != nil {
 		return err
 	}
@@ -428,10 +458,11 @@ func (c *nativeClient) deletePublishedInode(ctx context.Context, p string, inode
 	case -5:
 		return ErrNativeSessionLost
 	}
+	c.pruneHistory(ctx, code)
 	return nil
 }
 
-var updateInodeScript = redis.NewScript(`
+var updateInodeScript = redis.NewScript(filehistory.CaptureLua + historyPublicationLua + `
 if ARGV[4] ~= '' and redis.call('GET',KEYS[3]) ~= ARGV[4] then return -2 end
 if KEYS[6] ~= KEYS[3] and redis.call('EXISTS',KEYS[6]) == 0 then return -5 end
 local streamtype=redis.call('TYPE',KEYS[4]).ok
@@ -441,13 +472,22 @@ if current==ARGV[5] then return 2 end
 if redis.call('EXISTS',KEYS[1]) == 0 then return -1 end
 if ARGV[1] ~= '1' and redis.call('HGET',KEYS[2],ARGV[2]) ~= ARGV[1] then return -1 end
 if current~=ARGV[3] then return -1 end
+local after=history_hash(KEYS[1])
+for i=7,#ARGV,2 do after[ARGV[i]]=ARGV[i+1] end
+after.revision=ARGV[5]
+local changes={
+ {id=ARGV[1],path=after.path,after=after,operation='metadata'}
+}
+local prefix=publication_prefix(KEYS[1])
+local tracked=history_capture(prefix,ARGV[5],publication_origin(ARGV[6]),changes)
+ARGV[6]=publication_payload(ARGV[6],prefix,changes,tracked)
 for i=7,#ARGV,2 do redis.call('HSET',KEYS[1],ARGV[i],ARGV[i+1]) end
 redis.call('HSET',KEYS[1],'revision',ARGV[5])
 if ARGV[6] ~= '' then
  redis.call('XADD',KEYS[4],'MAXLEN','~',10000,'*','payload',ARGV[6])
  redis.call('PUBLISH',KEYS[5],ARGV[6])
 end
-return 1
+return tracked and 3 or 1
 `)
 
 func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode *inodeData, fields map[string]interface{}) error {
@@ -468,7 +508,7 @@ func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode
 	for _, name := range names {
 		args = append(args, name, fields[name])
 	}
-	code, err := c.runMutationScript(ctx, updateInodeScript, true, []string{c.keys.inode(inode.ID), c.keys.dirents(inode.Parent), c.keys.generation(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, args...)
+	code, err := c.runPreparedMutation(ctx, updateInodeScript, true, revision, []filehistory.PrepareRequest{{InodeID: inode.ID, ExpectedRevision: inode.Revision, Path: p, AfterType: inode.Type}}, []string{c.keys.inode(inode.ID), c.keys.dirents(inode.Parent), c.keys.generation(), c.keys.changesStream(), c.keys.invalidateChannel(), c.leaseGuardKey(ctx)}, args...)
 	if err != nil {
 		return err
 	}
@@ -483,5 +523,6 @@ func (c *nativeClient) updatePublishedInode(ctx context.Context, p string, inode
 		return ErrNativeSessionLost
 	}
 	inode.Revision = revision
+	c.pruneHistory(ctx, code)
 	return nil
 }

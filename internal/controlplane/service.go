@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	afsclient "github.com/rowantrollope/afs/mount/client"
 )
 
 var ErrWorkspaceConflict = errors.New("workspace conflict")
@@ -73,6 +72,12 @@ func (s *Service) CreateWorkspaceFromManifest(ctx context.Context, name string, 
 // CreateWorkspaceStreaming keeps the original bounded, pipelined BlobWriter
 // import path. The builder can hand blobs to the writer as files are hashed.
 func (s *Service) CreateWorkspaceStreaming(ctx context.Context, name string, build func(string, *BlobWriter) (Manifest, error)) (WorkspaceMeta, error) {
+	return s.createWorkspaceStreaming(ctx, name, build, nil)
+}
+
+// prepare runs against the fully materialized private workspace before its
+// name becomes visible. Fork history and policy must be present at publication.
+func (s *Service) createWorkspaceStreaming(ctx context.Context, name string, build func(string, *BlobWriter) (Manifest, error), prepare func(WorkspaceMeta) error) (WorkspaceMeta, error) {
 	if build == nil {
 		return WorkspaceMeta{}, fmt.Errorf("manifest builder is required")
 	}
@@ -128,6 +133,11 @@ func (s *Service) CreateWorkspaceStreaming(ctx context.Context, name string, bui
 		return WorkspaceMeta{}, err
 	}
 	writer.discardImportCache()
+	if prepare != nil {
+		if err = prepare(meta); err != nil {
+			return WorkspaceMeta{}, err
+		}
+	}
 	if err = lock.Lost(); err != nil {
 		return WorkspaceMeta{}, err
 	}
@@ -237,34 +247,48 @@ func (s *Service) captureCheckpoint(ctx context.Context, workspace, name, genera
 }
 
 func (s *Service) ForkWorkspace(ctx context.Context, source, newName, ref string) error {
-	cp, m, err := s.GetCheckpoint(ctx, source, ref)
+	sourceMeta, err := s.store.GetWorkspaceMeta(ctx, source)
+	if err != nil {
+		return err
+	}
+	sourceID := workspaceStorageID(sourceMeta)
+	cp, m, err := s.GetCheckpoint(ctx, sourceID, ref)
 	if err != nil {
 		return err
 	}
 	blobs := map[string][]byte{}
 	for blobID := range manifestBlobRefs(m) {
-		b, err := s.store.GetBlob(ctx, source, blobID)
+		b, err := s.store.GetBlob(ctx, sourceID, blobID)
 		if err != nil {
 			return err
 		}
 		blobs[blobID] = b
 	}
-	meta, err := s.CreateWorkspaceFromManifest(ctx, newName, m, blobs)
-	if err != nil {
-		return err
-	}
-	initial, err := s.store.GetSavepointMeta(ctx, meta.ID, initialCheckpointName)
-	if err != nil {
-		return err
-	}
-	initial.Kind = CheckpointKindFork
-	initial.ParentSavepoint = cp.ID
-	initial.Description = "Forked from " + source + "."
-	forkManifest, err := s.store.GetManifest(ctx, meta.ID, initialCheckpointName)
-	if err != nil {
-		return err
-	}
-	return s.store.PutSavepoint(ctx, initial, forkManifest)
+	_, err = s.createWorkspaceStreaming(ctx, newName, func(_ string, writer *BlobWriter) (Manifest, error) {
+		for blobID, size := range manifestBlobRefs(m) {
+			if err := writer.Submit(ctx, blobID, blobs[blobID], size); err != nil {
+				return Manifest{}, err
+			}
+		}
+		return m, nil
+	}, func(meta WorkspaceMeta) error {
+		if err := s.forkFileHistory(ctx, workspaceStorageID(sourceMeta), meta.ID); err != nil {
+			return err
+		}
+		initial, err := getJSON[SavepointMeta](ctx, s.store.rdb, savepointMetaKey(meta.ID, initialCheckpointName))
+		if err != nil {
+			return err
+		}
+		initial.Kind = CheckpointKindFork
+		initial.ParentSavepoint = cp.ID
+		initial.Description = "Forked from " + source + "."
+		forkManifest, err := getJSON[Manifest](ctx, s.store.rdb, savepointManifestKey(meta.ID, initialCheckpointName))
+		if err != nil {
+			return err
+		}
+		return s.store.PutSavepoint(ctx, initial, forkManifest)
+	})
+	return err
 }
 
 func (s *Service) RestoreCheckpoint(ctx context.Context, workspace, ref string) (RestoreCheckpointResult, error) {
@@ -294,11 +318,17 @@ func (s *Service) RestoreCheckpoint(ctx context.Context, workspace, ref string) 
 	// Fence writers before capturing the safety checkpoint. A failed safety
 	// capture leaves the intact root fenced; retry captures it again. Once root
 	// replacement starts, retries do not capture partially materialized content.
+	recovering := strings.HasPrefix(previousGeneration, "restoring:")
 	fencing := "fencing:" + generation
+	if recovering {
+		// Keep the partial-root state durable even if recovery preparation is
+		// interrupted before the next materialization begins.
+		fencing = "restoring:" + generation
+	}
 	if err = s.store.rdb.Set(ctx, WorkspaceGenerationKey(id), fencing, 0).Err(); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
-	if !strings.HasPrefix(previousGeneration, "restoring:") {
+	if !recovering {
 		safety, saved, err := s.captureCheckpoint(ctx, id, "before-restore-"+time.Now().UTC().Format("20060102T150405.000000000"), fencing, lock.Token(), false)
 		if err != nil {
 			return RestoreCheckpointResult{}, err
@@ -309,22 +339,27 @@ func (s *Service) RestoreCheckpoint(ctx context.Context, workspace, ref string) 
 	if err = lock.Lost(); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
+	activityBefore, err := s.prepareRestoreActivity(ctx, id, recovering)
+	if err != nil {
+		return RestoreCheckpointResult{}, err
+	}
+	history, err := s.prepareRestoreFileHistory(ctx, id, m, "restore-"+generation, recovering)
+	if err != nil {
+		return RestoreCheckpointResult{}, err
+	}
 	if err = s.store.rdb.Set(ctx, WorkspaceGenerationKey(id), "restoring:"+generation, 0).Err(); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
 	if err = s.store.MoveWorkspaceHead(ctx, id, cp.ID, time.Now().UTC()); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
-	if err = SyncWorkspaceRoot(ctx, s.store, id, m); err != nil {
+	if err = SyncWorkspaceRootWithOptions(ctx, s.store, id, m, SyncOptions{History: history}); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
 	if err = lock.Lost(); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
-	if err = s.store.rdb.Set(ctx, WorkspaceGenerationKey(id), generation, 0).Err(); err != nil {
-		return RestoreCheckpointResult{}, err
-	}
-	if err = afsclient.PublishInvalidation(ctx, s.store.rdb, WorkspaceFSKey(id), afsclient.InvalidateEvent{Origin: "afs", Op: afsclient.InvalidateOpRootReplace, Paths: []string{"/"}}); err != nil {
+	if err = s.completeRestoreWithActivity(ctx, id, generation, lock.Token(), cp.ID, activityBefore, m, recovering); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
 	return result, nil
@@ -343,7 +378,7 @@ func (s *Service) DeleteCheckpoint(ctx context.Context, workspace, ref string) e
 		return err
 	}
 	id := workspaceStorageID(meta)
-	keys := []string{workspaceMetaKey(id), savepointMetaKey(id, cp.ID)}
+	keys := []string{workspaceMetaKey(id), savepointMetaKey(id, cp.ID), restoreActivityBeforeKey(id)}
 	for blobID := range manifestBlobRefs(m) {
 		keys = append(keys, blobRefKey(id, blobID))
 	}
@@ -354,6 +389,13 @@ func (s *Service) DeleteCheckpoint(ctx context.Context, workspace, ref string) e
 		}
 		if current.HeadSavepoint == cp.ID || current.DefaultSavepoint == cp.ID {
 			return fmt.Errorf("cannot delete current or default checkpoint %q", cp.ID)
+		}
+		baseline, err := tx.Get(ctx, restoreActivityBeforeKey(id)).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return err
+		}
+		if baseline == cp.ID {
+			return fmt.Errorf("cannot delete restore baseline checkpoint %q until the interrupted restore completes", cp.ID)
 		}
 		if n, err := tx.Exists(ctx, savepointMetaKey(id, cp.ID)).Result(); err != nil {
 			return err

@@ -1,0 +1,51 @@
+import React from "react";
+import { afterEach, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ThemeProvider } from "styled-components";
+import { themesRebrand } from "@redis-ui/styles";
+import { FileHistoryDrawer } from "./src/routes/workspace-studio/-file-history-drawer";
+
+// Real original component/hooks/HTTP client with real disposable AFS+Redis.
+// jsdom provides the DOM: this supplements, and does not replace, browser QA.
+afterEach(cleanup);
+function mount(path: string) {
+  const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  render(<ThemeProvider theme={themesRebrand.light}>
+    <QueryClientProvider client={client}>
+      <FileHistoryDrawer databaseId="local" workspaceId="history-ui" path={path} editable onClose={() => {}} />
+    </QueryClientProvider>
+  </ThemeProvider>);
+}
+
+test("original activity list displays a publication made with capture off", async () => {
+  mount("/activity-only.txt");
+  expect(await screen.findByRole("button",{name:/put .*event only/})).toBeVisible();
+  expect(screen.queryByRole("button",{name:/^v\d/})).toBeNull();
+});
+
+test("original pagination, content, head diff and restore", async () => {
+  mount("/story.txt");
+  expect(await screen.findByText("draft revision 55")).toBeVisible();
+  expect(screen.getAllByRole("button",{name:/^v\d/})).toHaveLength(50);
+  fireEvent.click(screen.getByRole("button",{name:"Load more history"}));
+  await screen.findByRole("button",{name:/^v1 put /});
+  expect(screen.getAllByRole("button",{name:/^v\d/})).toHaveLength(55);
+  fireEvent.click(screen.getByRole("button",{name:/^v2 put /}));
+  expect(await screen.findByText("draft revision 2")).toBeVisible();
+  fireEvent.click(screen.getByRole("button",{name:"Diff against head"}));
+  await waitFor(() => expect(screen.getByText(/-draft revision 2/)).toHaveTextContent("+checkpoint text"));
+  fireEvent.click(screen.getByRole("button",{name:"Restore",exact:true}));
+  expect(await screen.findByText(/Restored .* into the working copy\./)).toBeVisible();
+  expect(await screen.findByRole("button",{name:/^v56 put /})).toBeVisible();
+});
+
+test("original tombstone undelete restores readable content in the same lineage", async () => {
+  mount("/deleted.txt");
+  await screen.findByText("This version is a tombstone. Use undelete to bring the deleted lineage back.");
+  fireEvent.click(screen.getByRole("button",{name:"Undelete",exact:true}));
+  expect(await screen.findByText(/Undeleted .* into the working copy\./)).toBeVisible();
+  fireEvent.click(await screen.findByRole("button",{name:/^v3 put /}));
+  expect(await screen.findByText("recover this deleted content")).toBeVisible();
+});

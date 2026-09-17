@@ -177,10 +177,12 @@ func (c *nativeClient) publishInvalidate(ctx context.Context, op string, paths .
 	if len(cleaned) == 0 {
 		return
 	}
+	activity := false
 	ev := InvalidateEvent{
-		Origin: c.originID,
-		Op:     op,
-		Paths:  cleaned,
+		Origin:   c.originID,
+		Op:       op,
+		Paths:    cleaned,
+		Activity: &activity,
 	}
 	if err := PublishInvalidation(ctx, c.rdb, c.key, ev); err != nil {
 		log.Printf("afs-lite: invalidate publish failed op=%s paths=%v: %v", op, cleaned, err)

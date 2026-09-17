@@ -1,0 +1,29 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ThemeProvider } from "styled-components";
+import { themesRebrand, CommonStyles } from "@redis-ui/styles";
+import "modern-normalize/modern-normalize.css";
+import "@redis-ui/styles/normalized-styles.css";
+import "@redis-ui/styles/fonts.css";
+import "@fontsource-variable/geist";
+import "./src/styles/fonts.css";
+import "./src/styles/skin-classic.css";
+import "./src/styles/skin-situation-room.css";
+import "./src/styles/skin-overrides.css";
+import "./src/index.css";
+import { FileHistoryDrawer } from "./src/routes/workspace-studio/-file-history-drawer";
+
+// Only this host is new. The imported drawer, hooks, HTTP client, shared
+// components and styles are the original pinned source, without edits.
+const path = new URLSearchParams(window.location.search).get("path") || "/story.txt";
+const queryClient = new QueryClient({defaultOptions:{queries:{retry:false}}});
+document.documentElement.dataset.skin = "classic";
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <ThemeProvider theme={themesRebrand.light}>
+    <CommonStyles />
+    <QueryClientProvider client={queryClient}>
+      <FileHistoryDrawer databaseId="local" workspaceId="history-ui" path={path} editable={true} onClose={() => {}} />
+    </QueryClientProvider>
+  </ThemeProvider>,
+);

@@ -2,7 +2,7 @@
 
 Persistent agent workspaces backed by Redis. Mount the same workspace on two
 machines and edit ordinary local files; changes synchronize in both directions.
-One workspace owns one file tree and its checkpoints.
+One workspace owns one file tree, its checkpoints and optional per-file history.
 
 AFS is a slim Go derivative of [redis/agent-filesystem](https://github.com/redis/agent-filesystem),
 retaining its folder sync, inode storage, manifest checkpoints and recovery code,
@@ -303,7 +303,9 @@ afs status ~/agent-a       # connection, pending work, conflicts and errors
 ```
 
 Workspace actions are `create`, `list`, `info`, `fork` and `delete` at the root,
-alongside `mount`, `unmount` and `status`. Checkpoints stay under `cp`:
+alongside `mount`, `unmount` and `status`. Optional file history uses `history`,
+`versioning` and `recover`, with original-compatible history actions under `file`.
+Checkpoints stay under `cp`:
 `afs delete shared` deletes a workspace; `afs cp delete shared old-checkpoint`
 deletes a checkpoint. Both retain their confirmation and safety checks.
 The former `ws` prefix and `fs` group are removed, with no compatibility aliases.
@@ -347,6 +349,52 @@ Head/default checkpoints cannot be deleted. Checkpoint deletion retains blob
 bodies conservatively; there is no garbage collector. Workspace deletion removes
 its own data while independent forks remain readable. Destructive commands prompt
 at a terminal or require `--yes` when used noninteractively.
+
+## Per-file history
+
+File history is off by default. Upgrade every writer before enabling it; the
+policy is shared by the workspace in Redis and applies to all upgraded clients.
+
+```sh
+afs versioning shared --mode all --max-versions 100
+afs history shared documents/today.txt
+afs recover shared documents/today.txt --version 2 --to ./recovered-today.txt
+```
+
+History captures published file and symlink mutations, including deletions,
+renames and permission changes. It preserves the existing contents before the
+first tracked overwrite or deletion, without creating a checkpoint. It does
+not capture every transient local write.
+
+Recovery creates a new local file or symlink and refuses an existing destination.
+Inspect it with ordinary tools, then copy it into a mounted directory to publish
+the recovered contents. To recover a deleted file, omit `--version` to select
+its latest recoverable version. Use `history --lineages` and `--file-id` when a
+path has been deleted and recreated.
+
+The original history, content, diff, restore and undelete interfaces are also
+available:
+
+```sh
+afs file history shared documents/today.txt --order desc --limit 50
+afs file diff shared documents/today.txt --from-version '<version-id>' --to-ref head
+afs file restore shared documents/today.txt --version '<version-id>'
+afs file undelete shared documents/deleted.txt
+```
+
+Restore and undelete publish a new version into the workspace after checking for
+concurrent changes. The optional `afs serve` adapter supports the original web
+history drawer; see [CLI and web UI compatibility](docs/file-history-compatibility.md).
+The Redis namespace and history storage format are separate from the original
+project; this interface compatibility does not migrate original stored histories.
+
+Identical contents share immutable history bodies, and retention reclaims bodies
+after their final history reference is removed. A small change producing new
+contents still retains a full-file snapshot, so frequent native writes to large
+files can be expensive. Path filters, age/count/byte limits, metadata-only
+large-file records and pagination are described in [file history](docs/file-history.md),
+including fork/restore behavior and retention guarantees. See the
+[measured comparison](docs/file-history-validation.md) for benefits and costs.
 
 ## Conflicts and recovery
 

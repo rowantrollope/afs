@@ -1,0 +1,10 @@
+{
+  "production_sha256": "049f82f3231c87136e85e5e8511c467bf3892c785618a7aa0ad5d7aa646da0c5",
+  "scenario_executions": 240,
+  "speedup_min": 1.1935338966588966,
+  "speedup_max": 3.9335403726708074,
+  "standard_retention_workspace_saved_percent": 84.77291112908819,
+  "array_retention_workspace_saved_percent": 88.37971047938943,
+  "standard_unlimited_workspace_increase_max_percent": 6.541768192750141,
+  "array_append_workspace_increase_percent": 9.016272380353762
+}

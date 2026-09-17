@@ -1,5 +1,15 @@
 # Lessons
 
+## 2026-09-17 — Preserve the original versioning capabilities and interfaces
+
+The user requires a capability superset, not a different reduced history feature.
+Compare against the current original source and its web UI contracts. Preserve
+those contracts unless there is a concrete cost that justifies adapting the UI.
+Pair correctness tests with original-versus-new measurements before claiming an
+improvement. The original already records native range writes; its separate
+post-publication observer is the consistency distinction. The user explicitly
+authorizes a commit and PR after full verification.
+
 ## 2026-09-16 — Describe automatic sync with an explicit wait boundary
 
 User rejected a standalone save verb because it implies sync requires manual action.
