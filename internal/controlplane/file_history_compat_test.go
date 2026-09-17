@@ -76,7 +76,11 @@ func TestFileHistoryOriginalUIHTTPContractsAndAtomicActions(t *testing.T) {
 	if _, err := s.SaveCheckpointFromLive(ctx, meta.ID, "new"); err != nil {
 		t.Fatal(err)
 	}
-	first := decodeHistoryHTTP[FileHistoryResponse](t, historyHTTPCall(t, handler, http.MethodGet, base+"/files/history?path=/file.txt&direction=asc&limit=1", nil, nil))
+	firstResponse := historyHTTPCall(t, handler, http.MethodGet, base+"/files/history?path=/file.txt&direction=asc&limit=1", nil, map[string]string{"Origin": "http://localhost:5173"})
+	if got := firstResponse.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("allowed UI origin header = %q", got)
+	}
+	first := decodeHistoryHTTP[FileHistoryResponse](t, firstResponse)
 	if len(first.Lineages) != 1 || len(first.Lineages[0].Versions) != 1 || first.NextCursor == "" {
 		t.Fatalf("first page: %+v", first)
 	}
@@ -105,9 +109,18 @@ func TestFileHistoryOriginalUIHTTPContractsAndAtomicActions(t *testing.T) {
 	if len(checkpoints.Checkpoints) != 1 || checkpoints.Checkpoints[0].ID != "old" {
 		t.Fatalf("checkpoint membership: %+v", checkpoints)
 	}
+	rejected := historyHTTPCall(t, handler, http.MethodPost, base+":restore-version", map[string]any{
+		"path": "/file.txt", "version_id": version.VersionID,
+	}, map[string]string{"Origin": "https://untrusted.example"})
+	if rejected.Code != http.StatusForbidden {
+		t.Fatalf("untrusted restore HTTP %d: %s", rejected.Code, rejected.Body.String())
+	}
+	if body, err := c.Cat(ctx, "/file.txt"); err != nil || string(body) != "new\n" {
+		t.Fatalf("untrusted restore changed live content: %q %v", body, err)
+	}
 	restored := decodeHistoryHTTP[FileVersionRestoreResponse](t, historyHTTPCall(t, handler, http.MethodPost, base+":restore-version", map[string]any{
 		"path": "/file.txt", "file_id": version.FileID, "ordinal": 1,
-	}, map[string]string{"X-AFS-Agent-ID": "review-agent", "X-AFS-Session-ID": "review-session", "X-AFS-User": "review-user"}))
+	}, map[string]string{"Origin": "http://localhost:5173", "X-AFS-Agent-ID": "review-agent", "X-AFS-Session-ID": "review-session", "X-AFS-User": "review-user"}))
 	if restored.RestoredFromVersionID != version.VersionID || restored.FileID != version.FileID || restored.VersionID == "" || !restored.Dirty {
 		t.Fatalf("restore contract: %+v", restored)
 	}

@@ -79,10 +79,12 @@ python3 tests/history_compare/ui_compare.py \
   --duration 1800
 ```
 
-The runner copies the pinned original source, builds current AFS and a seed
-fixture in a separate source snapshot, starts owned Redis/API/Vite processes,
-and prints two drawer URLs. It imports the **unchanged original drawer, hooks,
-HTTP client, shared components and CSS**. The new host only supplies React Query
+The runner copies the pinned original source, builds a seed fixture and a
+disposable HTTP host in a separate current-source snapshot, starts owned
+Redis/API/Vite processes, and prints two drawer URLs. The test-only host calls
+`internal/controlplane.NewFileHistoryHandler` on a dynamically assigned loopback
+port; AFS ships no server command. It imports the **unchanged original drawer, hooks,
+HTTP client, shared components and CSS**. The UI wrapper supplies React Query
 and theme providers plus workspace/path/editability props. Original UI
 dependencies are read from `ORIGINAL/ui/node_modules`, or `--node-modules` can
 point to another compatible existing installation. Nothing is installed or

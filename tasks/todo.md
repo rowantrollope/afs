@@ -1,5 +1,54 @@
 # AFS extraction
 
+## Keep HTTP serving in the control plane
+
+- [x] Remove `history serve` and its listener/signal lifecycle from `cmd/afs`.
+- [x] Retain control-plane HTTP contracts and test the original drawer with a test-only host.
+- [x] Update current docs and the draft control-plane boundary; record the user correction.
+- [x] Pass build, vet, unit/race and isolated real-Redis process tests; prepare the tested correction for PR #6.
+
+User rejected HTTP serving in the CLI as bloat. History has seven client actions:
+`list`, `show`, `diff`, `restore`, `undelete`, `export` and `policy`. HTTP handlers
+remain in `internal/controlplane`; server hosting belongs to a separate control
+plane, which is still a draft rather than a shipped runtime. Do not replace the
+removed command with another CLI server or build the full proposed control plane
+as part of this correction. Preserve compatibility through disposable test hosts.
+This supersedes the prior optional `history serve` decision below.
+
+Review: build, vet, full unit/race and isolated real-Redis process acceptance
+pass. The original unchanged drawer passed all four component tests using the
+direct control-plane handler fixture, including pagination, content/diff,
+restore/undelete, capture-off activity and attribution. Recovered bytes and
+ordinals match; fixture listeners closed and the original checkout stayed clean.
+Removed-command regressions reject `history serve` before loading configuration
+or connecting to Redis. Independent review found no lost handler capability or
+remaining product server entry point. Storage and sync implementation are unchanged.
+
+## Consolidate the file-history CLI
+
+- [x] Review the overlapping root commands and confirm one `history` group with the user.
+- [x] Consolidate listing, content, diff, restore, undelete, export, policy and the optional server under `afs history`.
+- [x] Validate help, removed commands and the complete history process workflows; retain the original HTTP contracts.
+- [x] Prepare the tested simplification for a focused follow-up PR after #5 merged.
+
+User rejected the five added roots (`history`, `recover`, `versioning`, `file`,
+`serve`) and selected one history group. Keep only `history` at the root and use
+`list`, `show`, `diff`, `restore`, `undelete`, `export`, `policy`, and `serve`
+beneath it. Use one grouped cursor-paginated listing, with all file lineages;
+remove the competing compact listing and the old root commands without aliases.
+The history engine and original web UI's HTTP contracts remain unchanged. This
+user correction supersedes retaining the original CLI spelling.
+
+Review: build, vet, full unit/race suites and isolated real-Redis process tests
+pass. CLI regressions cover offline nested help, rejection of removed roots,
+grouped pagination, export safety, policy, restore and undelete. The unchanged
+original drawer passed all four component tests through `afs history serve`,
+including actor attribution and activity while capture is off. Storage, sync and
+HTTP implementation files are unchanged; earlier benchmark and kernel evidence
+continues to identify its measured commit, not this CLI follow-up.
+Publication uses `codex/history-command-group`; PR #5 already merged the engine
+and its original CLI surface before this simplification was ready.
+
 ## Original file-history capability superset
 
 - [x] Pin the original source and enumerate storage, policy, CLI and web UI contracts.

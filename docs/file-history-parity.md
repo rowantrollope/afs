@@ -35,6 +35,17 @@ label/client-version fields on activity. The drawer displays the label ahead of
 agent, session, user or source. Metadata fields remain optional when the
 corresponding context does not exist.
 
+The current CLI intentionally consolidates these capabilities under `afs history`
+at the user's request; it does not preserve the original command spelling.
+The measured source hashes and browser/component evidence below predate this
+CLI-only consolidation. The storage/publication engine and HTTP contracts are
+unchanged, and the recorded numeric evidence remains the original measured data.
+The subsequent server-boundary correction leaves seven history CLI actions and
+removes the server command. HTTP compatibility remains an internal control-plane
+handler exercised with test-only hosts; no runnable product control plane is
+delivered. Earlier browser/component results remain evidence of their recorded
+snapshots, not evidence of an available server command.
+
 ## HTTP contract used by the original drawer
 
 The original client uses both unscoped `/v1/workspaces/{workspace}` and
@@ -208,5 +219,6 @@ the original returns the same media type without that parameter.
   even when that means retaining two records under a one-version setting.
 - Historical blobs have independent ownership and reference counts, allowing
   physical reclamation after retention and source-workspace deletion.
-- The optional HTTP host exposes the original file-history contracts. It does
-  not restore the original cloud, database-management, account or session UI.
+- An internal control-plane HTTP handler retains the original file-history
+  contracts and is exercised in test-only hosts. AFS does not ship a server
+  runtime or restore the original cloud, database-management, account or session UI.

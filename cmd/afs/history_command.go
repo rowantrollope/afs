@@ -8,33 +8,92 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/rowantrollope/afs/internal/controlplane"
 	"github.com/rowantrollope/afs/internal/filehistory"
 )
 
-const historyCommandUsage = `Usage: afs history <workspace> <path> [--limit N] [--before N] [--file-id ID] [--lineages]
+const historyCommandUsage = `Usage: afs history <command> [options]
 
-List versions newest first, including renames and deletion records. Paths are
-relative to the workspace root. The default selects the latest file lineage;
---lineages lists IDs for earlier files deleted and recreated at the same path.
---file-id selects one of those lineages. --limit defaults to 50 (maximum 1000).
-Use the returned next_before as --before to fetch the next page.
-History records published mutations, not every transient local edit.
+Commands:
+  list <workspace> <path>       List versions across file lineages
+  show <workspace> <path>       Read a historical version
+  diff <workspace> <path>       Compare versions or checkpoint contents
+  restore <workspace> <path>    Restore a version into the workspace
+  undelete <workspace> <path>   Recover a deleted file into the workspace
+  export <workspace> <path>     Write a version to a new local path
+  policy <workspace>           Show or change capture and retention settings
+
+Use mounted directories for normal file access. History records published
+mutations, not every transient local edit. Run 'afs history <command> --help'
+for options.
 `
 
-const recoverCommandUsage = `Usage: afs recover <workspace> <path> [--version ID-or-ordinal] [--file-id ID] --to <local-path>
+var historySubcommandUsage = map[string]string{
+	"list": `Usage: afs history list <workspace> <path> [--order asc|desc] [--limit N] [--cursor CURSOR]
 
-Recover historical bytes or a symlink into a new local path. Without --version,
+List versions across all file lineages, including renames and deletion records.
+Paths are relative to the workspace root. Pages default to 50 versions (maximum
+1000); use the returned next_cursor as --cursor to continue. Each row identifies
+its file lineage, ordinal and version ID. --json returns grouped lineages.
+`,
+	"show": `Usage: afs history show <workspace> <path> --version ID
+       afs history show <workspace> <path> --file-id ID --ordinal N
+
+Read historical content and metadata. Use history export for an exact local
+copy of binary content or a symlink with its permissions preserved.
+`,
+	"diff": `Usage: afs history diff <workspace> <path> [options]
+
+Source:      --from-version ID | --from-file-id ID --from-ordinal N | --from-ref REF
+Destination: --to-version ID | --to-file-id ID --to-ordinal N | --to-ref REF
+
+Refs include head, working-copy, and checkpoint IDs or names. The destination
+defaults to head. Binary versions return a binary indicator rather than text diff.
+`,
+	"restore": `Usage: afs history restore <workspace> <path> --version ID
+       afs history restore <workspace> <path> --file-id ID --ordinal N
+
+Atomically restore historical bytes, type and permissions into the workspace.
+Checks for concurrent changes and records a new version. Checkpoints are unchanged.
+`,
+	"undelete": `Usage: afs history undelete <workspace> <path> [--version ID | --file-id ID --ordinal N]
+
+Recover the newest deleted lineage's latest recoverable version by default,
+or select a historical version. Refuses a live destination and records a new
+version in the workspace.
+`,
+	"export": historyExportCommandUsage,
+	"policy": historyPolicyCommandUsage,
+}
+
+func (a *app) historyCommand(args []string) error {
+	if len(args) == 0 {
+		return errors.New(historyCommandUsage)
+	}
+	switch args[0] {
+	case "list", "show", "diff", "restore", "undelete":
+		return a.historyFileCommand(args)
+	case "export":
+		return a.exportHistoryCommand(args[1:])
+	case "policy":
+		return a.historyPolicyCommand(args[1:])
+	default:
+		return fmt.Errorf("unknown history command %q; run afs history --help", args[0])
+	}
+}
+
+const historyExportCommandUsage = `Usage: afs history export <workspace> <path> [--version ID-or-ordinal] [--file-id ID] --to <local-path>
+
+Export historical bytes or a symlink into a new local path. Without --version,
 select the latest recoverable version in the selected lineage, even if deleted.
-Use history --lineages and --file-id for an earlier incarnation of the path.
+Use history list to find the file ID of an earlier incarnation of the path.
 The destination must not exist; its parent directory must already exist.
 File permissions are preserved. Symlinks are recreated without following them.
 Inspect the recovered file, then copy it into a mounted directory to publish it.
 `
 
-const versioningCommandUsage = `Usage: afs versioning <workspace> [options]
+const historyPolicyCommandUsage = `Usage: afs history policy <workspace> [options]
 
 With no options, show the shared workspace file history policy (default: off).
 Options update only the supplied fields and apply to all upgraded writers:
@@ -44,7 +103,7 @@ Options update only the supplied fields and apply to all upgraded writers:
   --max-versions N        Maximum retained versions per file (0: unlimited)
   --max-age-days N        Maximum age of non-head versions (0: unlimited)
   --max-bytes N           Workspace logical history byte budget (0: unlimited)
-  --max-file-bytes N      Exclude snapshots above this file size (0: unlimited)
+  --max-file-bytes N      Retain metadata only above this size (0: unlimited)
   --prune                Apply retention to existing versions in bounded batches
 
 An include/exclude option replaces that entire list; use --include= or --exclude=
@@ -63,84 +122,6 @@ func (a *app) historyWorkspace(ctx context.Context, workspace string) (string, e
 	return controlplane.WorkspaceStorageID(meta), nil
 }
 
-func (a *app) historyCommand(args []string) error {
-	f := flag.NewFlagSet("history", flag.ContinueOnError)
-	limit := f.Int("limit", 50, "page size")
-	before := f.Int64("before", 0, "exclusive cursor")
-	fileID := f.String("file-id", "", "file lineage")
-	lineages := f.Bool("lineages", false, "list file lineages")
-	pos, err := parseCommandFlags(f, args)
-	if err != nil {
-		return err
-	}
-	if len(pos) != 2 {
-		return errors.New(historyCommandUsage)
-	}
-	if *limit < 1 || *limit > 1000 || *before < 0 {
-		return errors.New("--limit must be between 1 and 1000; --before must be non-negative")
-	}
-	if *lineages && *fileID != "" {
-		return errors.New("--lineages cannot be combined with --file-id")
-	}
-	path, err := filehistory.NormalizePath(pos[1])
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	id, err := a.historyWorkspace(ctx, pos[0])
-	if err != nil {
-		return err
-	}
-	if *lineages {
-		page, err := filehistory.Lineages(ctx, a.rdb, id, path, *limit, *before)
-		if err != nil {
-			return err
-		}
-		rows := make([][]string, 0, len(page.Files))
-		for _, lineage := range page.Files {
-			rows = append(rows, []string{lineage.FileID, strconv.FormatInt(lineage.Sequence, 10)})
-		}
-		output := "No file history.\n"
-		if len(rows) > 0 {
-			output = textTable([]string{"FILE ID", "SEQUENCE"}, rows)
-		}
-		return a.output(page, output+historyNextPage(page.NextBefore))
-	}
-	page, err := filehistory.List(ctx, a.rdb, id, path, *limit, *before, *fileID)
-	if err != nil {
-		return err
-	}
-	return a.output(page, formatFileHistory(page))
-}
-
-func historyNextPage(before int64) string {
-	if before == 0 {
-		return ""
-	}
-	return fmt.Sprintf("\nNext page: --before %d\n", before)
-}
-
-func formatFileHistory(page filehistory.Page) string {
-	if len(page.Versions) == 0 {
-		return "No file history.\n"
-	}
-	rows := make([][]string, 0, len(page.Versions))
-	for _, record := range page.Versions {
-		content := "available"
-		if record.Deleted {
-			content = "deleted"
-		} else if record.Type == "file" && record.ContentRef == "" {
-			content = "excluded"
-		}
-		rows = append(rows, []string{strconv.FormatInt(record.Version, 10), record.ID,
-			textTime(time.UnixMilli(record.CreatedAt)), record.Operation, record.Path,
-			strconv.FormatInt(record.Size, 10), content})
-	}
-	return fmt.Sprintf("File ID: %s\n\n", textCell(page.FileID)) +
-		textTable([]string{"VERSION", "ID", "CREATED", "OPERATION", "PATH", "BYTES", "CONTENT"}, rows) +
-		historyNextPage(page.NextBefore)
-}
-
 type historyGlobs []string
 
 func (g *historyGlobs) String() string { return strings.Join(*g, ", ") }
@@ -151,8 +132,8 @@ func (g *historyGlobs) Set(value string) error {
 	return nil
 }
 
-func (a *app) versioningCommand(args []string) error {
-	f := flag.NewFlagSet("versioning", flag.ContinueOnError)
+func (a *app) historyPolicyCommand(args []string) error {
+	f := flag.NewFlagSet("history policy", flag.ContinueOnError)
 	mode := f.String("mode", "", "capture mode")
 	var include, exclude historyGlobs
 	f.Var(&include, "include", "include pattern")
@@ -167,7 +148,7 @@ func (a *app) versioningCommand(args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return errors.New(versioningCommandUsage)
+		return errors.New(historyPolicyCommandUsage)
 	}
 	changed := make(map[string]bool)
 	f.Visit(func(option *flag.Flag) { changed[option.Name] = true })
@@ -252,8 +233,8 @@ func (a *app) versioningCommand(args []string) error {
 	}{pos[0], policy, trimmed, pruneMore}, output)
 }
 
-func (a *app) recoverCommand(args []string) error {
-	f := flag.NewFlagSet("recover", flag.ContinueOnError)
+func (a *app) exportHistoryCommand(args []string) error {
+	f := flag.NewFlagSet("history export", flag.ContinueOnError)
 	selector := f.String("version", "", "version ID or ordinal")
 	fileID := f.String("file-id", "", "file lineage")
 	destination := f.String("to", "", "new local destination")
@@ -262,7 +243,7 @@ func (a *app) recoverCommand(args []string) error {
 		return err
 	}
 	if len(pos) != 2 || *destination == "" {
-		return errors.New(recoverCommandUsage)
+		return errors.New(historyExportCommandUsage)
 	}
 	path, err := filehistory.NormalizePath(pos[1])
 	if err != nil {
@@ -290,7 +271,7 @@ func (a *app) recoverCommand(args []string) error {
 		return err
 	}
 	return a.output(map[string]any{"workspace": pos[0], "path": path, "version": record, "destination": local},
-		fmt.Sprintf("Recovered version %q to %q.\n", record.ID, local))
+		fmt.Sprintf("Exported version %q to %q.\n", record.ID, local))
 }
 
 func writeRecoveredVersion(destination string, record filehistory.Record, content []byte) error {

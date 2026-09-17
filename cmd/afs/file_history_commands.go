@@ -13,35 +13,20 @@ import (
 	"github.com/rowantrollope/afs/internal/filehistory"
 )
 
-const fileCommandUsage = `Usage: afs file <history|show|diff|restore|undelete> <workspace> <path> [options]
-
-  history    --order asc|desc --limit N --cursor CURSOR
-  show       --version ID | --file-id ID --ordinal N
-  diff       --from-version ID | --from-file-id ID --from-ordinal N | --from-ref REF
-             [--to-version ID | --to-file-id ID --to-ordinal N | --to-ref REF]
-  restore    --version ID | --file-id ID --ordinal N
-  undelete   [--version ID | --file-id ID --ordinal N]
-
-History uses the original UI lineage/cursor response format. Diff refs include
-head, working-copy, and checkpoint IDs or names; the default destination is head.
-Restore and undelete atomically publish bytes, type, and mode to the workspace.
-Use mounted directories for normal file access. Recover keeps a local-copy option.
-`
-
-func (a *app) fileCommand(args []string) error {
+func (a *app) historyFileCommand(args []string) error {
 	if len(args) == 0 {
-		return errors.New(fileCommandUsage)
+		return errors.New(historyCommandUsage)
 	}
 	action := args[0]
-	if action != "history" && action != "show" && action != "diff" && action != "restore" && action != "undelete" {
-		return fmt.Errorf("unknown file command %q", action)
+	if action != "list" && action != "show" && action != "diff" && action != "restore" && action != "undelete" {
+		return fmt.Errorf("unknown history command %q", action)
 	}
-	f := flag.NewFlagSet("file "+action, flag.ContinueOnError)
+	f := flag.NewFlagSet("history "+action, flag.ContinueOnError)
 	var selector controlplane.FileVersionSelector
 	var from, to controlplane.FileVersionDiffOperand
 	var order, cursor string
 	var limit int
-	if action == "history" {
+	if action == "list" {
 		f.StringVar(&order, "order", "desc", "history order")
 		f.StringVar(&cursor, "cursor", "", "page cursor")
 		f.IntVar(&limit, "limit", 50, "page limit")
@@ -64,13 +49,13 @@ func (a *app) fileCommand(args []string) error {
 		return err
 	}
 	if len(pos) != 2 {
-		return errors.New(fileCommandUsage)
+		return errors.New(historySubcommandUsage[action])
 	}
 	name, err := filehistory.NormalizePath(pos[1])
 	if err != nil {
 		return err
 	}
-	if action == "history" && (limit < 1 || limit > 1000 || (order != "asc" && order != "desc")) {
+	if action == "list" && (limit < 1 || limit > 1000 || (order != "asc" && order != "desc")) {
 		return fmt.Errorf("--limit must be 1..1000 and --order asc or desc")
 	}
 	if action == "show" || action == "restore" || action == "undelete" {
@@ -91,7 +76,7 @@ func (a *app) fileCommand(args []string) error {
 		return err
 	}
 	switch action {
-	case "history":
+	case "list":
 		history, err := a.service.GetFileHistoryPage(ctx, pos[0], controlplane.FileHistoryRequest{Path: name, NewestFirst: order == "desc", Limit: limit, Cursor: cursor})
 		if errors.Is(err, os.ErrNotExist) && cursor == "" {
 			if _, liveErr := a.service.GetFileContent(ctx, pos[0], "working-copy", name); liveErr == nil {
@@ -101,17 +86,7 @@ func (a *app) fileCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		rows := [][]string{}
-		for _, lineage := range history.Lineages {
-			for _, version := range lineage.Versions {
-				rows = append(rows, []string{lineage.FileID, strconv.FormatInt(version.Ordinal, 10), version.VersionID, version.Op, version.Path, textTime(version.CreatedAt)})
-			}
-		}
-		out := textTable([]string{"FILE ID", "ORDINAL", "VERSION", "OPERATION", "PATH", "CREATED"}, rows)
-		if history.NextCursor != "" {
-			out += "\nNext page: --cursor " + history.NextCursor + "\n"
-		}
-		return a.output(history, out)
+		return a.output(history, formatFileHistory(history))
 	case "show":
 		var result controlplane.FileVersionContentResponse
 		if selector.VersionID != "" {
@@ -127,7 +102,7 @@ func (a *app) fileCommand(args []string) error {
 		}
 		output := result.Content
 		if result.Binary {
-			output = fmt.Sprintf("Binary version %s (%d bytes). Use recover --to for exact bytes.\n", result.VersionID, result.Size)
+			output = fmt.Sprintf("Binary version %s (%d bytes). Use history export --to for exact bytes.\n", result.VersionID, result.Size)
 		}
 		if result.MetadataOnly {
 			output = fmt.Sprintf("Version %s has metadata only; content exceeded the configured cutoff.\n", result.VersionID)
@@ -157,6 +132,29 @@ func (a *app) fileCommand(args []string) error {
 		return a.output(result, fmt.Sprintf("Undeleted %s from version %s.\n", name, result.UndeletedFromVersionID))
 	}
 	return nil
+}
+
+func formatFileHistory(history controlplane.FileHistoryResponse) string {
+	rows := [][]string{}
+	for _, lineage := range history.Lineages {
+		for _, version := range lineage.Versions {
+			content := "available"
+			if version.Kind == controlplane.FileVersionKindTombstone {
+				content = "deleted"
+			} else if version.MetadataOnly {
+				content = "metadata only"
+			}
+			rows = append(rows, []string{lineage.FileID, strconv.FormatInt(version.Ordinal, 10), version.VersionID, version.Op, version.Path, textTime(version.CreatedAt), content})
+		}
+	}
+	out := "No file history recorded yet.\n"
+	if len(rows) > 0 {
+		out = textTable([]string{"FILE ID", "ORDINAL", "VERSION", "OPERATION", "PATH", "CREATED", "CONTENT"}, rows)
+	}
+	if history.NextCursor != "" {
+		out += "\nNext page: --cursor " + history.NextCursor + "\n"
+	}
+	return out
 }
 
 func validateFileSelector(selector controlplane.FileVersionSelector, optional bool) error {

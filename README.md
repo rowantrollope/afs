@@ -303,8 +303,8 @@ afs status ~/agent-a       # connection, pending work, conflicts and errors
 ```
 
 Workspace actions are `create`, `list`, `info`, `fork` and `delete` at the root,
-alongside `mount`, `unmount` and `status`. Optional file history uses `history`,
-`versioning` and `recover`, with original-compatible history actions under `file`.
+alongside `mount`, `unmount` and `status`. Optional file history stays under
+`history`: `list`, `show`, `diff`, `restore`, `undelete`, `export` and `policy`.
 Checkpoints stay under `cp`:
 `afs delete shared` deletes a workspace; `afs cp delete shared old-checkpoint`
 deletes a checkpoint. Both retain their confirmation and safety checks.
@@ -356,9 +356,9 @@ File history is off by default. Upgrade every writer before enabling it; the
 policy is shared by the workspace in Redis and applies to all upgraded clients.
 
 ```sh
-afs versioning shared --mode all --max-versions 100
-afs history shared documents/today.txt
-afs recover shared documents/today.txt --version 2 --to ./recovered-today.txt
+afs history policy shared --mode all --max-versions 100
+afs history list shared documents/today.txt
+afs history export shared documents/today.txt --version 2 --to ./recovered-today.txt
 ```
 
 History captures published file and symlink mutations, including deletions,
@@ -366,25 +366,31 @@ renames and permission changes. It preserves the existing contents before the
 first tracked overwrite or deletion, without creating a checkpoint. It does
 not capture every transient local write.
 
-Recovery creates a new local file or symlink and refuses an existing destination.
+Export creates a new local file or symlink and refuses an existing destination.
 Inspect it with ordinary tools, then copy it into a mounted directory to publish
 the recovered contents. To recover a deleted file, omit `--version` to select
-its latest recoverable version. Use `history --lineages` and `--file-id` when a
-path has been deleted and recreated.
+its latest recoverable version. `history list` groups retained versions by file
+ID; pass an earlier ID to `history export --file-id` when a path has been deleted
+and recreated. Follow `--cursor` to read subsequent history pages.
 
-The original history, content, diff, restore and undelete interfaces are also
-available:
+Inspect content, compare versions, or publish a historical version:
 
 ```sh
-afs file history shared documents/today.txt --order desc --limit 50
-afs file diff shared documents/today.txt --from-version '<version-id>' --to-ref head
-afs file restore shared documents/today.txt --version '<version-id>'
-afs file undelete shared documents/deleted.txt
+afs history list shared documents/today.txt --order desc --limit 50
+afs history show shared documents/today.txt --version '<version-id>'
+afs history diff shared documents/today.txt --from-version '<version-id>' --to-ref head
+afs history restore shared documents/today.txt --version '<version-id>'
+afs history undelete shared documents/deleted.txt
 ```
 
 Restore and undelete publish a new version into the workspace after checking for
-concurrent changes. The optional `afs serve` adapter supports the original web
-history drawer; see [CLI and web UI compatibility](docs/file-history-compatibility.md).
+concurrent changes. The original web history contracts remain available as an
+internal control-plane HTTP handler, verified with test-only hosts. AFS does not
+ship a server command or a runnable control-plane service. See
+[CLI and web UI compatibility](docs/file-history-compatibility.md) for the boundary.
+The seven history actions are consolidated under `history`; there are no separate
+root `recover`, `versioning`, `file` or `serve` commands, no `history serve`, and
+no hidden aliases.
 The Redis namespace and history storage format are separate from the original
 project; this interface compatibility does not migrate original stored histories.
 

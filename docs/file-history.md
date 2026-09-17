@@ -3,13 +3,16 @@
 File history recovers published file contents between checkpoints. It is an
 optional workspace feature, off by default. Checkpoints still capture a whole
 tree at explicit points; file versions do not create or change checkpoints.
+The CLI has seven history actions: `list`, `show`, `diff`, `restore`, `undelete`,
+`export` and `policy`. HTTP compatibility belongs to the internal control-plane
+package; there is no server command or runnable control-plane service in AFS.
 
 ## Enable and filter history
 
 ```sh
-afs versioning shared
-afs versioning shared --mode all --max-versions 100
-afs versioning shared --mode paths --include 'src/**' --include 'docs/**' --exclude '**/generated/**'
+afs history policy shared
+afs history policy shared --mode all --max-versions 100
+afs history policy shared --mode paths --include 'src/**' --include 'docs/**' --exclude '**/generated/**'
 ```
 
 The policy lives in Redis for the workspace, rather than one client's config.
@@ -34,7 +37,7 @@ command replaces a supplied include/exclude list while keeping omitted fields;
 use `--include=` or `--exclude=` to clear a list.
 
 ```sh
-afs versioning shared --mode off
+afs history policy shared --mode off
 ```
 
 Disabling capture keeps existing retained history readable. Re-enabling starts
@@ -47,34 +50,36 @@ capture or excluding a path also stops capture of already tracked lineages.
 ## Browse versions and file identity
 
 ```sh
-afs history shared docs/notes.txt
-afs --json history shared docs/notes.txt --limit 20
-afs history shared docs/notes.txt --limit 20 --before 37
-afs history shared docs/notes.txt --lineages
-afs history shared docs/notes.txt --file-id <file-id>
+afs history list shared docs/notes.txt
+afs --json history list shared docs/notes.txt --limit 20
+afs history list shared docs/notes.txt --limit 20 --cursor '<next_cursor>'
+afs history list shared docs/notes.txt --order asc
+afs history show shared docs/notes.txt --file-id '<file-id>' --ordinal 2
 ```
 
-History shows newest versions first, including operation, publication time,
-size and whether the record represents content or deletion. Each file has a stable lineage ID and an
+History shows newest versions first, including file ID, version ordinal, version
+ID, operation, path and publication time. JSON also includes size, type, deletion
+state and the other original version fields. Each file has a stable lineage ID and an
 increasing version ordinal. Rename keeps the lineage and records both paths;
 history reached through either indexed path includes the lineage's retained
 versions. Delete records a tombstone. A different file created at that path gets
-a new lineage. The default selects the most recently indexed lineage; use
-`--lineages` to discover previous ones and `--file-id` to inspect one.
+a new lineage. The list groups versions across retained lineages and identifies
+each file ID. Use that ID with `show --file-id` and `--ordinal`, or with
+`export --file-id`, to select an earlier incarnation.
 
-Both lists default to 50 results and accept `--limit` from 1 to 1000. Pass the
-returned `next_before` value as `--before` to continue. Version-list cursors are
-exclusive version ordinals within the selected lineage; lineage-list cursors are
-exclusive workspace history sequence numbers. Keep the path, selected file ID and
-list mode unchanged across pages. Deleted or pruned versions are not returned.
+Lists default to 50 versions and accept `--limit` from 1 to 1000. Pass the
+returned `next_cursor` value as `--cursor` to continue. Cursors are opaque;
+keep the path and order unchanged across pages. Tombstones remain visible while
+pruned versions are not returned. There is one grouped history format, with no
+separate compact list, `--before` or `--lineages` mode.
 
-## Recover exact content
+## Export exact content
 
 ```sh
-afs recover shared docs/notes.txt --version 2 --to ./notes-recovered.txt
-afs recover shared docs/notes.txt --version <version-id> --to ./notes-recovered.txt
-afs recover shared docs/deleted.txt --to ./deleted-recovered.txt
-afs recover shared docs/notes.txt --file-id <old-file-id> --to ./old-notes.txt
+afs history export shared docs/notes.txt --version 2 --to ./notes-recovered.txt
+afs history export shared docs/notes.txt --version '<version-id>' --to ./notes-recovered.txt
+afs history export shared docs/deleted.txt --to ./deleted-recovered.txt
+afs history export shared docs/notes.txt --file-id '<old-file-id>' --to ./old-notes.txt
 ```
 
 `--version` accepts an ordinal or an exact version ID. Omitting it selects the
@@ -97,20 +102,20 @@ itself only writes the selected local destination and leaves the live tree and
 checkpoints unchanged. A destination inside a synchronized directory will be
 published by that directory's normal synchronizer.
 
-The original in-place workflows are available through `afs file restore` and
-`afs file undelete`. These conditionally publish selected content, type and mode
+The original in-place workflows are available through `afs history restore` and
+`afs history undelete`. These conditionally publish selected content, type and mode
 with a new history record, preserving the current file if another writer changes
 it during the operation. They also record an explicit action when automatic
 capture is disabled or the selected content equals the current content. See
-[original CLI and web UI compatibility](file-history-compatibility.md) for the
-history, content, diff, restore, undelete and HTTP interfaces.
+[history commands and web UI compatibility](file-history-compatibility.md) for the
+history, content, diff, restore, undelete and retained control-plane HTTP handler.
 
 ## Retention and storage cost
 
 ```sh
-afs versioning shared --max-versions 100 --max-age-days 30 --max-bytes 1073741824
-afs versioning shared --max-file-bytes 16777216
-afs versioning shared --prune
+afs history policy shared --max-versions 100 --max-age-days 30 --max-bytes 1073741824
+afs history policy shared --max-file-bytes 16777216
+afs history policy shared --prune
 ```
 
 All limits default to zero, meaning unlimited. Count and age limits remove old

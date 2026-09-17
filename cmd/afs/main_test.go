@@ -15,7 +15,7 @@ func TestHelpAndVersionDoNotLoadRedisOrConfiguration(t *testing.T) {
 		}
 	}
 	out, _ := captureStdout(t, func() error { return runCLI([]string{"--help"}) })
-	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "mcp", "auth", "query", "cloud"} {
+	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "\n  recover ", "\n  versioning ", "\n  file ", "\n  serve ", "mcp", "auth", "query", "cloud"} {
 		if strings.Contains(out, excluded) {
 			t.Errorf("root help contains excluded surface %q", excluded)
 		}
@@ -74,7 +74,7 @@ func TestGlobalOptions(t *testing.T) {
 }
 
 func TestRemovedCommandGroupsFailBeforeConfigOrRedis(t *testing.T) {
-	for _, group := range []string{"fs", "ws"} {
+	for _, group := range []string{"fs", "ws", "recover", "versioning", "file", "serve"} {
 		for _, args := range [][]string{{group}, {group, "--help"}, {group, "create", "demo"}} {
 			args = append([]string{"--config", "/does/not/exist", "--redis", "invalid"}, args...)
 			out, err := captureStdout(t, func() error { return runCLI(args) })

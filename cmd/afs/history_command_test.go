@@ -7,44 +7,57 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rowantrollope/afs/internal/controlplane"
 	"github.com/rowantrollope/afs/internal/filehistory"
 )
 
 func TestHistoryCommandHelpIsOffline(t *testing.T) {
-	for _, command := range []string{"history", "versioning", "recover"} {
-		t.Run(command, func(t *testing.T) {
+	for _, args := range [][]string{{"history"}, {"history", "--help"}, {"history", "help"}} {
+		out, err := captureStdout(t, func() error {
+			return runCLI(append([]string{"--config", "/missing/config", "--redis", "invalid"}, args...))
+		})
+		if err != nil || !strings.Contains(out, "Usage: afs history <command>") {
+			t.Fatalf("group help %v: %q %v", args, out, err)
+		}
+		if strings.Contains(out, "serve") {
+			t.Fatalf("group help exposes server lifecycle: %q", out)
+		}
+	}
+	for _, action := range []string{"list", "show", "diff", "restore", "undelete", "export", "policy"} {
+		t.Run(action, func(t *testing.T) {
 			out, err := captureStdout(t, func() error {
-				return runCLI([]string{"--config", "/missing/config", "--redis", "invalid", command, "--help"})
+				return runCLI([]string{"--config", "/missing/config", "--redis", "invalid", "history", action, "--help"})
 			})
-			if err != nil || !strings.Contains(out, "Usage: afs "+command) {
-				t.Fatalf("help: %q %v", out, err)
+			if err != nil || !strings.Contains(out, "Usage: afs history "+action+" ") {
+				t.Fatalf("subcommand help: %q %v", out, err)
+			}
+			if strings.Contains(out, "Usage: afs history <command>") {
+				t.Fatal("subcommand help returned only the group overview")
 			}
 		})
+	}
+	for _, args := range [][]string{{"history", "unknown"}, {"history", "unknown", "--help"}, {"history", "serve"}, {"history", "serve", "--help"}, {"history", "serve", "--listen", "127.0.0.1:8091"}} {
+		err := runCLI(append([]string{"--config", "/missing/config", "--redis", "invalid"}, args...))
+		if err == nil || !strings.Contains(err.Error(), "unknown history command") {
+			t.Fatalf("unknown subcommand: %v", err)
+		}
 	}
 }
 
 func TestHistoryCommandInvalidArgumentsDoNotConnect(t *testing.T) {
 	a := &app{}
 	for _, args := range [][]string{
-		{}, {"repo"}, {"repo", "file", "--limit", "0"}, {"repo", "file", "--limit", "1001"},
-		{"repo", "file", "--before", "-1"}, {"repo", "file", "--lineages", "--file-id", "x"},
-		{"repo", "../outside"}, {"repo", "file", "--unknown"},
+		{}, {"unknown"}, {"serve"}, {"list"}, {"list", "repo"}, {"list", "repo", "file", "--limit", "0"},
+		{"list", "repo", "file", "--limit", "1001"}, {"list", "repo", "file", "--order", "wrong"},
+		{"list", "repo", "file", "--before", "1"}, {"list", "repo", "file", "--lineages"},
+		{"list", "repo", "../outside"}, {"list", "repo", "file", "--unknown"},
+		{"policy"}, {"policy", "repo", "--mode", "invalid"}, {"policy", "repo", "--mode="},
+		{"policy", "repo", "--max-versions", "-1"}, {"policy", "repo", "--max-age-days", "-1"},
+		{"policy", "repo", "--max-bytes", "-1"}, {"policy", "repo", "--max-file-bytes", "-1"},
+		{"export"}, {"export", "repo", "file"}, {"export", "repo", "../outside", "--to", "/tmp/unwritten"},
 	} {
 		if err := a.historyCommand(args); err == nil {
 			t.Fatalf("history accepted %v", args)
-		}
-	}
-	for _, args := range [][]string{
-		{}, {"repo", "--mode", "invalid"}, {"repo", "--mode="}, {"repo", "--max-versions", "-1"},
-		{"repo", "--max-age-days", "-1"}, {"repo", "--max-bytes", "-1"}, {"repo", "--max-file-bytes", "-1"},
-	} {
-		if err := a.versioningCommand(args); err == nil {
-			t.Fatalf("versioning accepted %v", args)
-		}
-	}
-	for _, args := range [][]string{{}, {"repo", "file"}, {"repo", "../outside", "--to", "/tmp/unwritten"}} {
-		if err := a.recoverCommand(args); err == nil {
-			t.Fatalf("recover accepted %v", args)
 		}
 	}
 	if a.rdb != nil {
@@ -141,13 +154,15 @@ func TestRecoverUnavailableVersionCreatesNothing(t *testing.T) {
 	}
 }
 
-func TestFormatHistoryDistinguishesExcludedContentAndDeletion(t *testing.T) {
-	page := filehistory.Page{FileID: "f_test", NextBefore: 3, Versions: []filehistory.Record{
-		{ID: "v4", Version: 4, Deleted: true, Operation: "delete", Path: "/line\nbreak"},
-		{ID: "v3", Version: 3, Type: "file", Operation: "write", Path: "/line\nbreak"},
+func TestFormatHistoryDistinguishesMetadataOnlyAndDeletion(t *testing.T) {
+	page := controlplane.FileHistoryResponse{NextCursor: "opaque-cursor", Lineages: []controlplane.FileHistoryLineage{
+		{FileID: "f_test", Versions: []controlplane.FileVersion{
+			{VersionID: "v4", Ordinal: 4, Kind: controlplane.FileVersionKindTombstone, Op: "delete", Path: "/line\nbreak"},
+			{VersionID: "v3", Ordinal: 3, Kind: controlplane.FileVersionKindFile, Op: "put", MetadataOnly: true, Path: "/line\nbreak"},
+		}},
 	}}
 	out := formatFileHistory(page)
-	for _, want := range []string{"File ID: f_test", "deleted", "excluded", "--before 3", `"/line\nbreak"`} {
+	for _, want := range []string{"f_test", "deleted", "metadata only", "--cursor opaque-cursor", `"/line\nbreak"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %s", want, out)
 		}

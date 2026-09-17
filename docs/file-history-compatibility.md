@@ -1,22 +1,28 @@
 # File history interface compatibility
 
-AFS exposes the original file history drawer's HTTP contracts through an optional
-local server. The same service methods back the compatibility CLI. Existing
-`afs history`, `afs recover`, and `afs versioning` commands remain available.
+AFS retains the original file history drawer's HTTP contracts in an internal
+control-plane handler. The same service methods back a single `afs history` command group.
+At the user's request, the CLI spelling differs from the original: `list`, `show`,
+`diff`, `restore`, `undelete`, `export` and `policy` all live under `history`.
+There is no server command, including `history serve`, no root `recover`,
+`versioning` or `file` commands, and no hidden aliases. HTTP routes and response
+contracts remain unchanged, but AFS does not deliver a runnable control plane.
 
 ## CLI
 
 Workspace names or storage IDs are explicit:
 
 ```sh
-afs file history project notes.txt --order desc --limit 50
-afs file history project notes.txt --order desc --cursor '<next_cursor>'
-afs file show project notes.txt --version '<version_id>'
-afs file show project notes.txt --file-id '<file_id>' --ordinal 2
-afs file diff project notes.txt --from-version '<version_id>' --to-ref working-copy
-afs file diff project notes.txt --from-file-id '<file_id>' --from-ordinal 2 --to-ref head
-afs file restore project notes.txt --version '<version_id>'
-afs file undelete project notes.txt
+afs history list project notes.txt --order desc --limit 50
+afs history list project notes.txt --order desc --cursor '<next_cursor>'
+afs history show project notes.txt --version '<version_id>'
+afs history show project notes.txt --file-id '<file_id>' --ordinal 2
+afs history diff project notes.txt --from-version '<version_id>' --to-ref working-copy
+afs history diff project notes.txt --from-file-id '<file_id>' --from-ordinal 2 --to-ref head
+afs history restore project notes.txt --version '<version_id>'
+afs history undelete project notes.txt
+afs history export project notes.txt --version 2 --to ./notes-recovered.txt
+afs history policy project --mode all --max-versions 100
 ```
 
 `--json` returns the original lineage, version-content, diff, restore, and
@@ -24,46 +30,46 @@ undelete response structures. History supports ascending and descending cursor
 pagination. Diff operands accept version IDs, lineage ordinals, `head`,
 `working-copy`, or a retained checkpoint ID/name.
 
-The subcommands and selectors match the original file-history CLI, but workspace
-selection is explicit; the original optional workspace inference is not retained.
+The history workflows and selectors preserve the original capabilities; the
+single command group is an intentional user-requested spelling change, not a
+claim of unchanged original CLI syntax. Workspace selection is explicit; the
+original optional workspace inference is not retained.
 Pages default to 50 versions and accept limits of 1–1,000. The original's
 zero/unlimited page mode is replaced by cursor traversal, including for callers
 of `GetFileHistory` without an explicit limit. Clients must follow `next_cursor`
 to retrieve the complete retained history. Human-readable tables follow the
 current AFS CLI style rather than the original terminal formatting.
+`list` has one grouped lineage/cursor response format. It includes file IDs for
+historical incarnations; there is no compact `--before` or `--lineages` mode.
 
 Normal file reads and writes use mounted directories. The removed `ws` and
-`fs` command aliases are not restored. `afs recover ... --to ...` remains the
+`fs` command aliases are not restored. `afs history export ... --to ...` remains the
 option for inspecting a historical copy locally before publishing it.
 
-## Connect the original history drawer
+## Control-plane integration point
 
-Start the adapter using the Redis configuration selected by the normal CLI:
+`internal/controlplane.NewFileHistoryHandler` returns an `http.Handler` over an
+existing `Service`. It implements the history drawer and its versioning/activity
+dependencies. `FileHistoryHTTPOptions.DatabaseID` names the one configured Redis
+connection in scoped routes, and `AllowedOrigins` lists accepted browser origins.
+The handler does not start a listener, manage server lifecycle, or provide
+authentication. A future control-plane host must supply those responsibilities.
+The [lightweight control-plane proposal](lightweight-control-plane.md) remains a
+draft for a separate executable; its name and deployment lifecycle are undecided.
 
-```sh
-afs serve --listen 127.0.0.1:8091 --database-id local \
-  --allow-origin http://localhost:5173
-```
+Integration tests host this handler on disposable loopback listeners. The original
+drawer fixture points `VITE_AFS_API_BASE_URL` at that test host and supplies
+`databaseId="local"`, a workspace name or ID, an absolute path, and the `editable`
+prop. It does not install or modify the original UI. These fixtures validate the
+handler contracts; they are not a shipped control-plane service.
 
-Point the original UI's `VITE_AFS_API_BASE_URL` at
-`http://127.0.0.1:8091`. Its history drawer can use `databaseId="local"`,
-`workspaceId="<workspace name or ID>"`, and an absolute workspace path such as
-`/notes.txt`. Set `editable` to enable restore and undelete.
-
-`--database-id` is the compatibility alias for the one Redis database selected
-by `--redis`, environment, or saved configuration. It does not select another
-connection. Repeat `--allow-origin` for additional trusted UI origins. The
-listener requires a loopback address, refuses unapproved browser origins, and
-shuts down on SIGINT/SIGTERM. It does not install or modify the original UI.
-
-The adapter implements the history drawer and its versioning/activity
-dependencies. The original application's unrelated catalog, sessions, cloud,
-search, and volume APIs are outside this server.
+The original application's unrelated catalog, sessions, cloud, search and volume
+APIs are outside the retained handler.
 
 This is interface compatibility for histories stored by the new AFS engine.
 There is no importer for the original installation's Redis history schema,
 workspace catalog, saved cursors, or identities. Pointing an unmodified complete
-original application at this server does not supply its missing application APIs.
+original application at a host of this handler does not supply its missing application APIs.
 The verified browser integration hosts the original drawer, hooks, transport,
 and shared components with the required providers and workspace/path props.
 
@@ -96,7 +102,7 @@ number and size; it is not a bounded history-page operation.
 
 Policy names map to the shared engine as follows:
 
-| Original UI/API field | Compact CLI option |
+| Original UI/API field | `history policy` option |
 |---|---|
 | `mode` | `--mode` |
 | `include_globs` | `--include` |
@@ -118,7 +124,7 @@ Requests to restore such a version fail before changing live state.
 Detected MIME types may be more specific, or include a charset, compared with
 the original's small extension-based mapping.
 
-The server accepts optional `X-AFS-Session-ID`, `X-AFS-Agent-ID`, and
+The handler accepts optional `X-AFS-Session-ID`, `X-AFS-Agent-ID`, and
 `X-AFS-User` labels for explicit actions. These are recorded provenance labels,
 not authenticated identities. Successful restore/undelete responses identify
 the exact committed record. Concurrent policy updates return the policy that
@@ -146,7 +152,7 @@ folder sync, and never reinterpret the Redis username as a history user.
 
 Unlike the original `--session`, this label does not open a managed application
 session. Original session detail links and identity lookups still require
-application services outside this adapter. Native mounts keep the original
+application services outside this handler. Native mounts keep the original
 `source: mount` behavior and an opaque publisher `origin`; an origin is not a
 user identity. Direct filesystem API callers can supply mutation context using
 `client.WithFileVersionMutationMetadata`. Explicit HTTP recovery actions retain
@@ -208,9 +214,12 @@ and worker restart, with capture both enabled and disabled.
 
 `tests/e2e/history_compatibility_test.go` builds the actual AFS executable and
 uses a disposable Redis process plus private synchronization directories. It
-exercises the compatibility CLI, starts `afs serve` on a dynamic loopback port,
-uses scoped HTTP routes, checks browser origin handling, and verifies graceful
-server shutdown. These tests do not use the original installation or user data.
+exercises the seven-action history CLI. HTTP behavior is covered by the handler
+tests above and the test-only host compiled from
+`tests/history_compare/ui_server.go.in`; that host invokes
+`NewFileHistoryHandler` on a disposable loopback listener. The Python component
+runner builds it only in a temporary source snapshot. These tests do not use
+the original installation or user data.
 
 Browser validation of the unchanged original drawer is recorded in the
 [parity evidence](file-history-parity.md#browser-compatibility-gate). That evidence
