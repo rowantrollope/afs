@@ -1,5 +1,51 @@
 # AFS extraction
 
+## Publish the Redis namespace correction
+
+- [x] Locate the uncommitted prefix change and preserve it while updating main.
+- [x] Apply `afs:` consistently to the newer file-history code and fixtures.
+- [x] Validate the combined source with build, vet, unit/race and isolated Redis process tests.
+- [x] Prepare the tested change for commit and publication to GitHub main.
+
+The user reported the earlier correction was missing from GitHub. Integrate with
+remote main `1b34090`, including the current history command group. Keep local
+configuration/state paths and installed binaries unchanged; use disposable Redis.
+
+Review: build/vet and full unit/race suites pass. Unit covered 922 passing cases
+plus the added namespace/history regression in a focused run; race covered all
+923 cases. Both suites skipped four optional Array-backend cases. The isolated
+CLI and history process suites pass all 200 cases with no skips. The focused
+regression checks literal `afs:` keys through publication, historical reads,
+checkpoint fork/restore and activity, rejecting writes to another namespace.
+Remaining `afs-lite:` literals are intentional retirement fixtures and migration
+documentation. Logs: `/tmp/afs-prefix-publish-{unit,race}.jsonl` and
+`/tmp/afs-prefix-integration.84kGIa`. Publication is authorized; the remote commit
+will be verified after pushing this tested change.
+
+## Original Redis namespace and control-plane compatibility
+
+- [x] Compare current AFS with original control-plane, Redis records and web UI.
+- [x] Change Redis keys from `afs-lite:` to `afs:`; retain local config/state paths.
+- [x] Prove legacy discovery and namespace behavior with focused regressions and isolated Redis.
+- [x] Validate build, vet, full unit/race and real-Redis process tests.
+- [x] Document the work needed to reuse the original UI and safely adopt old data.
+
+Scope: user requested the original Redis prefix and assessment of reusing the
+original web UI after removing volumes/composition. No UI implementation,
+automatic data migration, original installation changes or existing user Redis access.
+Compare original `c3897ac` with current `8d7bcfa`; implement on current source.
+Old content volumes map to current workspaces; old composed Agent Workspaces do
+not. Shared namespace does not imply mixed-version write safety.
+
+Review: build/vet pass; unit and race each cover 753 passing cases plus four
+optional Array skips. All 120 isolated real-Redis process cases pass. A copied
+original control-plane binary created legacy data: old-prefix CLI listed nothing,
+updated CLI listed/read the tree and its checkpoints without Redis value changes.
+Original control-plane also discovers updated CLI creations. Legacy mount still
+rejects missing generation; writable adoption/mixed-version safety remain outside
+this namespace change. See docs/old-control-plane-compatibility.md for UI reuse
+scope and migration requirements. Evidence: /private/tmp/afs-old-compat-dwPeTW/.
+
 ## Keep HTTP serving in the control plane
 
 - [x] Remove `history serve` and its listener/signal lifecycle from `cmd/afs`.

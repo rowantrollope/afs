@@ -46,7 +46,7 @@ type workspaceHistoryChange struct {
 	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
-func workspaceHistoryPrefix(id string) string { return "afs-lite:{" + id + "}:history:" }
+func workspaceHistoryPrefix(id string) string { return "afs:{" + id + "}:history:" }
 
 // copyWorkspaceHistory snapshots all indexes, policy and immutable bodies in
 // one Redis transaction. WATCH covers capture, pruning, policy updates and
@@ -104,7 +104,7 @@ func (s *Service) copyWorkspaceHistory(ctx context.Context, source, destination 
 				}
 			}
 			return err
-		}, sourcePrefix+"sequence", sourcePrefix+"records", sourcePrefix+"bytes", sourcePrefix+"policy", WorkspaceGenerationKey(source), "afs-lite:{"+source+"}:changes", workspaceRootDirtyKey(source))
+		}, sourcePrefix+"sequence", sourcePrefix+"records", sourcePrefix+"bytes", sourcePrefix+"policy", WorkspaceGenerationKey(source), "afs:{"+source+"}:changes", workspaceRootDirtyKey(source))
 		if !errors.Is(err, redis.TxFailedErr) {
 			return sourceStates, err
 		}

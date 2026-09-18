@@ -341,15 +341,15 @@ func loadWorkspaceRootDirents(ctx context.Context, rdb *redis.Client, fsKey, ino
 }
 
 func workspaceRootInodeKey(fsKey, inodeID string) string {
-	return "afs-lite:{" + fsKey + "}:inode:" + inodeID
+	return "afs:{" + fsKey + "}:inode:" + inodeID
 }
 
 func workspaceRootContentKey(fsKey, inodeID string) string {
-	return "afs-lite:{" + fsKey + "}:content:" + inodeID
+	return "afs:{" + fsKey + "}:content:" + inodeID
 }
 
 func workspaceRootDirentsKey(fsKey, inodeID string) string {
-	return "afs-lite:{" + fsKey + "}:dirents:" + inodeID
+	return "afs:{" + fsKey + "}:dirents:" + inodeID
 }
 
 func joinWorkspaceRootPath(parentPath, name string) string {

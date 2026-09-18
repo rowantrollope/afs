@@ -147,7 +147,7 @@ func WorkspaceStorageID(meta WorkspaceMeta) string {
 }
 
 func workspaceNameIndexKey() string {
-	return "afs-lite:workspace:index:names"
+	return "afs:workspace:index:names"
 }
 
 func (s *Store) resolveWorkspaceMeta(ctx context.Context, workspace string) (WorkspaceMeta, string, error) {
@@ -289,7 +289,7 @@ func (s *Store) ListWorkspaces(ctx context.Context) ([]WorkspaceMeta, error) {
 	metas := make([]WorkspaceMeta, 0)
 	var cursor uint64
 	for {
-		keys, next, err := s.rdb.Scan(ctx, cursor, "afs-lite:{*}:workspace:meta", 128).Result()
+		keys, next, err := s.rdb.Scan(ctx, cursor, "afs:{*}:workspace:meta", 128).Result()
 		if err != nil {
 			return nil, err
 		}
@@ -697,35 +697,35 @@ func WorkspacePattern(workspace string) string {
 }
 
 func workspaceMetaKey(workspace string) string {
-	return fmt.Sprintf("afs-lite:{%s}:workspace:meta", workspace)
+	return fmt.Sprintf("afs:{%s}:workspace:meta", workspace)
 }
 
 func workspaceSavepointsKey(workspace string) string {
-	return fmt.Sprintf("afs-lite:{%s}:workspace:savepoints", workspace)
+	return fmt.Sprintf("afs:{%s}:workspace:savepoints", workspace)
 }
 
 func workspaceAuditKey(workspace string) string {
-	return fmt.Sprintf("afs-lite:{%s}:workspace:audit", workspace)
+	return fmt.Sprintf("afs:{%s}:workspace:audit", workspace)
 }
 
 func savepointMetaKey(workspace, savepoint string) string {
-	return fmt.Sprintf("afs-lite:{%s}:savepoint:%s:meta", workspace, savepoint)
+	return fmt.Sprintf("afs:{%s}:savepoint:%s:meta", workspace, savepoint)
 }
 
 func savepointManifestKey(workspace, savepoint string) string {
-	return fmt.Sprintf("afs-lite:{%s}:savepoint:%s:manifest", workspace, savepoint)
+	return fmt.Sprintf("afs:{%s}:savepoint:%s:manifest", workspace, savepoint)
 }
 
 func blobKey(workspace, blobID string) string {
-	return fmt.Sprintf("afs-lite:{%s}:blob:%s", workspace, blobID)
+	return fmt.Sprintf("afs:{%s}:blob:%s", workspace, blobID)
 }
 
 func blobRefKey(workspace, blobID string) string {
-	return fmt.Sprintf("afs-lite:{%s}:blobref:%s", workspace, blobID)
+	return fmt.Sprintf("afs:{%s}:blobref:%s", workspace, blobID)
 }
 
 func workspacePattern(workspace string) string {
-	return fmt.Sprintf("afs-lite:{%s}:*", workspace)
+	return fmt.Sprintf("afs:{%s}:*", workspace)
 }
 
 func setJSON(ctx context.Context, cmd redis.Cmdable, key string, value any) error {

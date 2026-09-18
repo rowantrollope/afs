@@ -72,7 +72,7 @@ func TestFileHistoryActivitySparsePaginationAndLegacyFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := "afs-lite:{" + meta.ID + "}:changes"
+	stream := "afs:{" + meta.ID + "}:changes"
 	pipe := rdb.Pipeline()
 	for i := 1; i <= 4200; i++ {
 		payload := map[string]any{"op": "content", "paths": []string{"/other"}, "origin": "legacy"}

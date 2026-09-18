@@ -169,7 +169,7 @@ func (s *Service) completeRestoreWithActivity(ctx context.Context, id, generatio
 	if err != nil {
 		return err
 	}
-	base := "afs-lite:{" + id + "}:"
+	base := "afs:{" + id + "}:"
 	legacy := "0"
 	if before.Entries == nil {
 		legacy = "1"

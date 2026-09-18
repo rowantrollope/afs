@@ -11,7 +11,7 @@ import (
 
 // WorkspaceGenerationKey is deliberately outside root inode/content cleanup.
 // Deletion retains a tombstone so an old daemon cannot recreate this ID.
-func WorkspaceGenerationKey(id string) string { return "afs-lite:{" + id + "}:generation" }
+func WorkspaceGenerationKey(id string) string { return "afs:{" + id + "}:generation" }
 
 func newWorkspaceGeneration() (string, error) {
 	var token [16]byte

@@ -347,7 +347,7 @@ return '/'..table.concat(parts,'/')
 `)
 
 func CurrentPath(ctx context.Context, rdb *redis.Client, id, fileID string) (string, error) {
-	name, err := currentPathScript.Run(ctx, rdb, []string{Prefix(id) + "file:" + fileID}, "afs-lite:{"+id+"}:", fileID).Text()
+	name, err := currentPathScript.Run(ctx, rdb, []string{Prefix(id) + "file:" + fileID}, "afs:{"+id+"}:", fileID).Text()
 	if errors.Is(err, redis.Nil) {
 		return "", os.ErrNotExist
 	}

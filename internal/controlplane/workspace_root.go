@@ -34,11 +34,11 @@ func WorkspaceFSKey(workspace string) string {
 }
 
 func workspaceRootHeadKey(workspace string) string {
-	return "afs-lite:{" + WorkspaceFSKey(workspace) + "}:root_head_savepoint"
+	return "afs:{" + WorkspaceFSKey(workspace) + "}:root_head_savepoint"
 }
 
 func workspaceRootDirtyKey(workspace string) string {
-	return "afs-lite:{" + WorkspaceFSKey(workspace) + "}:root_dirty"
+	return "afs:{" + WorkspaceFSKey(workspace) + "}:root_dirty"
 }
 
 func WorkspaceRootDirtyKey(workspace string) string {
@@ -143,8 +143,8 @@ func SyncWorkspaceRootWithOptions(ctx context.Context, store *Store, workspace s
 		// Even when skipping the namespace scan we still need to drop the
 		// cached head/dirty markers so workspaceRootExists re-verifies.
 		if err := store.rdb.Del(ctx,
-			"afs-lite:{"+fsKey+"}:info",
-			"afs-lite:{"+fsKey+"}:next_inode",
+			"afs:{"+fsKey+"}:info",
+			"afs:{"+fsKey+"}:next_inode",
 			workspaceRootHeadKey(fsKey),
 			workspaceRootDirtyKey(fsKey),
 		).Err(); err != nil {
@@ -160,8 +160,8 @@ func SyncWorkspaceRootWithOptions(ctx context.Context, store *Store, workspace s
 func workspaceRootExists(ctx context.Context, rdb *redis.Client, workspace, headSavepoint string) (bool, error) {
 	fsKey := WorkspaceFSKey(workspace)
 	count, err := rdb.Exists(ctx,
-		"afs-lite:{"+fsKey+"}:info",
-		"afs-lite:{"+fsKey+"}:inode:1",
+		"afs:{"+fsKey+"}:info",
+		"afs:{"+fsKey+"}:inode:1",
 	).Result()
 	if err != nil {
 		return false, err
@@ -182,11 +182,11 @@ func workspaceRootExists(ctx context.Context, rdb *redis.Client, workspace, head
 
 func resetWorkspaceFSNamespace(ctx context.Context, rdb *redis.Client, fsKey string) error {
 	patterns := []string{
-		"afs-lite:{" + fsKey + "}:inode:*",
-		"afs-lite:{" + fsKey + "}:content:*",
-		"afs-lite:{" + fsKey + "}:dirents:*",
-		"afs-lite:{" + fsKey + "}:locks:*",
-		"afs-lite:{" + fsKey + "}:qchunks:*",
+		"afs:{" + fsKey + "}:inode:*",
+		"afs:{" + fsKey + "}:content:*",
+		"afs:{" + fsKey + "}:dirents:*",
+		"afs:{" + fsKey + "}:locks:*",
+		"afs:{" + fsKey + "}:qchunks:*",
 	}
 	for _, pattern := range patterns {
 		var cursor uint64
@@ -207,8 +207,8 @@ func resetWorkspaceFSNamespace(ctx context.Context, rdb *redis.Client, fsKey str
 		}
 	}
 	if err := rdb.Del(ctx,
-		"afs-lite:{"+fsKey+"}:info",
-		"afs-lite:{"+fsKey+"}:next_inode",
+		"afs:{"+fsKey+"}:info",
+		"afs:{"+fsKey+"}:next_inode",
 		workspaceRootHeadKey(fsKey),
 		workspaceRootDirtyKey(fsKey),
 	).Err(); err != nil {
@@ -480,19 +480,19 @@ func manifestEntryModeForWorkspaceFS(entry ManifestEntry) uint32 {
 }
 
 func workspaceFSInodeKey(fsKey, inodeID string) string {
-	return "afs-lite:{" + fsKey + "}:inode:" + inodeID
+	return "afs:{" + fsKey + "}:inode:" + inodeID
 }
 
 func workspaceFSDirentsKey(fsKey, inodeID string) string {
-	return "afs-lite:{" + fsKey + "}:dirents:" + inodeID
+	return "afs:{" + fsKey + "}:dirents:" + inodeID
 }
 
 func workspaceFSInfoKey(fsKey string) string {
-	return "afs-lite:{" + fsKey + "}:info"
+	return "afs:{" + fsKey + "}:info"
 }
 
 func workspaceFSNextInodeKey(fsKey string) string {
-	return "afs-lite:{" + fsKey + "}:next_inode"
+	return "afs:{" + fsKey + "}:next_inode"
 }
 
 func workspaceFSNodeWeight(node workspaceFSNode, contentSize int64) int64 {

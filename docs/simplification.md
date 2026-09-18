@@ -45,10 +45,12 @@ blob references. This is the former one-tree storage primitive, used directly;
 there is no volume catalog or workspace composition subsystem. The small
 `afsStore` adapter preserves the sync engine's existing interface.
 
-All Redis keys are separated under `afs-lite:`. Local configuration defaults to
+Redis keys now use the original `afs:` prefix. Local configuration defaults to
 `~/.config/afs-lite/config.json`, state to `~/.afs-lite`, and control files to
-`.afs-lite-sync` inside a mount. No migration or compatibility access to the
-original installation is attempted.
+`.afs-lite-sync` inside a mount. The original extraction used `afs-lite:` Redis
+keys; those keys are not automatically migrated. Original single-tree records
+can be listed, but safe writable adoption and control-plane integration need
+the work described in [the compatibility assessment](old-control-plane-compatibility.md).
 
 ## Additions and their reasons
 

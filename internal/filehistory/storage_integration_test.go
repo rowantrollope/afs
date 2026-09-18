@@ -21,7 +21,7 @@ func TestRealRedisPreparationConflictClassification(t *testing.T) {
 	if err := SetPolicy(ctx, rdb, "test", Policy{Mode: ModeAll}); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.HSet(ctx, "afs-lite:{test}:inode:2", "revision", "winner").Err(); err != nil {
+	if err := rdb.HSet(ctx, "afs:{test}:inode:2", "revision", "winner").Err(); err != nil {
 		t.Fatal(err)
 	}
 	err := Prepare(ctx, rdb, "test", "attempt", []PrepareRequest{{InodeID: "2", ExpectedRevision: "old", Path: "/file"}})
@@ -34,7 +34,7 @@ func publishRealHistory(t *testing.T, rdb *redis.Client, operation, inode, body 
 	t.Helper()
 	ctx := context.Background()
 	prefix := Prefix("test")
-	fs := "afs-lite:{test}:"
+	fs := "afs:{test}:"
 	stage := fs + "stage:" + operation
 	if err := rdb.Set(ctx, stage, body, time.Minute).Err(); err != nil {
 		t.Fatal(err)

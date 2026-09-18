@@ -1,5 +1,20 @@
 # Lessons
 
+## 2026-09-17 — Verify requested GitHub publication
+
+The prefix correction was left uncommitted locally. When publication is requested,
+commit the complete change, push to the intended branch, and verify the remote
+commit before reporting completion. Integrate newer remote code and check that it
+also follows the corrected namespace.
+
+## 2026-09-17 — Keep the original Redis namespace
+
+User explicitly corrected the derivative's Redis prefix: use `afs:`, not
+`afs-lite:`. Retain local configuration/state paths unless separately requested.
+Evaluate reuse of the original web UI with one workspace per tree; distinguish
+its content-volume pages from the removed composed Agent Workspace model.
+Shared key names alone do not prove safe interoperability with old writers.
+
 ## 2026-09-17 — HTTP serving belongs in the control plane
 
 User rejected `history serve` as CLI bloat even under a single history group.

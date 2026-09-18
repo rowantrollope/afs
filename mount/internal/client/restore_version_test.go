@@ -20,7 +20,7 @@ func TestRestoreVersionAtomicReplacementAndUndelete(t *testing.T) {
 	if err := c.Echo(ctx, "/file", []byte("original\x00bytes")); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	ctx = WithWorkspaceGeneration(ctx, "g_test")
@@ -110,7 +110,7 @@ func TestRestoreVersionConcurrentPublicationAndLostAcknowledgment(t *testing.T) 
 			if err := c.Echo(ctx, "/file", []byte("second")); err != nil {
 				t.Fatal(err)
 			}
-			if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
+			if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
 				t.Fatal(err)
 			}
 			ctx = WithWorkspaceGeneration(ctx, "g_test")
@@ -160,7 +160,7 @@ func TestRestoreVersionTypeChangesAndDisabledPolicy(t *testing.T) {
 	if err := c.Echo(ctx, "/file", []byte("file body")); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	ctx = WithWorkspaceGeneration(ctx, "g_test")
@@ -213,7 +213,7 @@ func TestRestoreVersionFailurePreservesLiveFile(t *testing.T) {
 			if err := c.Echo(ctx, "/file", []byte("keep")); err != nil {
 				t.Fatal(err)
 			}
-			if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
+			if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
 				t.Fatal(err)
 			}
 			ctx = WithWorkspaceGeneration(ctx, "g_test")
@@ -231,7 +231,7 @@ func TestRestoreVersionFailurePreservesLiveFile(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "generation":
-				if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_new", 0).Err(); err != nil {
+				if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_new", 0).Err(); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -258,7 +258,7 @@ func TestRestoreVersionStaleParentIsNotRecreated(t *testing.T) {
 	if err := c.Echo(ctx, "/dir/file", []byte("old")); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	ctx = WithWorkspaceGeneration(ctx, "g_test")
@@ -289,7 +289,7 @@ func TestRestoreVersionChecksRootTypeBeforeMutation(t *testing.T) {
 	if err := c.Echo(ctx, "/file", []byte("keep")); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{"+id+"}:generation", "g_test", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	ctx = WithWorkspaceGeneration(ctx, "g_test")
@@ -298,7 +298,7 @@ func TestRestoreVersionChecksRootTypeBeforeMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	hook := &restorePublicationHook{before: func() {
-		if err := rdb.HSet(ctx, "afs-lite:{"+id+"}:inode:1", "type", "file").Err(); err != nil {
+		if err := rdb.HSet(ctx, "afs:{"+id+"}:inode:1", "type", "file").Err(); err != nil {
 			t.Fatal(err)
 		}
 	}}
@@ -310,7 +310,7 @@ func TestRestoreVersionChecksRootTypeBeforeMutation(t *testing.T) {
 	if !hook.fired.Load() {
 		t.Fatal("parent race not injected")
 	}
-	if got := rdb.HGet(ctx, fmt.Sprintf("afs-lite:{%s}:inode:%d", id, stat.Inode), "revision").Val(); got != stat.Revision {
+	if got := rdb.HGet(ctx, fmt.Sprintf("afs:{%s}:inode:%d", id, stat.Inode), "revision").Val(); got != stat.Revision {
 		t.Fatalf("failed parent validation modified leaf revision %q", got)
 	}
 	if n := rdb.HLen(ctx, filehistory.Prefix(id)+"records").Val(); n != 0 {

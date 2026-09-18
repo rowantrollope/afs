@@ -10,8 +10,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func policyGenerationKey(id string) string { return "afs-lite:{" + id + "}:generation" }
-func policyImportLockKey(id string) string { return "afs-lite:{" + id + "}:import_lock" }
+func policyGenerationKey(id string) string { return "afs:{" + id + "}:generation" }
+func policyImportLockKey(id string) string { return "afs:{" + id + "}:import_lock" }
 
 // A failed restore remains fenced but releases its lock. Administrators may
 // then adjust its history budget before retrying. An active restore must see a

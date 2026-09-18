@@ -207,7 +207,7 @@ func BuildManifestFromWorkspaceRoot(ctx context.Context, rdb *redis.Client, work
 
 // workspaceFSContentKey returns the Redis key for external file content.
 func workspaceFSContentKey(fsKey, inodeID string) string {
-	return "afs-lite:{" + fsKey + "}:content:" + inodeID
+	return "afs:{" + fsKey + "}:content:" + inodeID
 }
 
 func shouldIgnoreMountPath(p string) bool {

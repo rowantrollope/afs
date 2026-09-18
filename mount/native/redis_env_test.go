@@ -20,7 +20,7 @@ func TestNativeRedisPasswordEnvironment(t *testing.T) {
 	if err := client.New(rdb, "env-test").Mkdir(ctx, "/"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{env-test}:generation", "generation-1", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{env-test}:generation", "generation-1", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	session, err := StartExport(ctx, Config{Backend: "nfs", RedisURL: "redis://:wrong@" + server.Addr(), RedisKey: "env-test", Generation: "generation-1"})

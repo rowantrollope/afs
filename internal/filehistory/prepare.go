@@ -108,7 +108,7 @@ func Prepare(ctx context.Context, rdb *redis.Client, id, operationID string, req
 		return nil
 	}
 	prefix := Prefix(id)
-	base := "afs-lite:{" + id + "}:"
+	base := "afs:{" + id + "}:"
 	values := map[string]any{}
 	for _, request := range requests {
 		pin := prefix + "prepare-read:" + uuid.NewString()

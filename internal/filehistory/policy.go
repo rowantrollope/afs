@@ -31,7 +31,7 @@ type Policy struct {
 	MaxFileBytes int64    `json:"max_file_bytes,omitempty"`
 }
 
-func Prefix(id string) string { return "afs-lite:{" + id + "}:history:" }
+func Prefix(id string) string { return "afs:{" + id + "}:history:" }
 
 // NormalizePath returns an absolute workspace-relative path. Parent traversal
 // is rejected even when path cleaning could keep it inside the workspace.

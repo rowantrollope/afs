@@ -170,8 +170,8 @@ func TestImportManifestPreservesSupportedEntries(t *testing.T) {
 	if _, err = s.CreateWorkspace(ctx, "import"); err == nil {
 		t.Fatal("duplicate name accepted")
 	}
-	// Original AFS names and data are not consulted.
-	if err = rdb.Set(ctx, "afs:workspace:index:names", "unrelated", 0).Err(); err != nil {
+	// Retired derivative namespace names and data are not consulted.
+	if err = rdb.Set(ctx, "afs-lite:workspace:index:names", "unrelated", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	if list, err := s.ListWorkspaces(ctx); err != nil || len(list) != 1 {

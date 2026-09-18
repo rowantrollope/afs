@@ -129,8 +129,16 @@ with a password prints a reminder about the override (human output only); this
 does not remove the saved password or any existing shell-history entry.
 Help, version, and config commands work without Redis.
 
-Redis keys use `afs-lite:`; local state uses `~/.afs-lite`. These do not reuse the
-original project's namespace or registry. `AFS_STATE_DIR` selects another local
+Redis keys use `afs:`, matching the original project's namespace. `afs list`
+can discover its single-tree volume records; composed Agent Workspaces are not
+single trees and are not listed. Sharing the namespace does not make old writers
+or the original control plane safe to use concurrently with current AFS: old
+workspaces need a controlled adoption step before mounting, and old writers do
+not implement current generation fencing. Existing `afs-lite:` keys are not
+automatically migrated or listed. See [compatibility assessment](docs/old-control-plane-compatibility.md).
+
+Local configuration and state remain separate: `~/.config/afs-lite/config.json`
+and `~/.afs-lite`. `AFS_STATE_DIR` selects another local
 registry/state directory, useful for isolated client tests. Each mount has its own
 saved baseline and private daemon log beneath that directory.
 

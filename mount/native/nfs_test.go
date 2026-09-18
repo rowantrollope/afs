@@ -71,7 +71,7 @@ func testExport(t *testing.T) (*Session, client.Client, *redis.Client, *nfsc.Tar
 	if err := peer.Mkdir(ctx, "/"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{rpc-test}:generation", "generation-1", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{rpc-test}:generation", "generation-1", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	session, err := StartExport(ctx, Config{Backend: "nfs", RedisURL: "redis://" + server.Addr(), RedisKey: "rpc-test", Generation: "generation-1"})
@@ -177,7 +177,7 @@ func TestNFSRPCGenerationFenceAndExportClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{rpc-test}:generation", "generation-2", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{rpc-test}:generation", "generation-2", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fh.Write([]byte("stale")); err == nil {

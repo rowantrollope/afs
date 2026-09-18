@@ -15,7 +15,7 @@ func nativeTestClient(t *testing.T, rdb *redis.Client, key string, ttl ...time.D
 	if err := client.New(rdb, key).Mkdir(ctx, "/"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rdb.SetNX(ctx, "afs-lite:{"+key+"}:generation", "test-generation", 0).Err(); err != nil {
+	if err := rdb.SetNX(ctx, "afs:{"+key+"}:generation", "test-generation", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	cacheTTL := time.Duration(0)

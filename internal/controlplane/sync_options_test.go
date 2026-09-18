@@ -77,10 +77,10 @@ func TestSyncWorkspaceRootWithOptionsSkipsNamespaceReset(t *testing.T) {
 
 	// Pre-seed a fake leftover key in the dirents pattern to prove the
 	// reset-skip path doesn't touch it.
-	if err := rdb.HSet(ctx, "afs-lite:{demo}:dirents:99", "stale", "yes").Err(); err != nil {
+	if err := rdb.HSet(ctx, "afs:{demo}:dirents:99", "stale", "yes").Err(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := rdb.Set(ctx, "afs-lite:{demo}:content:99", "stale", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{demo}:content:99", "stale", 0).Err(); err != nil {
 		t.Fatalf("seed content: %v", err)
 	}
 
@@ -97,10 +97,10 @@ func TestSyncWorkspaceRootWithOptionsSkipsNamespaceReset(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	if val, _ := rdb.HGet(ctx, "afs-lite:{demo}:dirents:99", "stale").Result(); val != "yes" {
+	if val, _ := rdb.HGet(ctx, "afs:{demo}:dirents:99", "stale").Result(); val != "yes" {
 		t.Fatalf("namespace reset should have been skipped, but stale key was removed")
 	}
-	if val, _ := rdb.Get(ctx, "afs-lite:{demo}:content:99").Result(); val != "stale" {
+	if val, _ := rdb.Get(ctx, "afs:{demo}:content:99").Result(); val != "stale" {
 		t.Fatalf("namespace reset should have been skipped, but stale content key was removed")
 	}
 
@@ -108,10 +108,10 @@ func TestSyncWorkspaceRootWithOptionsSkipsNamespaceReset(t *testing.T) {
 	if err := SyncWorkspaceRootWithOptions(ctx, store, "demo", m, SyncOptions{}); err != nil {
 		t.Fatalf("second sync: %v", err)
 	}
-	if exists, _ := rdb.Exists(ctx, "afs-lite:{demo}:dirents:99").Result(); exists != 0 {
+	if exists, _ := rdb.Exists(ctx, "afs:{demo}:dirents:99").Result(); exists != 0 {
 		t.Fatalf("namespace reset should have cleared stale key")
 	}
-	if exists, _ := rdb.Exists(ctx, "afs-lite:{demo}:content:99").Result(); exists != 0 {
+	if exists, _ := rdb.Exists(ctx, "afs:{demo}:content:99").Result(); exists != 0 {
 		t.Fatalf("namespace reset should have cleared stale content key")
 	}
 }

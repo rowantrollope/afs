@@ -101,7 +101,7 @@ snapshotting every native 4-KiB write is cheap.
 
 ## Data model and lifecycle decisions
 
-Use the existing `afs-lite:{workspace-id}:...` namespace/hash tag for related
+Use the existing `afs:{workspace-id}:...` namespace/hash tag for related
 atomic keys. Reuse the upstream lineage/version shape, with immutable version
 records, per-file ordinal indexes, path-to-lineage history and a retention index.
 This preserves the current key locality; it does not itself add Redis Cluster

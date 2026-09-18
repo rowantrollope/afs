@@ -387,7 +387,7 @@ func TestCanonicalInodeStorageFormat(t *testing.T) {
 	}
 
 	inodeID := strconv.FormatUint(st.Inode, 10)
-	inodeKey := "afs-lite:{keytest}:inode:" + inodeID
+	inodeKey := "afs:{keytest}:inode:" + inodeID
 	vals, err := rdb.HGetAll(ctx, inodeKey).Result()
 	if err != nil {
 		t.Fatalf("hgetall: %v", err)
@@ -402,7 +402,7 @@ func TestCanonicalInodeStorageFormat(t *testing.T) {
 	if vals["content_ref"] != "ext" {
 		t.Fatalf("expected content_ref=ext, got %q", vals["content_ref"])
 	}
-	contentKey := "afs-lite:{keytest}:content:" + inodeID
+	contentKey := "afs:{keytest}:content:" + inodeID
 	contentVal, err := rdb.Get(ctx, contentKey).Result()
 	if err != nil {
 		t.Fatalf("get content key: %v", err)
@@ -423,7 +423,7 @@ func TestCanonicalInodeStorageFormat(t *testing.T) {
 		t.Fatalf("expected path_ancestors=/hello.txt, got %q", vals["path_ancestors"])
 	}
 
-	rootDirentsKey := "afs-lite:{keytest}:dirents:" + rootInodeID
+	rootDirentsKey := "afs:{keytest}:dirents:" + rootInodeID
 	childID, err := rdb.HGet(ctx, rootDirentsKey, "hello.txt").Result()
 	if err != nil {
 		t.Fatalf("hget dirent: %v", err)
@@ -432,7 +432,7 @@ func TestCanonicalInodeStorageFormat(t *testing.T) {
 		t.Fatalf("expected dirent hello.txt -> %s, got %q", inodeID, childID)
 	}
 
-	infoKey := "afs-lite:{keytest}:info"
+	infoKey := "afs:{keytest}:info"
 	infoVals, err := rdb.HGetAll(ctx, infoKey).Result()
 	if err != nil {
 		t.Fatalf("hgetall info: %v", err)
@@ -447,7 +447,7 @@ func TestCanonicalInodeStorageFormat(t *testing.T) {
 		t.Fatalf("expected schema_version=%s, got %q", schemaVersion, infoVals["schema_version"])
 	}
 
-	nextInode, err := rdb.Get(ctx, "afs-lite:{keytest}:next_inode").Result()
+	nextInode, err := rdb.Get(ctx, "afs:{keytest}:next_inode").Result()
 	if err != nil {
 		t.Fatalf("get next_inode: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestArrayBackendPreferredWhenAvailable(t *testing.T) {
 	}
 
 	inodeID := strconv.FormatUint(st.Inode, 10)
-	inodeKey := "afs-lite:{array-preferred}:inode:" + inodeID
+	inodeKey := "afs:{array-preferred}:inode:" + inodeID
 	contentRef, err := rdb.HGet(ctx, inodeKey, "content_ref").Result()
 	if err != nil {
 		t.Fatalf("HGet(content_ref) returned error: %v", err)
@@ -481,7 +481,7 @@ func TestArrayBackendPreferredWhenAvailable(t *testing.T) {
 		t.Fatalf("content_ref = %q, want %q", contentRef, rediscontent.RefArray)
 	}
 
-	contentKey := "afs-lite:{array-preferred}:content:" + inodeID
+	contentKey := "afs:{array-preferred}:content:" + inodeID
 	length, err := rdb.Do(ctx, "ARLEN", contentKey).Int64()
 	if err != nil {
 		t.Fatalf("ARLEN(%s) returned error: %v", contentKey, err)
@@ -586,7 +586,7 @@ func TestRenamePreservesStableInode(t *testing.T) {
 		t.Fatalf("expected dst dir inode, got %+v", dstDir)
 	}
 
-	inodeKey := "afs-lite:{rename}:inode:" + strconv.FormatUint(after.Inode, 10)
+	inodeKey := "afs:{rename}:inode:" + strconv.FormatUint(after.Inode, 10)
 	vals, err := rdb.HGetAll(ctx, inodeKey).Result()
 	if err != nil {
 		t.Fatalf("hgetall renamed inode: %v", err)
@@ -598,14 +598,14 @@ func TestRenamePreservesStableInode(t *testing.T) {
 		t.Fatalf("expected renamed inode name=renamed.txt, got %q", vals["name"])
 	}
 
-	srcDirents := "afs-lite:{rename}:dirents:" + strconv.FormatUint(srcDir.Inode, 10)
+	srcDirents := "afs:{rename}:dirents:" + strconv.FormatUint(srcDir.Inode, 10)
 	if exists, err := rdb.HExists(ctx, srcDirents, "file.txt").Result(); err != nil {
 		t.Fatalf("hexists old dirent: %v", err)
 	} else if exists {
 		t.Fatal("expected old dir entry to be removed")
 	}
 
-	dstDirents := "afs-lite:{rename}:dirents:" + strconv.FormatUint(dstDir.Inode, 10)
+	dstDirents := "afs:{rename}:dirents:" + strconv.FormatUint(dstDir.Inode, 10)
 	dstChild, err := rdb.HGet(ctx, dstDirents, "renamed.txt").Result()
 	if err != nil {
 		t.Fatalf("hget new dirent: %v", err)
@@ -765,7 +765,7 @@ func TestRenameUpdatesIndexedPathsForDirectorySubtree(t *testing.T) {
 		t.Fatalf("rename src to dst: %v", err)
 	}
 
-	inodeKey := "afs-lite:{rename-indexed-paths}:inode:" + strconv.FormatUint(before.Inode, 10)
+	inodeKey := "afs:{rename-indexed-paths}:inode:" + strconv.FormatUint(before.Inode, 10)
 	vals, err := rdb.HGetAll(ctx, inodeKey).Result()
 	if err != nil {
 		t.Fatalf("hgetall renamed inode: %v", err)
@@ -1019,7 +1019,7 @@ func TestHashTagInKeys(t *testing.T) {
 	var allKeys []string
 	var cursor uint64
 	for {
-		keys, next, err := rdb.Scan(ctx, cursor, "afs-lite:{htag}:*", 100).Result()
+		keys, next, err := rdb.Scan(ctx, cursor, "afs:{htag}:*", 100).Result()
 		if err != nil {
 			t.Fatalf("scan: %v", err)
 		}
@@ -1031,7 +1031,7 @@ func TestHashTagInKeys(t *testing.T) {
 	}
 
 	if len(allKeys) == 0 {
-		t.Fatal("expected keys matching afs-lite:{htag}:*, got none")
+		t.Fatal("expected keys matching afs:{htag}:*, got none")
 	}
 	for _, k := range allKeys {
 		if !strings.Contains(k, "{htag}") {
@@ -1110,7 +1110,7 @@ func TestCreateFileRaceLoserCleansUpOrphan(t *testing.T) {
 	// Redis should hold exactly two inode keys: the root and the winner's
 	// /race.txt. An extra key means the loser's DEL on its orphan inode
 	// never ran.
-	keys, err := rdb.Keys(ctx, "afs-lite:{create-race}:inode:*").Result()
+	keys, err := rdb.Keys(ctx, "afs:{create-race}:inode:*").Result()
 	if err != nil {
 		t.Fatalf("keys: %v", err)
 	}
@@ -1160,7 +1160,7 @@ func TestCreateFileRaceLoserCompensatesContentBytes(t *testing.T) {
 			info.TotalDataBytes, len(payload))
 	}
 
-	keys, err := rdb.Keys(ctx, "afs-lite:{create-race-bytes}:inode:*").Result()
+	keys, err := rdb.Keys(ctx, "afs:{create-race-bytes}:inode:*").Result()
 	if err != nil {
 		t.Fatalf("keys: %v", err)
 	}
@@ -1219,7 +1219,7 @@ func TestCreateFileRaceExclusiveLoserReturnsError(t *testing.T) {
 	if info.Files != 1 {
 		t.Fatalf("Info.Files = %d, want 1", info.Files)
 	}
-	keys, err := rdb.Keys(ctx, "afs-lite:{create-race-excl}:inode:*").Result()
+	keys, err := rdb.Keys(ctx, "afs:{create-race-excl}:inode:*").Result()
 	if err != nil {
 		t.Fatalf("keys: %v", err)
 	}
@@ -1290,7 +1290,7 @@ func readInodeFields(t *testing.T, rdb *redis.Client, ctx context.Context, fsKey
 	if st == nil {
 		t.Fatalf("stat %s: nil", inodePath)
 	}
-	key := "afs-lite:{" + fsKey + "}:inode:" + strconv.FormatUint(st.Inode, 10)
+	key := "afs:{" + fsKey + "}:inode:" + strconv.FormatUint(st.Inode, 10)
 	vals, err := rdb.HMGet(ctx, key, fields...).Result()
 	if err != nil {
 		t.Fatalf("hmget %s: %v", key, err)

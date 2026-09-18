@@ -14,53 +14,53 @@ func newKeyBuilder(fsKey string) keyBuilder {
 }
 
 func (k keyBuilder) inode(id string) string {
-	return "afs-lite:{" + k.fsKey + "}:inode:" + id
+	return "afs:{" + k.fsKey + "}:inode:" + id
 }
 
 func (k keyBuilder) dirents(id string) string {
-	return "afs-lite:{" + k.fsKey + "}:dirents:" + id
+	return "afs:{" + k.fsKey + "}:dirents:" + id
 }
 
 func (k keyBuilder) info() string {
-	return "afs-lite:{" + k.fsKey + "}:info"
+	return "afs:{" + k.fsKey + "}:info"
 }
 
 func (k keyBuilder) nextInode() string {
-	return "afs-lite:{" + k.fsKey + "}:next_inode"
+	return "afs:{" + k.fsKey + "}:next_inode"
 }
 
 func (k keyBuilder) rootDirty() string {
-	return "afs-lite:{" + k.fsKey + "}:root_dirty"
+	return "afs:{" + k.fsKey + "}:root_dirty"
 }
 
 func (k keyBuilder) content(id string) string {
-	return "afs-lite:{" + k.fsKey + "}:content:" + id
+	return "afs:{" + k.fsKey + "}:content:" + id
 }
 
 // invalidateChannel is the Redis pub/sub channel name used to broadcast
 // cache invalidation events between clients that share this FS key. The
 // hash tag keeps it colocated on the same cluster slot as the data keys.
 func (k keyBuilder) invalidateChannel() string {
-	return "afs-lite:{" + k.fsKey + "}:invalidate"
+	return "afs:{" + k.fsKey + "}:invalidate"
 }
 
 // changesStream is the Redis Stream key for the durable change journal.
 // Sync clients read from this stream on reconnect to catch up on events
 // missed while their pub/sub subscription was down.
 func (k keyBuilder) changesStream() string {
-	return "afs-lite:{" + k.fsKey + "}:changes"
+	return "afs:{" + k.fsKey + "}:changes"
 }
 
 func (k keyBuilder) inodePrefix() string {
-	return "afs-lite:{" + k.fsKey + "}:inode:"
+	return "afs:{" + k.fsKey + "}:inode:"
 }
 
 func (k keyBuilder) direntsPrefix() string {
-	return "afs-lite:{" + k.fsKey + "}:dirents:"
+	return "afs:{" + k.fsKey + "}:dirents:"
 }
 
 func (k keyBuilder) scanPattern() string {
-	return "afs-lite:{" + k.fsKey + "}:*"
+	return "afs:{" + k.fsKey + "}:*"
 }
 
 func normalizePath(p string) string {
@@ -77,6 +77,6 @@ func normalizePath(p string) string {
 	return clean
 }
 
-func (k keyBuilder) generation() string       { return "afs-lite:{" + k.fsKey + "}:generation" }
-func (k keyBuilder) session(id string) string { return "afs-lite:{" + k.fsKey + "}:session:" + id }
-func (k keyBuilder) locks(id string) string   { return "afs-lite:{" + k.fsKey + "}:locks:" + id }
+func (k keyBuilder) generation() string       { return "afs:{" + k.fsKey + "}:generation" }
+func (k keyBuilder) session(id string) string { return "afs:{" + k.fsKey + "}:session:" + id }
+func (k keyBuilder) locks(id string) string   { return "afs:{" + k.fsKey + "}:locks:" + id }

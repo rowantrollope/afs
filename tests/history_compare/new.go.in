@@ -14,7 +14,7 @@ import (
 )
 
 const implementation = "new"
-const namespace = "afs-lite:{comparison}:"
+const namespace = "afs:{comparison}:"
 
 var bodyPrefixes = []string{namespace + "history:body:", namespace + "history:blob:"}
 

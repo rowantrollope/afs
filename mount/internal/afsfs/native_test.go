@@ -93,7 +93,7 @@ func TestNativeFUSECacheHonorsGeneration(t *testing.T) {
 		t.Fatal(eno)
 	}
 	stream.Close()
-	if err := rdb.Set(ctx, "afs-lite:{fuse-fence}:generation", "new-generation", 0).Err(); err != nil {
+	if err := rdb.Set(ctx, "afs:{fuse-fence}:generation", "new-generation", 0).Err(); err != nil {
 		t.Fatal(err)
 	}
 	if _, eno := r.Lookup(ctx, "file", &fuse.EntryOut{}); eno != syscall.ESTALE {

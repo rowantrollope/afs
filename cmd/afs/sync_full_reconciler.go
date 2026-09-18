@@ -257,7 +257,7 @@ func (f *fullReconciler) workspaceRootHead(ctx context.Context, storageID, fallb
 }
 
 func workspaceRootHeadSavepointKey(storageID string) string {
-	return "afs-lite:{" + controlplane.WorkspaceFSKey(strings.TrimSpace(storageID)) + "}:root_head_savepoint"
+	return "afs:{" + controlplane.WorkspaceFSKey(strings.TrimSpace(storageID)) + "}:root_head_savepoint"
 }
 
 // isColdStart returns true when the local folder is empty (or missing) and

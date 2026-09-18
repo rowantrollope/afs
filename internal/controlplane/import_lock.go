@@ -57,7 +57,7 @@ type ImportLock struct {
 
 // ImportLockKey returns the Redis key used for the workspace import lock.
 func ImportLockKey(workspace string) string {
-	return fmt.Sprintf("afs-lite:{%s}:import_lock", workspace)
+	return fmt.Sprintf("afs:{%s}:import_lock", workspace)
 }
 
 // AcquireImportLock acquires the per-workspace import lock. If another

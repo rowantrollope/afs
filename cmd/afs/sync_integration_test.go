@@ -762,7 +762,7 @@ func TestSyncColdStartUsesStorageIDWhenWorkspaceMetaIsUnavailable(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("SyncWorkspaceRoot: %v", err)
 	}
-	if err := rdb.Del(ctx, "afs-lite:{"+storageID+"}:workspace:meta", "afs:workspace:index:names").Err(); err != nil {
+	if err := rdb.Del(ctx, "afs:{"+storageID+"}:workspace:meta", "afs:workspace:index:names").Err(); err != nil {
 		t.Fatalf("delete workspace metadata: %v", err)
 	}
 

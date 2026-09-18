@@ -93,7 +93,7 @@ func (s *Service) GetFileHistoryChanges(ctx context.Context, workspace string, r
 	if req.Until != "" {
 		end = "(" + req.Until
 	}
-	stream := "afs-lite:{" + id + "}:changes"
+	stream := "afs:{" + id + "}:changes"
 	const batchSize, maxScanned = 128, 4096
 	for scanned := 0; scanned < maxScanned; {
 		var messages []redis.XMessage

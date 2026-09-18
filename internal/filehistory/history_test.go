@@ -187,7 +187,7 @@ func TestDirectoryRenameResolvesLiveLineage(t *testing.T) {
 	ctx := context.Background()
 	record := seedRecord(t, rdb, Record{FileID: "live", Version: 1, Path: "/old/file"}, 5, "body")
 	seedRecord(t, rdb, Record{FileID: "prior", Version: 1, Path: "/new/file", Deleted: true}, 3, "")
-	fs := "afs-lite:{test}:"
+	fs := "afs:{test}:"
 	pipe := rdb.TxPipeline()
 	pipe.HSet(ctx, fs+"dirents:1", "new", "2")
 	pipe.HSet(ctx, fs+"dirents:2", "file", "3")
@@ -362,7 +362,7 @@ func TestCaptureCounterAndCopyPreflight(t *testing.T) {
 			rdb := testHistory(t)
 			ctx := context.Background()
 			prefix := Prefix("test")
-			fs := "afs-lite:{test}:"
+			fs := "afs:{test}:"
 			if err := SetPolicy(ctx, rdb, "test", Policy{Mode: ModeAll}); err != nil {
 				t.Fatal(err)
 			}

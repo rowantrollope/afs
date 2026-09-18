@@ -151,7 +151,7 @@ Redis ACLs can restrict commands, key access and Pub/Sub channels. The proposed
 grant must constrain all three. A broad wildcard for the workspace is inadequate:
 file and management keys currently share the same hash tag. The
 [client key builder](../mount/internal/client/keys.go) uses
-`afs-lite:{workspaceID}:...` for inodes, content, directory entries, the change
+`afs:{workspaceID}:...` for inodes, content, directory entries, the change
 journal, invalidation channels, generation and native sessions. The
 [Store key helpers](../internal/controlplane/store.go) put workspace metadata,
 checkpoint manifests and blobs under that hash tag too.

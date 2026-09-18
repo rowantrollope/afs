@@ -77,7 +77,7 @@ type inodeData struct {
 	AtimeMs    int64
 	Target     string
 	Content    string
-	ContentRef string // "ext"/"array" use afs-lite:{fs}:content:{id}; empty means legacy inline content
+	ContentRef string // "ext"/"array" use afs:{fs}:content:{id}; empty means legacy inline content
 }
 
 func newNativeClient(rdb *redis.Client, key string, observer MutationObserver) Client {
@@ -185,7 +185,7 @@ func (c *nativeClient) publishInvalidate(ctx context.Context, op string, paths .
 		Activity: &activity,
 	}
 	if err := PublishInvalidation(ctx, c.rdb, c.key, ev); err != nil {
-		log.Printf("afs-lite: invalidate publish failed op=%s paths=%v: %v", op, cleaned, err)
+		log.Printf("afs: invalidate publish failed op=%s paths=%v: %v", op, cleaned, err)
 	}
 }
 
@@ -262,7 +262,7 @@ func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Contex
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("afs-lite: invalidate subscribe to %s failed: %v (retry in %s)", channel, err, backoff)
+			log.Printf("afs: invalidate subscribe to %s failed: %v (retry in %s)", channel, err, backoff)
 			select {
 			case <-ctx.Done():
 				return
@@ -299,7 +299,7 @@ func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Contex
 				case *redis.Message:
 					ev, err := decodeInvalidate([]byte(msg.Payload))
 					if err != nil {
-						log.Printf("afs-lite: invalidate decode failed: %v (payload=%q)", err, msg.Payload)
+						log.Printf("afs: invalidate decode failed: %v (payload=%q)", err, msg.Payload)
 						continue
 					}
 					if ev.Origin != c.originID {
@@ -313,7 +313,7 @@ func (c *nativeClient) runInvalidationSubscriberWithReconnect(ctx context.Contex
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("afs-lite: invalidate subscription to %s dropped, reconnecting", channel)
+		log.Printf("afs: invalidate subscription to %s dropped, reconnecting", channel)
 	}
 }
 
@@ -354,7 +354,7 @@ func (c *nativeClient) runInvalidationSubscriber(ctx context.Context, channel st
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("afs-lite: invalidate subscribe to %s failed: %v (retry in %s)", channel, err, backoff)
+			log.Printf("afs: invalidate subscribe to %s failed: %v (retry in %s)", channel, err, backoff)
 			select {
 			case <-ctx.Done():
 				return
@@ -375,7 +375,7 @@ func (c *nativeClient) runInvalidationSubscriber(ctx context.Context, channel st
 		}
 		// Connection dropped (channel closed without ctx cancellation);
 		// loop around and resubscribe.
-		log.Printf("afs-lite: invalidate subscription to %s dropped, reconnecting", channel)
+		log.Printf("afs: invalidate subscription to %s dropped, reconnecting", channel)
 	}
 }
 
@@ -390,7 +390,7 @@ func (c *nativeClient) consumeInvalidationChannel(ctx context.Context, ch <-chan
 			}
 			ev, err := decodeInvalidate([]byte(msg.Payload))
 			if err != nil {
-				log.Printf("afs-lite: invalidate decode failed: %v (payload=%q)", err, msg.Payload)
+				log.Printf("afs: invalidate decode failed: %v (payload=%q)", err, msg.Payload)
 				continue
 			}
 			if ev.Origin == c.originID {
