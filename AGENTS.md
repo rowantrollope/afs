@@ -11,3 +11,7 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 - Keep tasks/todo.md current; record user corrections in tasks/lessons.md.
 - Validate with build, vet, unit/race tests and isolated real-Redis process tests.
 - Preserve scan batching, chunking, worker draining, warm recovery and directory-mode restoration.
+
+- The optional control plane is `cmd/afs-control-plane`; do not add HTTP server commands to `afs`. Build embedded UI with `make control-plane`, not plain Go build.
+- New implementation belongs here; the original `agent-filesystem` checkout is read-only reference. Keep one storage engine and direct Redis mounted I/O.
+- Control-plane scope is one Redis backend and a trusted self-managed team token; no Cloud, search, hosted MCP, templates, or multi-database catalog.

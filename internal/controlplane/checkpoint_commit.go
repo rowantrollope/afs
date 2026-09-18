@@ -11,6 +11,7 @@ import (
 )
 
 type SaveCheckpointRequest struct {
+	ExpectedChangesID                                                                   string
 	ImportLockToken                                                                     string
 	ExpectedGeneration                                                                  string
 	Workspace, ExpectedHead, CheckpointID, Description, Kind, Source, Author, CreatedBy string
@@ -101,6 +102,32 @@ func (s *Service) saveCheckpoint(ctx context.Context, input SaveCheckpointReques
 				return ErrWorkspaceConflict
 			}
 		}
+		if input.ExpectedChangesID != "" {
+			latest, err := latestServerChange(ctx, tx, storageID)
+			if err != nil {
+				return err
+			}
+			if latest != input.ExpectedChangesID {
+				return ErrWorkspaceConflict
+			}
+		}
+		if input.ImportLockToken != "" {
+			token, err := tx.Get(ctx, ImportLockKey(storageID)).Result()
+			if err != nil {
+				return err
+			}
+			if token != input.ImportLockToken {
+				return ErrImportInProgress
+			}
+		} else {
+			exists, err := tx.Exists(ctx, ImportLockKey(storageID)).Result()
+			if err != nil {
+				return err
+			}
+			if exists != 0 {
+				return ErrImportInProgress
+			}
+		}
 		if current.HeadSavepoint != input.ExpectedHead {
 			return ErrWorkspaceConflict
 		}
@@ -134,7 +161,7 @@ func (s *Service) saveCheckpoint(ctx context.Context, input SaveCheckpointReques
 
 		current.HeadSavepoint = input.CheckpointID
 		current.UpdatedAt = now
-		current.DirtyHint = false
+		current.DirtyHint = input.ExpectedChangesID == ""
 
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			if err := setJSON(ctx, pipe, savepointMetaKey(storageID, input.CheckpointID), savepointMeta); err != nil {
@@ -150,6 +177,12 @@ func (s *Service) saveCheckpoint(ctx context.Context, input SaveCheckpointReques
 				Score:  float64(now.UnixMilli()),
 				Member: input.CheckpointID,
 			})
+			if input.ExpectedChangesID != "" {
+				pipe.Set(ctx, workspaceRootHeadKey(storageID), input.CheckpointID, 0)
+				pipe.Set(ctx, workspaceRootDirtyKey(storageID), "0", 0)
+			} else {
+				pipe.Set(ctx, workspaceRootDirtyKey(storageID), "1", 0)
+			}
 			for blobID, ref := range updatedRefs {
 				if err := setJSON(ctx, pipe, blobRefKey(storageID, blobID), ref); err != nil {
 					return err
@@ -158,7 +191,7 @@ func (s *Service) saveCheckpoint(ctx context.Context, input SaveCheckpointReques
 			return nil
 		})
 		return err
-	}, workspaceMetaKey(storageID), WorkspaceGenerationKey(storageID))
+	}, workspaceMetaKey(storageID), WorkspaceGenerationKey(storageID), "afs:{"+storageID+"}:changes", ImportLockKey(storageID))
 	if err != nil {
 		if errors.Is(err, ErrWorkspaceConflict) || err == redis.TxFailedErr {
 			return false, ErrWorkspaceConflict
@@ -167,10 +200,6 @@ func (s *Service) saveCheckpoint(ctx context.Context, input SaveCheckpointReques
 	}
 	if !input.SkipWorkspaceRootSync {
 		if err := SyncWorkspaceRoot(ctx, s.store, storageID, input.Manifest); err != nil {
-			return false, err
-		}
-	} else {
-		if err := MarkWorkspaceRootClean(ctx, s.store, storageID, input.CheckpointID); err != nil {
 			return false, err
 		}
 	}

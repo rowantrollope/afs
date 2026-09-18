@@ -48,6 +48,9 @@ func TestMain(m *testing.M) {
 		}
 	}
 	code := m.Run()
+	if controlPlaneBuild.path != "" {
+		_ = os.RemoveAll(filepath.Dir(controlPlaneBuild.path))
+	}
 	if binaryDirectory != "" {
 		_ = os.RemoveAll(binaryDirectory)
 	}
@@ -124,9 +127,13 @@ func (r *redisServer) signal(s syscall.Signal) {
 func (r *redisServer) url() string { return "redis://" + r.addr + "/0" }
 
 type cli struct {
-	t               *testing.T
-	redis           *redisServer
-	state, config   string
+	t             *testing.T
+	redis         *redisServer
+	state, config string
+	managed       bool
+	// Non-nil environment starts from a clean AFS environment for connection
+	// acceptance tests; existing standalone helpers retain their behavior.
+	environment     map[string]string
 	mounts          map[string]int
 	mountWorkspaces map[string]string
 	writers         map[string]string
@@ -165,8 +172,20 @@ func newCLI(t *testing.T, r *redisServer) *cli {
 	return c
 }
 func (c *cli) command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, binary, append([]string{"--config", c.config, "--redis", c.redis.url()}, args...)...)
-	cmd.Env = append(os.Environ(), "AFS_STATE_DIR="+c.state)
+	prefix := []string{"--config", c.config}
+	if !c.managed {
+		prefix = append(prefix, "--redis", c.redis.url())
+	}
+	cmd := exec.CommandContext(ctx, binary, append(prefix, args...)...)
+	for _, entry := range os.Environ() {
+		if c.environment == nil || !strings.HasPrefix(entry, "AFS_") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	for key, value := range c.environment {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	cmd.Env = append(cmd.Env, "AFS_STATE_DIR="+c.state)
 	return cmd
 }
 func (c *cli) runTimeout(timeout time.Duration, input []byte, args ...string) ([]byte, []byte, error) {

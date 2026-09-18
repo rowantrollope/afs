@@ -16,6 +16,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rowantrollope/afs/internal/controlplane"
+	"github.com/rowantrollope/afs/internal/managedclient"
 	"github.com/rowantrollope/afs/mount/client"
 )
 
@@ -75,7 +76,7 @@ func (a *app) mount(args []string) error {
 		return errors.New("the filesystem root cannot be a sync directory")
 	}
 	ctx := context.Background()
-	if err = a.connect(ctx); err != nil {
+	if err = a.connectMount(ctx); err != nil {
 		return err
 	}
 	meta, err := a.service.GetWorkspace(ctx, pos[0])
@@ -130,6 +131,10 @@ func (a *app) mount(args []string) error {
 		SessionID: mountOpts.SessionID, AgentID: mountOpts.AgentID, User: mountOpts.User, Label: mountOpts.Label, AgentVersion: mountOpts.AgentVersion,
 		Redis: redisDisplay(a.config), RedisIdentity: redisIdentity(a.config), RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation,
 		Token: token, RuntimeDir: runtimeDir, SyncLog: filepath.Join(runtimeDir, "sync.log"), StartedAt: time.Now().UTC()}
+	if err := prepareManagedMount(a.config, &rec); err != nil {
+		release()
+		return err
+	}
 	boot := syncDaemonBootstrap{Config: a.config, Record: rec, Foreground: *foreground}
 	if *foreground {
 		rec.PID = os.Getpid()
@@ -202,7 +207,7 @@ func startSyncDaemonProcess(bootstrap syncDaemonBootstrap) (int, error) {
 	}
 	defer os.Remove(bootstrapPath)
 	cmd := exec.Command(exe, "_sync-daemon")
-	cmd.Env = append(os.Environ(), syncDaemonBootstrapEnv+"="+bootstrapPath)
+	cmd.Env = append(daemonEnvironment(bootstrap.Config), syncDaemonBootstrapEnv+"="+bootstrapPath)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -309,7 +314,10 @@ func serveSyncDaemon(boot syncDaemonBootstrap) error {
 	if current != rec.Generation {
 		return errors.New("workspace changed while mounting; retry")
 	}
-	d, err := newSyncDaemon(syncDaemonConfig{Workspace: rec.WorkspaceID, LocalRoot: rec.LocalPath, FS: client.New(rdb, rec.RedisKey), Store: newAFSStore(rdb), MaxFileBytes: syncSizeCapBytes(boot.Config), WatcherQueueCapacity: syncWatcherQueueCapacity(boot.Config), Interactive: boot.Foreground, Readonly: rec.ReadOnly,
+	presence := managedclient.Start(ctx, managedConfig(boot.Config), managedRegistration(rec),
+		func(ctx context.Context, key string) (string, error) { return rdb.Get(ctx, key).Result() }, managedWarning)
+	defer presence.Close()
+	d, err := newSyncDaemon(syncDaemonConfig{Management: presence, Workspace: rec.WorkspaceID, LocalRoot: rec.LocalPath, FS: client.New(rdb, rec.RedisKey), Store: newAFSStore(rdb), MaxFileBytes: syncSizeCapBytes(boot.Config), WatcherQueueCapacity: syncWatcherQueueCapacity(boot.Config), Interactive: boot.Foreground, Readonly: rec.ReadOnly,
 		SessionID: rec.SessionID, AgentID: rec.AgentID, User: rec.User, Label: rec.Label, AgentVersion: rec.AgentVersion})
 	if err != nil {
 		return err
@@ -596,6 +604,9 @@ func (a *app) status(args []string) error {
 		out = append(out, row)
 	}
 	label, endpoint := "Configured REDIS", redisDisplay(a.config)
+	if a.managedMode() {
+		label, endpoint = "CONTROL PLANE", managedConfig(a.config).URL
+	}
 	if len(args) == 1 {
 		label, endpoint = "REDIS", reg.Mounts[0].Redis
 	}
@@ -607,6 +618,11 @@ func (a *app) status(args []string) error {
 func (a *app) localWorkspaceMounts(ctx context.Context, workspace string) ([]mountRecord, error) {
 	meta, err := a.service.GetWorkspace(ctx, workspace)
 	if err != nil {
+		return nil, err
+	}
+	// Resolve the backend without dialing it so guards also include standalone
+	// mounts and mounts reached through another URL for the same server.
+	if err := a.resolveManagedRedis(ctx); err != nil {
 		return nil, err
 	}
 	reg, err := loadMountRegistry()

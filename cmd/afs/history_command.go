@@ -111,17 +111,6 @@ to clear it. Globs are workspace-relative; ** matches across directories.
 Upgrade every writer before enabling history. Retention always preserves heads.
 `
 
-func (a *app) historyWorkspace(ctx context.Context, workspace string) (string, error) {
-	if err := a.connect(ctx); err != nil {
-		return "", err
-	}
-	meta, err := a.service.GetWorkspace(ctx, workspace)
-	if err != nil {
-		return "", err
-	}
-	return controlplane.WorkspaceStorageID(meta), nil
-}
-
 type historyGlobs []string
 
 func (g *historyGlobs) String() string { return strings.Join(*g, ", ") }
@@ -159,39 +148,39 @@ func (a *app) historyPolicyCommand(args []string) error {
 		return errors.New("history retention limits must be non-negative")
 	}
 	ctx := context.Background()
-	id, err := a.historyWorkspace(ctx, pos[0])
-	if err != nil {
+	if err = a.connect(ctx); err != nil {
 		return err
 	}
 	delete(changed, "prune")
 	var policy filehistory.Policy
 	if len(changed) > 0 {
-		policy, err = filehistory.UpdatePolicy(ctx, a.rdb, id, func(policy filehistory.Policy) (filehistory.Policy, error) {
-			if changed["mode"] {
-				policy.Mode = *mode
-			}
-			if changed["include"] {
-				policy.Include = include
-			}
-			if changed["exclude"] {
-				policy.Exclude = exclude
-			}
-			if changed["max-versions"] {
-				policy.MaxVersions = *maxVersions
-			}
-			if changed["max-age-days"] {
-				policy.MaxAgeDays = *maxAge
-			}
-			if changed["max-bytes"] {
-				policy.MaxBytes = *maxBytes
-			}
-			if changed["max-file-bytes"] {
-				policy.MaxFileBytes = *maxFile
-			}
-			return policy, nil
-		})
+		patch := controlplane.FileHistoryPolicyPatch{}
+		if changed["mode"] {
+			patch.Mode = mode
+		}
+		if changed["include"] {
+			values := append([]string{}, include...)
+			patch.Include = &values
+		}
+		if changed["exclude"] {
+			values := append([]string{}, exclude...)
+			patch.Exclude = &values
+		}
+		if changed["max-versions"] {
+			patch.MaxVersions = maxVersions
+		}
+		if changed["max-age-days"] {
+			patch.MaxAgeDays = maxAge
+		}
+		if changed["max-bytes"] {
+			patch.MaxBytes = maxBytes
+		}
+		if changed["max-file-bytes"] {
+			patch.MaxFileBytes = maxFile
+		}
+		policy, err = a.service.UpdateFileHistoryPolicy(ctx, pos[0], patch)
 	} else {
-		policy, err = filehistory.GetPolicy(ctx, a.rdb, id)
+		policy, err = a.service.GetFileHistoryPolicy(ctx, pos[0])
 	}
 	if err != nil {
 		return err
@@ -202,7 +191,7 @@ func (a *app) historyPolicyCommand(args []string) error {
 		// Each call holds Redis only for a bounded cleanup batch. Keep the CLI
 		// bounded as well when other writers are continually adding versions.
 		for batch := 0; batch < 100; batch++ {
-			result, err := filehistory.PrunePage(ctx, a.rdb, id, 100)
+			result, err := a.service.PruneFileHistory(ctx, pos[0], 100)
 			if err != nil {
 				return err
 			}
@@ -259,11 +248,10 @@ func (a *app) exportHistoryCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	id, err := a.historyWorkspace(ctx, pos[0])
-	if err != nil {
+	if err = a.connect(ctx); err != nil {
 		return err
 	}
-	record, content, err := filehistory.Get(ctx, a.rdb, id, path, *selector, *fileID)
+	record, content, err := a.service.GetFileHistoryExport(ctx, pos[0], path, *selector, *fileID)
 	if err != nil {
 		return err
 	}

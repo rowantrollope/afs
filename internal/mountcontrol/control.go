@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/rowantrollope/afs/internal/managedclient"
 )
 
 const (
@@ -27,20 +29,22 @@ const (
 )
 
 type Bootstrap struct {
-	RedisURL    string  `json:"redis_url"`
-	Backend     string  `json:"backend"`
-	WorkspaceID string  `json:"workspace_id"`
-	RedisKey    string  `json:"redis_key"`
-	Generation  string  `json:"generation"`
-	Mountpoint  string  `json:"mountpoint"`
-	RuntimeDir  string  `json:"runtime_dir"`
-	Token       string  `json:"token"`
-	ReadyPath   string  `json:"ready_path"`
-	ReadOnly    bool    `json:"read_only,omitempty"`
-	UID         *uint32 `json:"uid,omitempty"`
-	GID         *uint32 `json:"gid,omitempty"`
-	AllowOther  bool    `json:"allow_other,omitempty"`
-	DetachOnly  bool    `json:"detach_only,omitempty"`
+	Management   managedclient.Settings     `json:"management,omitempty"`
+	Registration managedclient.Registration `json:"registration,omitempty"`
+	RedisURL     string                     `json:"redis_url"`
+	Backend      string                     `json:"backend"`
+	WorkspaceID  string                     `json:"workspace_id"`
+	RedisKey     string                     `json:"redis_key"`
+	Generation   string                     `json:"generation"`
+	Mountpoint   string                     `json:"mountpoint"`
+	RuntimeDir   string                     `json:"runtime_dir"`
+	Token        string                     `json:"token"`
+	ReadyPath    string                     `json:"ready_path"`
+	ReadOnly     bool                       `json:"read_only,omitempty"`
+	UID          *uint32                    `json:"uid,omitempty"`
+	GID          *uint32                    `json:"gid,omitempty"`
+	AllowOther   bool                       `json:"allow_other,omitempty"`
+	DetachOnly   bool                       `json:"detach_only,omitempty"`
 }
 
 type Ready struct {
@@ -59,17 +63,18 @@ type Request struct {
 }
 
 type Result struct {
-	Version     int    `json:"version"`
-	Operation   string `json:"operation"`
-	Token       string `json:"token"`
-	WorkspaceID string `json:"workspace_id"`
-	Mountpoint  string `json:"mountpoint"`
-	Success     bool   `json:"success"`
-	Error       string `json:"error,omitempty"`
-	Connected   bool   `json:"connected"`
-	Flushed     bool   `json:"flushed"`
-	Backend     string `json:"backend,omitempty"`
-	Endpoint    string `json:"endpoint,omitempty"`
+	Management  *managedclient.Status `json:"management,omitempty"`
+	Version     int                   `json:"version"`
+	Operation   string                `json:"operation"`
+	Token       string                `json:"token"`
+	WorkspaceID string                `json:"workspace_id"`
+	Mountpoint  string                `json:"mountpoint"`
+	Success     bool                  `json:"success"`
+	Error       string                `json:"error,omitempty"`
+	Connected   bool                  `json:"connected"`
+	Flushed     bool                  `json:"flushed"`
+	Backend     string                `json:"backend,omitempty"`
+	Endpoint    string                `json:"endpoint,omitempty"`
 }
 
 func SocketPath(runtimeDir string) string {

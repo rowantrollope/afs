@@ -72,7 +72,7 @@ func (a *app) historyFileCommand(args []string) error {
 		}
 	}
 	ctx := context.Background()
-	if _, err := a.historyWorkspace(ctx, pos[0]); err != nil {
+	if err := a.connect(ctx); err != nil {
 		return err
 	}
 	switch action {
@@ -81,6 +81,8 @@ func (a *app) historyFileCommand(args []string) error {
 		if errors.Is(err, os.ErrNotExist) && cursor == "" {
 			if _, liveErr := a.service.GetFileContent(ctx, pos[0], "working-copy", name); liveErr == nil {
 				return a.output(controlplane.FileHistoryResponse{WorkspaceID: pos[0], Path: name, Order: order, Lineages: []controlplane.FileHistoryLineage{}}, "No file history recorded yet.\n")
+			} else if !errors.Is(liveErr, os.ErrNotExist) {
+				return liveErr
 			}
 		}
 		if err != nil {

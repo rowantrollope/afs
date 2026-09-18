@@ -26,12 +26,12 @@ func addMountOptions(flags *flag.FlagSet) *mountOptions {
 	opts := &mountOptions{}
 	flags.BoolVar(&opts.ReadOnly, "readonly", false, "receive remote changes without publishing local changes")
 	flags.BoolVar(&opts.AllowOther, "allow-other", false, "allow other local users to access a FUSE mount")
-	flags.StringVar(&opts.SessionID, "session", os.Getenv("AFS_SESSION_ID"), "caller-supplied sync session label")
+	flags.StringVar(&opts.SessionID, "session", os.Getenv("AFS_SESSION_ID"), "caller-supplied session label")
 	flags.StringVar(&opts.SessionID, "session-id", os.Getenv("AFS_SESSION_ID"), "alias for --session")
-	flags.StringVar(&opts.AgentID, "agent-id", os.Getenv("AFS_AGENT_ID"), "caller-supplied sync agent ID")
-	flags.StringVar(&opts.User, "user", os.Getenv("AFS_USER"), "caller-supplied sync user label")
-	flags.StringVar(&opts.Label, "label", os.Getenv("AFS_AGENT_LABEL"), "caller-supplied sync display label")
-	flags.StringVar(&opts.AgentVersion, "agent-version", os.Getenv("AFS_AGENT_VERSION"), "caller-supplied sync agent version")
+	flags.StringVar(&opts.AgentID, "agent-id", os.Getenv("AFS_AGENT_ID"), "caller-supplied agent ID")
+	flags.StringVar(&opts.User, "user", os.Getenv("AFS_USER"), "caller-supplied user label")
+	flags.StringVar(&opts.Label, "label", os.Getenv("AFS_AGENT_LABEL"), "caller-supplied display label")
+	flags.StringVar(&opts.AgentVersion, "agent-version", os.Getenv("AFS_AGENT_VERSION"), "caller-supplied agent version")
 	for name, target := range map[string]**uint32{"uid": &opts.UID, "gid": &opts.GID} {
 		name, target := name, target
 		flags.Func(name, "FUSE ownership override (unsigned 32-bit integer)", func(value string) error {
@@ -55,12 +55,6 @@ func validateMountOptions(flags *flag.FlagSet, backend string) error {
 	flags.Visit(func(f *flag.Flag) {
 		if backend != "fuse" && (f.Name == "uid" || f.Name == "gid" || f.Name == "allow-other") {
 			err = fmt.Errorf("--%s requires --backend fuse", f.Name)
-		}
-		if backend != "sync" {
-			switch f.Name {
-			case "session", "session-id", "agent-id", "user", "label", "agent-version":
-				err = fmt.Errorf("--%s requires --backend sync", f.Name)
-			}
 		}
 	})
 	return err

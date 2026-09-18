@@ -153,3 +153,33 @@ func TestHistoryMutationAttributionSurvivesSuppressedNotifications(t *testing.T)
 		t.Fatalf("suppressed notifications published: %d", n)
 	}
 }
+
+func TestNativeSessionBindsAttributionAcrossFreshAdapterContexts(t *testing.T) {
+	rdb, ctx := setupTestRedis(t)
+	id := "native-session-attribution"
+	if err := filehistory.SetPolicy(ctx, rdb, id, filehistory.Policy{Mode: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	identity := FileVersionMutationMetadata{Source: "mount", SessionID: "managed-session", AgentID: "managed-agent", User: "person", Label: "Native Agent", AgentVersion: "test"}
+	native := setupNativeSession(t, rdb, WithFileVersionMutationMetadata(ctx, identity), id)
+	// Both adapters create new per-request contexts rather than reusing mount startup.
+	if err := native.Echo(context.Background(), "/file", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	stat, err := native.Stat(context.Background(), "/file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := native.WriteInodeAt(context.Background(), stat.Inode, []byte("N"), 0); err != nil {
+		t.Fatal(err)
+	}
+	records := historyRecords(t, ctx, rdb, id, "/file")
+	if len(records) == 0 {
+		t.Fatal("native publication did not capture history")
+	}
+	for _, record := range records {
+		if record.SessionID != "managed-session" || record.AgentID != "managed-agent" || record.Source != "mount" {
+			t.Fatalf("fresh adapter context lost managed attribution: %+v", record)
+		}
+	}
+}

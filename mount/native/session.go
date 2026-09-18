@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/redis/go-redis/v9"
+	"github.com/rowantrollope/afs/internal/managedclient"
 	"github.com/rowantrollope/afs/internal/mountcontrol"
 	"github.com/rowantrollope/afs/mount/internal/afsfs"
 	"github.com/rowantrollope/afs/mount/internal/client"
@@ -22,32 +24,35 @@ import (
 )
 
 type Config struct {
-	Backend    string
-	Mountpoint string
-	RedisURL   string
-	RedisKey   string
-	Generation string
-	ReadOnly   bool
-	UID        *uint32
-	GID        *uint32
-	AllowOther bool
+	Management   managedclient.Settings
+	Registration managedclient.Registration
+	Backend      string
+	Mountpoint   string
+	RedisURL     string
+	RedisKey     string
+	Generation   string
+	ReadOnly     bool
+	UID          *uint32
+	GID          *uint32
+	AllowOther   bool
 }
 
 type Session struct {
-	cfg       Config
-	rdb       *redis.Client
-	client    client.NativeClient
-	cancel    context.CancelFunc
-	fuse      *fuse.Server
-	listener  *trackedListener
-	endpoint  string
-	created   bool
-	mu        sync.Mutex
-	closed    bool
-	startErr  error
-	closeOnce sync.Once
-	done      chan struct{}
-	flushGate chan struct{}
+	management *managedclient.Lifecycle
+	cfg        Config
+	rdb        *redis.Client
+	client     client.NativeClient
+	cancel     context.CancelFunc
+	fuse       *fuse.Server
+	listener   *trackedListener
+	endpoint   string
+	created    bool
+	mu         sync.Mutex
+	closed     bool
+	startErr   error
+	closeOnce  sync.Once
+	done       chan struct{}
+	flushGate  chan struct{}
 }
 
 // Start mounts one workspace. StartExport exposes the same NFS adapter over a
@@ -115,6 +120,13 @@ func start(ctx context.Context, cfg Config, exportOnly bool) (result *Session, e
 	s.rdb = redis.NewClient(opts)
 	lifetime, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
+	s.management = managedclient.Start(lifetime, cfg.Management, cfg.Registration,
+		func(ctx context.Context, key string) (string, error) { return s.rdb.Get(ctx, key).Result() },
+		func(message string) { log.Printf("afs: management: %s", message) })
+	lifetime = client.WithFileVersionMutationMetadata(lifetime, client.FileVersionMutationMetadata{
+		Source: "mount", SessionID: cfg.Registration.SessionID, AgentID: cfg.Registration.AgentID,
+		User: cfg.Registration.User, Label: cfg.Registration.Label, AgentVersion: cfg.Registration.AFSVersion,
+	})
 	// A short metadata TTL is a fallback when a peer event is lost. Reconnect
 	// also clears caches; normal invalidations keep the hot path warm.
 	s.client, err = client.NewNativeWithCache(lifetime, s.rdb, cfg.RedisKey, cfg.Generation, time.Second)
@@ -205,7 +217,7 @@ func (s *Session) Status(ctx context.Context) mountcontrol.Result {
 	closed := s.closed
 	startErr := s.startErr
 	s.mu.Unlock()
-	r := mountcontrol.Result{Success: true, Backend: s.cfg.Backend, Endpoint: s.endpoint}
+	r := mountcontrol.Result{Management: s.management.Snapshot(), Success: true, Backend: s.cfg.Backend, Endpoint: s.endpoint}
 	if startErr != nil {
 		r.Error = startErr.Error()
 		return r
@@ -288,6 +300,7 @@ func (s *Session) closeResources() {
 		if s.client != nil {
 			_ = s.client.Close()
 		}
+		s.management.Close()
 		if s.rdb != nil {
 			_ = s.rdb.Close()
 		}

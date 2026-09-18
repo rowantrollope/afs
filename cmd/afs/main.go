@@ -38,10 +38,11 @@ Commands:
   delete <workspace>             Delete a workspace
   cp                             Create and manage checkpoints
   history                        Browse, compare, and recover file versions
+  auth                           Connect to a self-managed control plane
   config set <key> <value>       Save a configuration setting
 
 Options:
-  --redis <url>                  Redis URL; overrides configuration
+  --redis <url>                  Redis URL; use standalone mode for this command
   --config <file>                Configuration file
   --json                         Print machine-readable output
   -h, --help                     Show help
@@ -50,17 +51,22 @@ Options:
 Environment:
   AFS_REDIS_URL                  Override the configured Redis URL
   AFS_REDIS_PASSWORD             Override the selected Redis URL password
+  AFS_CONTROL_PLANE_URL          Management server; supplies mount credentials
+  AFS_CONTROL_PLANE_TOKEN        Optional management API token
 
 Run 'afs <command> --help' for details.
 `
 
 var commandUsage = map[string]string{
+	"auth":    authCommandUsage,
 	"sync":    syncCommandUsage,
 	"history": historyCommandUsage,
 	"config": `Usage: afs [--config <file>] config set <key> <value>
 
 Settings (defaults):
   redis                       redis://localhost:6379/0
+  controlPlane.url             empty (standalone; URL enables managed mode)
+  controlPlane.token           empty (read from stdin using value -)
   sync.fileSizeCapMB           2048 (0 uses the default)
   sync.watcherQueueCapacity    1024 (0 uses the default; maximum 1048576)
 
@@ -73,7 +79,7 @@ Changes apply to subsequent commands and newly started mounts.
 
 Create an empty workspace, or import an existing local directory with --from.
 `,
-	"list": "Usage: afs list\n\nList workspaces in the selected Redis database.\n",
+	"list": "Usage: afs list\n\nList workspaces through the control plane or selected Redis database.\n",
 	"info": "Usage: afs info <workspace>\n\nShow workspace details and checkpoint references.\n",
 	"fork": `Usage: afs fork <source> <new-workspace> [--checkpoint <id-or-name>]
 
@@ -113,12 +119,17 @@ Native read-only mounts also reject filesystem writes.
 FUSE only: --uid <id> and --gid <id> override ownership (including 0);
 --allow-other permits access by other local users when the FUSE driver allows it.
 
-Sync provenance: --session <label> (alias --session-id), --agent-id <id>,
+Mount provenance: --session <label> (alias --session-id), --agent-id <id>,
 --user <label>, --label <display-name>, and --agent-version <version> attach
 optional caller-supplied attribution to published file history and activity.
 Defaults: AFS_SESSION_ID, AFS_AGENT_ID, AFS_USER, AFS_AGENT_LABEL,
 AFS_AGENT_VERSION; the agent version otherwise identifies this AFS build.
-These labels do not authenticate a user or create a managed application session.
+Labels alone do not authenticate a user. With controlPlane.url configured, mounts
+obtain Redis credentials from the server, register a unique session and report
+presence; --session becomes its display name. The server must be available to
+start a mount. Established mounts keep direct Redis access during management
+outages. Tokens travel in private bootstrap files, never helper arguments.
+Check afs status for management availability. --redis selects standalone mode.
 `,
 	"unmount": `Usage: afs unmount <directory> [--force]
 
@@ -140,7 +151,7 @@ type app struct {
 	config  config
 	options cliOptions
 	rdb     *redis.Client
-	service *controlplane.Service
+	service managementService
 }
 
 func main() {
@@ -169,6 +180,9 @@ func runCLI(args []string) error {
 	if args[0] == "--version" || args[0] == "version" {
 		fmt.Println("afs " + version.String())
 		return nil
+	}
+	if args[0] == "auth" {
+		return authCommand(opts, args[1:])
 	}
 	usage, known := commandUsage[args[0]]
 	if !known {
@@ -206,6 +220,9 @@ func runCLI(args []string) error {
 	}
 	a := &app{config: cfg, options: opts}
 	defer func() {
+		if closer, ok := a.service.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		if a.rdb != nil {
 			_ = a.rdb.Close()
 		}
@@ -319,8 +336,16 @@ func allowedFlags(f *flag.FlagSet, names []string) error {
 }
 
 func (a *app) connect(ctx context.Context) error {
-	if a.rdb != nil {
+	if a.service != nil {
 		return nil
+	}
+	if a.managedMode() {
+		client, err := controlplane.NewCLIClient(a.config.ControlPlane.URL, a.config.ControlPlane.Token)
+		if err != nil {
+			return err
+		}
+		a.service = client
+		return a.redisHeader("CONTROL PLANE", a.config.ControlPlane.URL)
 	}
 	rdb := redis.NewClient(buildRedisOptions(a.config, 8))
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -404,12 +429,12 @@ func (a *app) workspace(args []string) error {
 				return e
 			}
 
-			meta, err = a.service.CreateWorkspaceStreaming(ctx, pos[0], func(id string, writer *controlplane.BlobWriter) (controlplane.Manifest, error) {
+			meta, err = a.service.ImportWorkspace(ctx, pos[0], func(writer controlplane.BlobSink) (controlplane.Manifest, error) {
 				build := worktree.BuildManifestOptions{Sink: importSink{ctx: ctx, writer: writer}}
 				if ignore != nil {
 					build.Ignore = ignore.matches
 				}
-				m, _, _, e := worktree.BuildManifestFromDirectory(root, id, "", build)
+				m, _, _, e := worktree.BuildManifestFromDirectory(root, "", "", build)
 				return m, e
 			})
 		}

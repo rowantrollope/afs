@@ -73,5 +73,12 @@ func (s *Service) UpdateWorkspaceVersioningPolicy(ctx context.Context, workspace
 	committed, err := filehistory.UpdatePolicy(ctx, s.store.rdb, id, func(filehistory.Policy) (filehistory.Policy, error) {
 		return policy.storagePolicy().Normalize(), nil
 	})
-	return compatibleVersioningPolicy(committed), err
+	if err != nil {
+		return WorkspaceVersioningPolicy{}, err
+	}
+	meta, err := s.GetWorkspace(ctx, id)
+	if err != nil {
+		return WorkspaceVersioningPolicy{}, err
+	}
+	return compatibleVersioningPolicy(committed), s.recordLifecycle(ctx, meta, "workspace", "versioning", nil)
 }

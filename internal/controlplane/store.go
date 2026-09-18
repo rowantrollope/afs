@@ -525,8 +525,19 @@ func (s *Store) Audit(ctx context.Context, workspace, op string, extra map[strin
 	pipe := s.rdb.TxPipeline()
 	pipe.XAdd(ctx, &redis.XAddArgs{
 		Stream: workspaceAuditKey(storageID),
+		MaxLen: managementEventsLimit, Approx: true,
 		Values: fields,
 	})
+	a, _ := ctx.Value(fileVersionAttributionKey{}).(FileVersionAttribution)
+	event := serverEvent{WorkspaceID: storageID, WorkspaceName: meta.Name, CreatedAt: serverTime(now), Kind: "checkpoint", Op: op, Source: "afs", Actor: defaultString(a.User, "afs"), SessionID: a.SessionID, AgentID: a.AgentID, User: a.User}
+	if cp, ok := extra["savepoint"]; ok {
+		event.CheckpointID = fmt.Sprint(cp)
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	pipe.XAdd(ctx, &redis.XAddArgs{Stream: managementEventsKey, MaxLen: managementEventsLimit, Approx: true, Values: map[string]any{"event": string(body)}})
 	_, err = pipe.Exec(ctx)
 	return err
 }

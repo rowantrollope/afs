@@ -1,6 +1,10 @@
 # Lightweight AFS control plane
 
-Status: **draft proposal; not implemented or approved for implementation**.
+Status: **superseded design proposal**. The current implementation and chosen
+scope are documented in [the control-plane guide](control-plane.md) and
+[capability inventory](control-plane-capabilities.md). The Redis grant/ACL
+system discussed below remains unimplemented and is not a delivered guarantee.
+The remainder preserves the earlier proposal for context.
 Written 2026-09-16. This document records the proposed direction, its constraints
 and the engineering decisions still needed. It does not change the current CLI.
 

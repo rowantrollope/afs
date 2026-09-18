@@ -22,6 +22,16 @@ go build -o bin/afs ./cmd/afs
 ./bin/afs --help
 ```
 
+## Optional control plane and UI
+
+Build the copied management UI and separate server with `make web-install` then
+`make control-plane`. Start `./bin/afs-control-plane` against your Redis backend,
+then run `afs auth login --url http://127.0.0.1:8091`. The CLI uses
+the API for management and obtains Redis credentials for mounts automatically.
+See the [control-plane guide](docs/control-plane.md) for
+authentication, daemon registration and the [capability inventory](docs/control-plane-capabilities.md).
+The ordinary CLI build and direct Redis operation remain independent.
+
 ## Install
 
 From the checkout, build and install the command for your user:
@@ -54,6 +64,15 @@ using `./bin/afs` directly. The original `agent-filesystem` installation is unch
 
 ## Configure
 
+For managed operation, run `afs auth login` (defaults to the local server at
+`http://127.0.0.1:8091`) or supply `--url` as shown above; no client-side Redis
+settings are needed. If the server requires a token, set
+`AFS_CONTROL_PLANE_TOKEN` before login or pipe it to `afs auth login --token-stdin`.
+Login verifies access before saving the connection. Use `afs auth status` to see
+the effective settings and `afs auth logout` to clear the saved connection.
+Managed commands ignore local Redis settings and environment overrides.
+An explicit `--redis` selects standalone operation for that command.
+
 Save your default Redis connection from the CLI (no Redis connection is needed):
 
 ```sh
@@ -63,7 +82,7 @@ afs list
 
 `make install` creates `~/.config/afs-lite/config.json` if it is missing.
 `config set` also creates a missing file with all defaults. The included
-[`config.example.json`](config.example.json) shows every supported setting:
+[`config.example.json`](config.example.json) shows the default standalone settings:
 
 ```json
 {
@@ -393,14 +412,14 @@ afs history undelete shared documents/deleted.txt
 
 Restore and undelete publish a new version into the workspace after checking for
 concurrent changes. The original web history contracts remain available as an
-internal control-plane HTTP handler, verified with test-only hosts. AFS does not
-ship a server command or a runnable control-plane service. See
+internal control-plane HTTP handler, also served by the separate
+`afs-control-plane` executable and copied UI. See
 [CLI and web UI compatibility](docs/file-history-compatibility.md) for the boundary.
 The seven history actions are consolidated under `history`; there are no separate
 root `recover`, `versioning`, `file` or `serve` commands, no `history serve`, and
 no hidden aliases.
-The Redis namespace and history storage format are separate from the original
-project; this interface compatibility does not migrate original stored histories.
+Both projects use the `afs:` namespace, but their history storage formats differ;
+this interface compatibility does not migrate original stored histories.
 
 Identical contents share immutable history bodies, and retention reclaims bodies
 after their final history reference is removed. A small change producing new

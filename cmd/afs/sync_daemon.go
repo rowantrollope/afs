@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rowantrollope/afs/internal/managedclient"
 	"github.com/rowantrollope/afs/internal/version"
 	"github.com/rowantrollope/afs/mount/client"
 )
@@ -19,6 +20,7 @@ import (
 // grouped by concern: the workspace and root path, the Redis client, and
 // optional knobs (size cap, debounce, readonly).
 type syncDaemonConfig struct {
+	Management           *managedclient.Lifecycle
 	Workspace            string
 	LocalRoot            string // absolute, will be created if missing
 	FS                   client.Client
@@ -36,8 +38,8 @@ type syncDaemonConfig struct {
 	ChunkThreshold   int // minimum file size to enable chunked sync (default 1 MB)
 	StorageID        string
 	HeadCheckpointID string
-	// Optional caller-supplied provenance; these labels do not authenticate a
-	// user or create a managed session in the original application.
+	// Publication attribution, including the managed session when configured.
+	// Display labels alone do not authenticate a user.
 	SessionID    string
 	AgentID      string
 	User         string

@@ -163,6 +163,17 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 				connection = "connected"
 			}
 		}
+		management := managementStatusFromRow(mount)
+		if management != nil && !management.Registered {
+			message := "management unavailable"
+			if management.LastError != "" {
+				message += ": " + management.LastError
+			}
+			if lastError != "" {
+				lastError += "; "
+			}
+			lastError += message
+		}
 		if detailed {
 			if backend, ok := mount["backend"].(string); ok && (backend == "fuse" || backend == "nfs") {
 				return textTable(nil, [][]string{

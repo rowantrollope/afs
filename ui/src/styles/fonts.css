@@ -1,0 +1,6 @@
+:root {
+  --afs-font-sans:
+    "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --afs-sans: var(--afs-font-sans);
+}

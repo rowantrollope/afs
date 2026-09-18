@@ -1,7 +1,8 @@
 package controlplane
 
 // This package retains the original Redis manifest/blob checkpoint engine. The
-// HTTP, catalog, tenancy, search, and volume-composition services were removed.
+// catalog, tenancy, search, and volume-composition services were removed.
+// The optional HTTP server invokes this same engine.
 import (
 	"context"
 	"crypto/rand"
@@ -151,7 +152,7 @@ func (s *Service) createWorkspaceStreaming(ctx context.Context, name string, bui
 	if err = s.store.PutWorkspaceMeta(ctx, meta); err != nil {
 		return WorkspaceMeta{}, err
 	}
-	return meta, nil
+	return meta, s.recordLifecycle(ctx, meta, "workspace", "create", nil)
 }
 
 func (s *Service) ListCheckpoints(ctx context.Context, workspace string) ([]SavepointMeta, error) {
@@ -224,18 +225,36 @@ func (s *Service) captureCheckpoint(ctx context.Context, workspace, name, genera
 		return SavepointMeta{}, false, err
 	}
 	id := workspaceStorageID(meta)
-	if _, _, _, err = EnsureWorkspaceRoot(ctx, s.store, id); err != nil {
+	if err = serverRequireLiveRoot(ctx, s, id); err != nil {
+		return SavepointMeta{}, false, err
+	}
+	changes, err := latestServerChange(ctx, s.store.rdb, id)
+	if err != nil {
 		return SavepointMeta{}, false, err
 	}
 	m, blobs, files, dirs, size, err := BuildManifestFromWorkspaceRoot(ctx, s.store.rdb, id, name)
 	if err != nil {
 		return SavepointMeta{}, false, err
 	}
+	latest, err := latestServerChange(ctx, s.store.rdb, id)
+	if err != nil {
+		return SavepointMeta{}, false, err
+	}
+	if latest != changes {
+		return SavepointMeta{}, false, ErrWorkspaceConflict
+	}
+	options, _ := ctx.Value(checkpointOptionsKey{}).(CheckpointOptions)
+	if options.Source == "" {
+		options.Source = CheckpointSourceCLI
+	}
+	if options.Author == "" {
+		options.Author = "afs"
+	}
 	kind := CheckpointKindManual
 	if lockToken != "" {
 		kind = CheckpointKindSafety
 	}
-	saved, err := s.saveCheckpoint(ctx, SaveCheckpointRequest{ExpectedGeneration: generation, ImportLockToken: lockToken, Workspace: id, ExpectedHead: meta.HeadSavepoint, CheckpointID: name, Manifest: m, Blobs: blobs, FileCount: files, DirCount: dirs, TotalBytes: size, SkipWorkspaceRootSync: true, AllowUnchanged: allowUnchanged, Kind: kind, Source: CheckpointSourceCLI, Author: "afs"})
+	saved, err := s.saveCheckpoint(ctx, SaveCheckpointRequest{ExpectedChangesID: changes, Description: options.Description, ExpectedGeneration: generation, ImportLockToken: lockToken, Workspace: id, ExpectedHead: meta.HeadSavepoint, CheckpointID: name, Manifest: m, Blobs: blobs, FileCount: files, DirCount: dirs, TotalBytes: size, SkipWorkspaceRootSync: true, AllowUnchanged: allowUnchanged, Kind: kind, Source: options.Source, Author: options.Author})
 	if err != nil {
 		return SavepointMeta{}, false, err
 	}
@@ -288,7 +307,14 @@ func (s *Service) ForkWorkspace(ctx context.Context, source, newName, ref string
 		}
 		return s.store.PutSavepoint(ctx, initial, forkManifest)
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	forked, err := s.GetWorkspace(ctx, newName)
+	if err != nil {
+		return err
+	}
+	return s.recordLifecycle(ctx, forked, "workspace", "fork", map[string]string{"source_workspace": sourceID, "checkpoint_id": cp.ID})
 }
 
 func (s *Service) RestoreCheckpoint(ctx context.Context, workspace, ref string) (RestoreCheckpointResult, error) {
@@ -328,7 +354,13 @@ func (s *Service) RestoreCheckpoint(ctx context.Context, workspace, ref string) 
 	if err = s.store.rdb.Set(ctx, WorkspaceGenerationKey(id), fencing, 0).Err(); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
-	if !recovering {
+	liveRoot, err := s.store.rdb.Exists(ctx, workspaceFSInodeKey(id, workspaceFSRootInodeID)).Result()
+	if err != nil {
+		return RestoreCheckpointResult{}, err
+	}
+	// Explicit restore can recover a missing root. There is no live tree to
+	// capture in that case; keep its existing checkpoints and file lineages.
+	if !recovering && liveRoot != 0 {
 		safety, saved, err := s.captureCheckpoint(ctx, id, "before-restore-"+time.Now().UTC().Format("20060102T150405.000000000"), fencing, lock.Token(), false)
 		if err != nil {
 			return RestoreCheckpointResult{}, err
@@ -362,7 +394,7 @@ func (s *Service) RestoreCheckpoint(ctx context.Context, workspace, ref string) 
 	if err = s.completeRestoreWithActivity(ctx, id, generation, lock.Token(), cp.ID, activityBefore, m, recovering); err != nil {
 		return RestoreCheckpointResult{}, err
 	}
-	return result, nil
+	return result, s.recordLifecycle(ctx, meta, "checkpoint", "restore", map[string]string{"checkpoint_id": cp.ID})
 }
 
 // DeleteCheckpoint removes the immutable checkpoint and its accounting refs.
@@ -382,7 +414,7 @@ func (s *Service) DeleteCheckpoint(ctx context.Context, workspace, ref string) e
 	for blobID := range manifestBlobRefs(m) {
 		keys = append(keys, blobRefKey(id, blobID))
 	}
-	return s.store.rdb.Watch(ctx, func(tx *redis.Tx) error {
+	err = s.store.rdb.Watch(ctx, func(tx *redis.Tx) error {
 		current, err := getJSON[WorkspaceMeta](ctx, tx, workspaceMetaKey(id))
 		if err != nil {
 			return err
@@ -425,6 +457,10 @@ func (s *Service) DeleteCheckpoint(ctx context.Context, workspace, ref string) e
 		})
 		return err
 	}, keys...)
+	if err != nil {
+		return err
+	}
+	return s.recordLifecycle(ctx, meta, "checkpoint", "delete", map[string]string{"checkpoint_id": cp.ID})
 }
 
 func (s *Service) DeleteWorkspace(ctx context.Context, workspace string) error {
@@ -436,5 +472,12 @@ func (s *Service) DeleteWorkspace(ctx context.Context, workspace string) error {
 		return err
 	}
 	defer lock.Release(context.Background())
-	return s.store.DeleteWorkspace(ctx, workspace)
+	meta, err := s.GetWorkspace(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	if err := s.store.DeleteWorkspace(ctx, workspace); err != nil {
+		return err
+	}
+	return s.recordLifecycle(ctx, meta, "workspace", "delete", nil)
 }

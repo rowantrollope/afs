@@ -6,3 +6,10 @@
 .DS_Store
 /tests/multiwriter/artifacts/
 __pycache__/
+
+# Copied control-plane UI and compiled embedded assets.
+/ui/node_modules
+/ui/dist/
+/ui/.tanstack/
+/internal/uistatic/dist/*
+!/internal/uistatic/dist/.keep

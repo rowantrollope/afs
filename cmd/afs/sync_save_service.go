@@ -136,6 +136,7 @@ func (s *syncSaveService) handleRequest(request syncControlRequest) (syncControl
 	case syncControlOpStatus:
 		status := &syncStatus{}
 		if d := s.active; d != nil {
+			status.Management = d.cfg.Management.Snapshot()
 			ctx, cancel := context.WithTimeout(s.ctx, time.Second)
 			_, err := d.cfg.FS.Stat(ctx, "/")
 			cancel()

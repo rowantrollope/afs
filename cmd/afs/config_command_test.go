@@ -154,3 +154,25 @@ func TestConfigSetSymlinkAndHelp(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigControlPlaneURLChangeClearsOnlyEndpointToken(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(file, []byte(`{"redis":"redis://localhost/3","controlPlane":{"url":"https://old.example","token":"old-secret","future":true}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigValue(file, "controlPlane.url", json.RawMessage(`"https://old.example/"`)); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := storedAuthSettings(file)
+	if err != nil || settings.Token != "old-secret" {
+		t.Fatal("same endpoint lost its token")
+	}
+	if err := setConfigValue(file, "controlPlane.url", json.RawMessage(`"https://new.example"`)); err != nil {
+		t.Fatal(err)
+	}
+	settings, err = storedAuthSettings(file)
+	raw, _ := os.ReadFile(file)
+	if err != nil || settings.Token != "" || strings.Contains(string(raw), "old-secret") || !strings.Contains(string(raw), `"future": true`) {
+		t.Fatal("endpoint change retained a token or lost unrelated settings")
+	}
+}

@@ -1,5 +1,24 @@
 # Lessons
 
+## 2026-09-18 — Carry over the user-facing auth entry point
+
+The user corrected the missing `afs auth` workflow after management and credential
+bootstrap were restored. Restoring the underlying behavior is incomplete when
+the original onboarding commands are missing. Inventory and execute the public
+login, status and logout commands as part of connection-workflow acceptance;
+make the UI and docs point to the same supported entry point.
+
+## 2026-09-18 — Preserve control-plane connection setup and CLI management
+
+The user requires the original credential distribution and control-plane-based
+CLI management to carry over. A reporting-only URL does not preserve that
+workflow. A configured control plane must support discovery, management and
+Redis connection bootstrap; retain direct Redis file I/O and standalone use.
+Keep one configured backend and the shared team token; do not infer a need to
+restore Cloud, a multi-database catalog, or unrelated original product features.
+
+- All new control-plane and UI implementation belongs in `/Users/rowantrollope/git/afs`; use `/Users/rowantrollope/git/agent-filesystem` only as read-only reference. Refresh current code before porting; `afs:` is already the canonical prefix.
+
 ## 2026-09-17 — Verify requested GitHub publication
 
 The prefix correction was left uncommitted locally. When publication is requested,

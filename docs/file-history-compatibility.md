@@ -4,9 +4,10 @@ AFS retains the original file history drawer's HTTP contracts in an internal
 control-plane handler. The same service methods back a single `afs history` command group.
 At the user's request, the CLI spelling differs from the original: `list`, `show`,
 `diff`, `restore`, `undelete`, `export` and `policy` all live under `history`.
-There is no server command, including `history serve`, no root `recover`,
+There is no server command inside the CLI, including `history serve`, no root `recover`,
 `versioning` or `file` commands, and no hidden aliases. HTTP routes and response
-contracts remain unchanged, but AFS does not deliver a runnable control plane.
+contracts are also served by the separate `afs-control-plane` executable. See
+the [current control-plane guide](control-plane.md).
 
 ## CLI
 
@@ -53,9 +54,8 @@ existing `Service`. It implements the history drawer and its versioning/activity
 dependencies. `FileHistoryHTTPOptions.DatabaseID` names the one configured Redis
 connection in scoped routes, and `AllowedOrigins` lists accepted browser origins.
 The handler does not start a listener, manage server lifecycle, or provide
-authentication. A future control-plane host must supply those responsibilities.
-The [lightweight control-plane proposal](lightweight-control-plane.md) remains a
-draft for a separate executable; its name and deployment lifecycle are undecided.
+authentication. The separate `afs-control-plane` host supplies those
+responsibilities and wraps this handler with its management authentication.
 
 Integration tests host this handler on disposable loopback listeners. The original
 drawer fixture points `VITE_AFS_API_BASE_URL` at that test host and supplies

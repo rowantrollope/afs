@@ -1,0 +1,63 @@
+/* ────────────────────────────────────────────────────────────────────
+   AFS · Base resets + cross-skin defaults
+   Skin tokens live in styles/skin-classic.css and styles/skin-situation-room.css.
+   ──────────────────────────────────────────────────────────────────── */
+
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--afs-bg);
+  font-family: var(--afs-font-sans);
+  transition: background 0.2s ease;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+*:focus-visible {
+  outline: none;
+}
+
+/* Remove Redis UI component library inset box-shadow borders */
+button {
+  box-shadow: none !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ── Background grid pattern (classic only — situation-room ships its own) ── */
+
+[data-bg-pattern="grid"]:not([data-skin="situation-room"]) main,
+[data-skin="classic"][data-bg-pattern="grid"] main {
+  background-image:
+    linear-gradient(rgba(var(--afs-pattern-rgb), 0.04) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      rgba(var(--afs-pattern-rgb), 0.04) 1px,
+      transparent 1px
+    );
+  background-size: 28px 28px;
+}

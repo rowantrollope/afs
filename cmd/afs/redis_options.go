@@ -35,9 +35,16 @@ func readConfig(file, override string) (config, error) {
 	}
 	if override != "" {
 		cfg.Redis = override
+		// An explicit endpoint is a deliberate standalone command, including
+		// when a managed server is configured in the file or environment.
+		cfg.ControlPlane = nil
+	} else if err = applyManagedEnvironment(&cfg); err != nil {
+		return cfg, err
 	}
-	if _, err = redis.ParseURL(cfg.Redis); err != nil {
-		return cfg, errors.New("invalid Redis URL (credentials redacted)")
+	if managedConfig(cfg).URL == "" {
+		if _, err = redis.ParseURL(cfg.Redis); err != nil {
+			return cfg, errors.New("invalid Redis URL (credentials redacted)")
+		}
 	}
 	if err = validateSyncWatcherQueueCapacity(cfg.SyncWatcherQueueCapacity); err != nil {
 		return cfg, err
@@ -51,7 +58,7 @@ func buildRedisOptions(cfg config, poolSize int) *redis.Options {
 		panic("buildRedisOptions called before Redis URL validation")
 	}
 	// Resolve only at client construction: config and daemon bootstrap stay unchanged.
-	if password, present := os.LookupEnv("AFS_REDIS_PASSWORD"); present {
+	if password, present := os.LookupEnv("AFS_REDIS_PASSWORD"); present && !cfg.redisFromControlPlane {
 		opts.Password = password
 	}
 	opts.PoolSize = poolSize

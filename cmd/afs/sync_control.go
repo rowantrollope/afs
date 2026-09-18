@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rowantrollope/afs/internal/managedclient"
 	"github.com/rowantrollope/afs/mount/client"
 )
 
@@ -63,12 +64,13 @@ type syncControlResult struct {
 // Queued counts are an observation, not a completed flush. Only Save supplies
 // a verified receipt after joining all workers and checking actual bytes.
 type syncStatus struct {
-	Connected      bool   `json:"connected"`
-	Queued         int    `json:"queued"`
-	TrackedUploads int    `json:"tracked_uploads"`
-	Entries        int    `json:"entries"`
-	Conflicts      uint64 `json:"conflicts"`
-	LastError      string `json:"last_error,omitempty"`
+	Management     *managedclient.Status `json:"management,omitempty"`
+	Connected      bool                  `json:"connected"`
+	Queued         int                   `json:"queued"`
+	TrackedUploads int                   `json:"tracked_uploads"`
+	Entries        int                   `json:"entries"`
+	Conflicts      uint64                `json:"conflicts"`
+	LastError      string                `json:"last_error,omitempty"`
 }
 
 func syncControlRequestPath(root, requestID string) string {

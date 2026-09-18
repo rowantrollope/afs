@@ -35,6 +35,25 @@ jobs:
           name: afs-multiwriter
           path: ${{ runner.temp }}/afs-multiwriter
           if-no-files-found: ignore
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make web-install
+      - run: npm --prefix ui test
+      - run: npm --prefix ui run lint
+      - run: make control-plane
+      - run: ./bin/afs-control-plane --version
   native-kernel:
     runs-on: ubuntu-latest
     timeout-minutes: 30

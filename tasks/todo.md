@@ -1,5 +1,176 @@
 # AFS extraction
 
+## Publish complete control-plane, UI and auth work — 2026-09-18
+
+- [x] Verify GitHub destination, branch ancestry and pending source inventory.
+- [x] Confirm completed local build, unit/race, isolated Redis and UI checks.
+- [ ] Commit all pending source changes and push `main` to GitHub.
+- [ ] Verify the remote commit, clean checkout and GitHub check status.
+
+Scope: user requested all current changes committed and pushed to GitHub.
+Destination: `rowantrollope/afs`, default branch `main`; fetched remote and local
+HEAD both start at `980c8ed`. Keep generated builds, dependencies, credentials
+and runtime data outside Git. No unresolved questions.
+
+## Restore the auth command workflow — 2026-09-18
+
+- [x] Restore self-managed auth login, status, logout and help.
+- [x] Preserve private, atomic config writes and verify access before saving.
+- [x] Update CLI onboarding documentation and UI connection commands.
+- [x] Verify build, vet, unit/race and isolated Redis login-to-mount workflow.
+
+Spec: `afs auth login` connects to the saved/environment endpoint or defaults to
+`http://127.0.0.1:8091`. Keep `--url`, `--control-plane-url` and `--self-hosted`;
+accept the optional team token from stdin. Verify credential bootstrap before
+atomically saving URL/token, without persisting distributed Redis credentials.
+Preserve other config fields. Status reports effective settings offline; logout
+clears saved managed settings offline and explains any remaining environment
+override. Retain direct Redis mounted I/O and existing daemon behavior. No Cloud
+login. Test with private configs and disposable Redis only.
+Unresolved questions: none.
+
+Review: rebuilt the installed derivative CLI and embedded UI/server. Build, vet
+and diff checks pass. Full unit and race suites each pass 1,027 cases with four
+optional Array skips; all 10 focused auth/config/managed CLI process cases pass
+against disposable Redis. UI build, 41 tests and lint pass. Auth acceptance
+covers token-protected login through actual mount/sync/unmount, unchanged config
+on failed login, private permissions, old flag spellings, environment overrides
+and offline/idempotent logout followed by standalone operation. Null optional
+control-plane settings and saved-token isolation on URL changes have regressions.
+
+The local UI/server is healthy at `http://127.0.0.1:8091` (PID 11097) and serves
+the updated auth setup instructions. Verified default `afs auth login`, status
+and logout against that server using a temporary configuration; saved user
+settings were unchanged by this check. Evidence:
+`/private/tmp/afs-auth-{unit,race,integration}-final.jsonl` and
+`/private/tmp/afs-auth-{control-plane-build,ui-tests,ui-lint}.log`.
+
+## Restore managed CLI and credential distribution — 2026-09-18
+
+- [x] Define managed connection and typed API contracts around the existing engine.
+- [x] Add authenticated Redis bootstrap and remote CLI management transport.
+- [x] Route CLI management through HTTP and bootstrap sync/native mount credentials.
+- [x] Verify URL-only setup, command parity, auth failures, credential handling and outages.
+- [x] Run build, vet, unit/race and isolated Redis process checks; update docs.
+
+Spec: a nonempty `controlPlane.url` selects managed CLI operation. Workspace,
+checkpoint and history management use HTTP; mounts obtain the server's effective
+Redis connection through authenticated bootstrap and retain direct Redis I/O.
+No fallback to saved Redis on management failure. Explicit `--redis` selects
+standalone operation for that command; an empty control-plane URL restores
+standalone defaults. Preserve local mount flush/ownership guards and private
+daemon bootstrap. Redis credentials never appear in ordinary API responses,
+logs, status or saved user configuration. Keep one backend and shared team token;
+no Cloud, catalog or ACL provisioning. Existing file access continues through a
+control-plane outage. Test only disposable Redis and private config/state.
+Unresolved questions: none.
+
+Review: rebuilt CLI and embedded UI/server; build, vet and diff checks pass.
+Final full unit and race runs each pass 1,004 cases with four optional Array
+skips. All 206 isolated Redis process cases pass. UI build, 41 tests and lint
+pass. URL-only management, password bootstrap, cross-mode local mount guards,
+private native bootstrap and outage behavior are covered. Regressions reproduce
+and fix a masked history authentication error and stalled HTTP transfers;
+progress-based timeouts preserve long active transfers and release failed import
+locks without publication. Updated setup documentation and UI connection copy.
+
+The task-owned local server was restarted at `http://127.0.0.1:8091` (PID 7746).
+Read-only availability checks confirm healthy Redis/UI and CLI discovery using
+a temporary URL-only configuration. Saved user configuration was not changed.
+The installed derivative CLI symlink uses the rebuilt `bin/afs`; the original
+installation remains unchanged. No commit or push was requested or performed.
+Evidence: `/private/tmp/afs-managed-{unit,race,integration}-final.jsonl`,
+`/private/tmp/afs-managed-build-final.log`, and UI check logs with the same prefix.
+
+## Compare old and new CLI connection workflows — 2026-09-18
+
+- [x] Trace the original self-managed CLI setup and mount bootstrap.
+- [x] Trace current AFS Redis configuration and optional management reporting.
+- [x] Compare verified commands, credential flow and operational differences.
+
+Scope: source inspection only; no product, configuration or service changes.
+The requested `~/git/agent-workspace` path is absent; use the original
+`~/git/agent-filesystem` checkout as the comparison baseline.
+Unresolved questions: none for this baseline.
+
+Review: inspected original checkout `1ff1fa0` and the current AFS working tree.
+Original `controlPlane.url` selects self-managed mode; mount bootstrap resolves
+the workspace and obtains Redis credentials through an HTTP session. Current
+AFS requires independent Redis configuration; its control-plane URL enables
+optional presence reporting, with a same-backend challenge and background retry.
+Both use direct Redis file I/O. Commands and behavior were checked in source;
+no old service or CLI was run and no runtime configuration was changed.
+
+## Start local control plane and web UI — 2026-09-18
+
+- [x] Inspect startup instructions, configured backend and available listeners.
+- [x] Build current embedded UI and start the local control plane.
+- [x] Verify the UI and read-only API, then provide the URL.
+
+Scope: launch the current checkout using the CLI's configured Redis backend;
+serve the embedded UI on loopback. No installation or Redis content changes.
+Unresolved questions: none.
+
+Review: `make control-plane` passed. Detached server PID 96982 serves
+`http://127.0.0.1:8091`; the root page and all nine referenced assets return 200.
+`/healthz` reports `{"ok":true}` and `/v1/workspaces` returns 200 with one
+existing workspace. These were read-only availability checks. Server log:
+`/private/tmp/afs-control-plane-run-9mftvacq/server.log`.
+
+## Control plane and existing UI in AFS
+
+Status: complete. Owner: Codex. Created/updated: 2026-09-17.
+
+Goal: bring the useful original control plane and UI into this project, around
+its existing storage engine and new CLI/daemons. Original source is reference
+only; all new code lives here. Baselines: AFS `980c8ed`, original `1ff1fa0`.
+
+Scope: one configured Redis backend; original Monitor/topology, workspaces,
+file browser, checkpoints, History/versioning and Redis statistics; optional
+managed daemon sessions with heartbeat/close and automatic mutation attribution;
+a separate `afs-control-plane` executable with basic bearer authentication.
+Keep mounted file I/O direct to Redis. Exclude Cloud, search, hosted MCP,
+templates, multi-database administration and compatibility adapters. Preserve
+existing UI design, prune unsupported entry points, reuse the shared engine.
+
+- [x] Refresh checkouts and confirm the existing `afs:` namespace change.
+- [x] Agree implementation boundary and divide backend, daemon and UI ownership.
+- [x] Add the slim HTTP management API and shared engine adapters.
+- [x] Register sync/native daemons, heartbeat/close, and attribute file activity.
+- [x] Copy and adapt the existing UI without redesigning it.
+- [x] Add separate server executable, embedded assets, build targets and docs.
+- [x] Verify unit/race, UI build/tests, isolated Redis and browser acceptance.
+- [x] Review changes and record evidence/remaining limitations.
+
+Result: copied and adapted the existing UI, added the separate server, and
+connected both daemon backends to optional management sessions. All new source
+lives in this repository; the original checkout was used only as a reference
+for this implementation. No installation, user configuration, existing Redis,
+original service, commit or publication was changed.
+
+Decisions: current user implementation approval supersedes earlier design-only
+restrictions. `afs:` is the current storage namespace. Existing local state paths
+stay unchanged. Session expiry describes liveness; it does not revoke direct
+Redis credentials. Server checkpoints capture published data and do not flush
+remote daemons. Tests use disposable Redis and temporary config/state.
+
+Review: build/vet/diff checks pass. Final full unit and race runs each pass 975
+cases with four optional Array skips. All 201 isolated Redis process cases pass,
+including registration, idle heartbeat, file attribution, SSE, checkpoint
+browsing, server outage/recovery, worker restart and closure. Native NFS RPC
+attribution and startup-failure cleanup regressions pass. The UI passes a clean
+public-registry npm install, typechecked production build, 41 tests and lint.
+
+Real-browser acceptance verified token sign-in, managed-client topology/details,
+file versions and exact activity links, checkpoint creation/comparison, workspace
+creation/settings, Redis statistics, and live refresh after a direct daemon write.
+A missing live root remains listed, can browse saved checkpoints, and was restored
+through the final UI. Browser diagnostics are clean. Disposable services and tab
+were shut down. Linux kernel native fleet and optional Array acceptance were not
+rerun. Full evidence and capability boundaries are in
+`docs/control-plane-validation.md` and `docs/control-plane-capabilities.md`.
+Logs: `/private/tmp/afs-control-plane-{unit,race,integration}-final.jsonl`.
+
 ## Publish the Redis namespace correction
 
 - [x] Locate the uncommitted prefix change and preserve it while updating main.

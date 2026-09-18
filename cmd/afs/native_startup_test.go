@@ -17,8 +17,12 @@ import (
 )
 
 type startupHelperMarker struct {
-	PID       int
-	Bootstrap mountcontrol.Bootstrap
+	PID              int
+	Bootstrap        mountcontrol.Bootstrap
+	Args             []string
+	HasManagementEnv bool
+	HasRedisEnv      bool
+	BootstrapMode    os.FileMode
 }
 
 // The detached test helper owns the normal runtime lock but waits before
@@ -53,7 +57,15 @@ func TestNativeStartupSubprocess(t *testing.T) {
 		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			t.Fatal(err)
 		}
-		marker, _ := json.Marshal(startupHelperMarker{PID: os.Getpid(), Bootstrap: boot})
+		info, err := os.Stat(os.Getenv(mountcontrol.BootstrapEnv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, hasURL := os.LookupEnv("AFS_CONTROL_PLANE_URL")
+		_, hasToken := os.LookupEnv("AFS_CONTROL_PLANE_TOKEN")
+		_, hasRedisURL := os.LookupEnv("AFS_REDIS_URL")
+		_, hasRedisPassword := os.LookupEnv("AFS_REDIS_PASSWORD")
+		marker, _ := json.Marshal(startupHelperMarker{PID: os.Getpid(), Bootstrap: boot, Args: os.Args, HasManagementEnv: hasURL || hasToken, HasRedisEnv: hasRedisURL || hasRedisPassword, BootstrapMode: info.Mode().Perm()})
 		if err := os.WriteFile(os.Getenv("AFS_TEST_NATIVE_STARTUP_MARKER"), marker, 0600); err != nil {
 			t.Fatal(err)
 		}

@@ -22,6 +22,7 @@ const nativeSessionTTL = 60 * time.Second
 type nativeSession struct {
 	*nativeClient
 	generation string
+	metadata   FileVersionMutationMetadata
 	lease      string
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -49,6 +50,7 @@ func NewNativeWithCache(ctx context.Context, rdb *redis.Client, key, generation 
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	s := &nativeSession{nativeClient: core, generation: generation, lease: core.keys.session(core.originID), ctx: lifetime, cancel: cancel, changed: make(chan struct{}), barrier: make(chan struct{}, 1)}
+	s.metadata, _ = ctx.Value(fileVersionMutationMetadataKey{}).(FileVersionMutationMetadata)
 	bound := WithWorkspaceGeneration(ctx, generation)
 	if err := core.ensureRoot(bound); err != nil {
 		cancel()
@@ -67,6 +69,9 @@ func NewNativeWithCache(ctx context.Context, rdb *redis.Client, key, generation 
 }
 
 func (s *nativeSession) bind(ctx context.Context) context.Context {
+	if s.metadata != (FileVersionMutationMetadata{}) {
+		ctx = WithFileVersionMutationMetadata(ctx, s.metadata)
+	}
 	return context.WithValue(WithWorkspaceGeneration(ctx, s.generation), nativeLeaseKey{}, s.lease)
 }
 

@@ -18,29 +18,32 @@ type mountRegistry struct {
 	Mounts    []mountRecord `json:"mounts"`
 }
 type mountRecord struct {
-	Backend       string    `json:"backend,omitempty"` // Empty in existing records means folder sync.
-	ReadOnly      bool      `json:"read_only,omitempty"`
-	UID           *uint32   `json:"uid,omitempty"`
-	GID           *uint32   `json:"gid,omitempty"`
-	AllowOther    bool      `json:"allow_other,omitempty"`
-	SessionID     string    `json:"session_id,omitempty"`
-	AgentID       string    `json:"agent_id,omitempty"`
-	User          string    `json:"user,omitempty"`
-	Label         string    `json:"label,omitempty"`
-	AgentVersion  string    `json:"agent_version,omitempty"`
-	ID            string    `json:"id"`
-	Workspace     string    `json:"workspace"`
-	WorkspaceID   string    `json:"workspace_id"`
-	LocalPath     string    `json:"local_path"`
-	Redis         string    `json:"redis"` // Redacted endpoint; never credentials.
-	RedisIdentity string    `json:"redis_identity"`
-	RedisKey      string    `json:"redis_key"`
-	Generation    string    `json:"generation"`
-	PID           int       `json:"pid"`
-	Token         string    `json:"token"` // Local control capability; registry is mode 0600.
-	RuntimeDir    string    `json:"runtime_dir"`
-	SyncLog       string    `json:"sync_log"`
-	StartedAt     time.Time `json:"started_at"`
+	Backend         string    `json:"backend,omitempty"` // Empty in existing records means folder sync.
+	ReadOnly        bool      `json:"read_only,omitempty"`
+	UID             *uint32   `json:"uid,omitempty"`
+	GID             *uint32   `json:"gid,omitempty"`
+	AllowOther      bool      `json:"allow_other,omitempty"`
+	ManagedSession  bool      `json:"managed_session,omitempty"`
+	ControlPlaneURL string    `json:"control_plane_url,omitempty"`
+	SessionName     string    `json:"session_name,omitempty"`
+	SessionID       string    `json:"session_id,omitempty"`
+	AgentID         string    `json:"agent_id,omitempty"`
+	User            string    `json:"user,omitempty"`
+	Label           string    `json:"label,omitempty"`
+	AgentVersion    string    `json:"agent_version,omitempty"`
+	ID              string    `json:"id"`
+	Workspace       string    `json:"workspace"`
+	WorkspaceID     string    `json:"workspace_id"`
+	LocalPath       string    `json:"local_path"`
+	Redis           string    `json:"redis"` // Redacted endpoint; never credentials.
+	RedisIdentity   string    `json:"redis_identity"`
+	RedisKey        string    `json:"redis_key"`
+	Generation      string    `json:"generation"`
+	PID             int       `json:"pid"`
+	Token           string    `json:"token"` // Local control capability; registry is mode 0600.
+	RuntimeDir      string    `json:"runtime_dir"`
+	SyncLog         string    `json:"sync_log"`
+	StartedAt       time.Time `json:"started_at"`
 }
 
 func mountRegistryPath() string { return filepath.Join(baseStateDir(), "mounts.json") }

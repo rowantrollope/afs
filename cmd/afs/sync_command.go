@@ -158,6 +158,9 @@ func (a *app) syncCommandStatus(args []string) error {
 		rows = append(rows, row)
 	}
 	label, endpoint := "Configured REDIS", redisDisplay(a.config)
+	if a.managedMode() {
+		label, endpoint = "CONTROL PLANE", managedConfig(a.config).URL
+	}
 	if len(pos) == 1 {
 		label, endpoint = "REDIS", reg.Mounts[0].Redis
 	}

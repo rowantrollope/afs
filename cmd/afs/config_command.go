@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,6 +51,21 @@ func configCommand(opts cliOptions, args []string) error {
 			return errors.New("invalid Redis URL (credentials redacted)")
 		}
 		encoded, _ = json.Marshal(value)
+	case "controlPlane.url":
+		if err := (managedSettings(value, "")).Validate(); err != nil {
+			return err
+		}
+		encoded, _ = json.Marshal(strings.TrimRight(value, "/"))
+	case "controlPlane.token":
+		if value != "-" {
+			return errors.New("read the control-plane token from stdin: afs config set controlPlane.token -")
+		}
+		var err error
+		value, err = readControlPlaneToken(os.Stdin)
+		if err != nil {
+			return err
+		}
+		encoded, _ = json.Marshal(value)
 	case "sync.fileSizeCapMB", "sync.watcherQueueCapacity":
 		n, err := strconv.Atoi(value)
 		if err != nil {
@@ -64,7 +80,7 @@ func configCommand(opts cliOptions, args []string) error {
 		}
 		encoded, _ = json.Marshal(n)
 	default:
-		return errors.New("unknown configuration key; use redis, sync.fileSizeCapMB, or sync.watcherQueueCapacity")
+		return errors.New("unknown configuration key; use redis, controlPlane.url, controlPlane.token, sync.fileSizeCapMB, or sync.watcherQueueCapacity")
 	}
 	file, err := configFilePath(opts.configPath)
 	if err != nil {
@@ -85,6 +101,112 @@ func configCommand(opts cliOptions, args []string) error {
 }
 
 func setConfigValue(file, key string, value json.RawMessage) error {
+	return updateConfigDocument(file, func(document map[string]json.RawMessage) error {
+		if key == "controlPlane.url" {
+			var previous struct {
+				URL string `json:"url"`
+			}
+			if raw, ok := document["controlPlane"]; ok {
+				if err := json.Unmarshal(raw, &previous); err != nil {
+					return errors.New("invalid controlPlane configuration")
+				}
+			}
+			var endpoint string
+			if err := json.Unmarshal(value, &endpoint); err != nil {
+				return errors.New("controlPlane.url must be a string")
+			}
+			if normalizedControlPlaneURL(previous.URL) != normalizedControlPlaneURL(endpoint) {
+				if err := setConfigDocumentValue(document, "controlPlane.token", json.RawMessage(`""`)); err != nil {
+					return err
+				}
+			}
+		}
+		if err := setConfigDocumentValue(document, key, value); err != nil {
+			return err
+		}
+		raw, err := json.Marshal(document)
+		if err != nil {
+			return err
+		}
+		cfg := defaultConfig()
+		if err = json.Unmarshal(raw, &cfg); err != nil {
+			return fmt.Errorf("invalid configuration JSON in %s; existing file was not changed", file)
+		}
+		if managedConfig(cfg).URL == "" {
+			if _, err = redis.ParseURL(cfg.Redis); err != nil {
+				return errors.New("invalid Redis URL (credentials redacted)")
+			}
+		}
+		if err = managedConfig(cfg).Validate(); err != nil {
+			return err
+		}
+		return validateSyncWatcherQueueCapacity(cfg.SyncWatcherQueueCapacity)
+	})
+}
+
+func readControlPlaneToken(input io.Reader) (string, error) {
+	raw, err := io.ReadAll(io.LimitReader(input, 16385))
+	if err != nil || len(raw) > 16384 {
+		return "", errors.New("cannot read control-plane token from stdin (maximum 16384 bytes)")
+	}
+	value := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
+	if strings.ContainsAny(value, "\r\n") {
+		return "", errors.New("control-plane token must be one line")
+	}
+	return strings.TrimSpace(value), nil
+}
+
+func setConfigDocumentValue(document map[string]json.RawMessage, key string, value json.RawMessage) error {
+	if group, field, nested := strings.Cut(key, "."); nested {
+		settings := map[string]json.RawMessage{}
+		if existing, ok := document[group]; ok {
+			if err := json.Unmarshal(existing, &settings); err != nil {
+				return errors.New("configuration section must be a JSON object; existing file was not changed")
+			}
+			if settings == nil && group == "controlPlane" {
+				settings = map[string]json.RawMessage{}
+			}
+			if settings == nil {
+				return errors.New("configuration section must be a JSON object; existing file was not changed")
+			}
+		}
+		settings[field] = value
+		raw, err := json.Marshal(settings)
+		if err != nil {
+			return err
+		}
+		document[group] = raw
+	} else {
+		document[key] = value
+	}
+	return nil
+}
+
+func readConfigDocument(file string) (map[string]json.RawMessage, error) {
+	if info, err := os.Lstat(file); err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, errors.New("configuration path must be a regular file")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	raw, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		raw, err = json.Marshal(defaultConfig())
+	}
+	if err != nil {
+		return nil, err
+	}
+	var document map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &document); err != nil || document == nil {
+		return nil, fmt.Errorf("invalid configuration JSON in %s; existing file was not changed", file)
+	}
+	return document, nil
+}
+
+// Hold one lock and publish one rename for edits that must stay together, such
+// as a control-plane endpoint and its token. Unrelated raw JSON is retained.
+func updateConfigDocument(file string, edit func(map[string]json.RawMessage) error) error {
 	dir := filepath.Dir(file)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -99,51 +221,15 @@ func setConfigValue(file, key string, value json.RawMessage) error {
 		return err
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	if info, err := os.Lstat(file); err == nil {
-		if !info.Mode().IsRegular() {
-			return errors.New("configuration path must be a regular file")
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	raw, err := os.ReadFile(file)
-	if errors.Is(err, os.ErrNotExist) {
-		raw, err = json.Marshal(defaultConfig())
-	}
+	document, err := readConfigDocument(file)
 	if err != nil {
 		return err
 	}
-	var document map[string]json.RawMessage
-	if err = json.Unmarshal(raw, &document); err != nil || document == nil {
-		return fmt.Errorf("invalid configuration JSON in %s; existing file was not changed", file)
-	}
-	if field, nested := strings.CutPrefix(key, "sync."); nested {
-		settings := map[string]json.RawMessage{}
-		if existing, ok := document["sync"]; ok {
-			if err = json.Unmarshal(existing, &settings); err != nil || settings == nil {
-				return errors.New("configuration sync must be a JSON object; existing file was not changed")
-			}
-		}
-		settings[field] = value
-		document["sync"], err = json.Marshal(settings)
-	} else {
-		document[key] = value
-	}
-	if err != nil {
+	if err := edit(document); err != nil {
 		return err
 	}
-	raw, err = json.MarshalIndent(document, "", "  ")
+	raw, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
-		return err
-	}
-	cfg := defaultConfig()
-	if err = json.Unmarshal(raw, &cfg); err != nil {
-		return fmt.Errorf("invalid configuration JSON in %s; existing file was not changed", file)
-	}
-	if _, err = redis.ParseURL(cfg.Redis); err != nil {
-		return errors.New("invalid Redis URL (credentials redacted)")
-	}
-	if err = validateSyncWatcherQueueCapacity(cfg.SyncWatcherQueueCapacity); err != nil {
 		return err
 	}
 	// CreateTemp uses 0600; rename publishes the whole file without partial JSON.

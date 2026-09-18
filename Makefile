@@ -86,4 +86,22 @@ check:
 
 clean:
 	go clean ./...
-	rm -f bin/afs bin/afsmount
+	rm -f bin/afs bin/afsmount bin/afs-control-plane
+
+# The CLI build remains independent of Node and the web UI.
+.PHONY: web-install web-build embed-ui control-plane web-dev
+web-install:
+	npm --prefix ui ci
+
+web-build:
+	npm --prefix ui run build
+
+embed-ui: web-build
+	find internal/uistatic/dist -mindepth 1 ! -name .keep -delete
+	cp -R ui/dist/. internal/uistatic/dist/
+
+control-plane: embed-ui
+	go build -o bin/afs-control-plane ./cmd/afs-control-plane
+
+web-dev:
+	npm --prefix ui run dev

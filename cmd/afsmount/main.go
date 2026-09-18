@@ -162,7 +162,7 @@ func run(path string) (err error) {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	session, err := native.Start(ctx, native.Config{Backend: boot.Backend, Mountpoint: boot.Mountpoint, RedisURL: boot.RedisURL, RedisKey: boot.RedisKey, Generation: boot.Generation, ReadOnly: boot.ReadOnly, UID: boot.UID, GID: boot.GID, AllowOther: boot.AllowOther})
+	session, err := native.Start(ctx, native.Config{Management: boot.Management, Registration: boot.Registration, Backend: boot.Backend, Mountpoint: boot.Mountpoint, RedisURL: boot.RedisURL, RedisKey: boot.RedisKey, Generation: boot.Generation, ReadOnly: boot.ReadOnly, UID: boot.UID, GID: boot.GID, AllowOther: boot.AllowOther})
 	cancel()
 	if err != nil && session == nil {
 		return err

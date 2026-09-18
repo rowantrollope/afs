@@ -108,7 +108,7 @@ func (a *app) mountNative(workspace, directory, backend string, foreground bool,
 		return err
 	}
 	ctx := context.Background()
-	if err = a.connect(ctx); err != nil {
+	if err = a.connectMount(ctx); err != nil {
 		return err
 	}
 	meta, err := a.service.GetWorkspace(ctx, workspace)
@@ -147,9 +147,13 @@ func (a *app) mountNative(workspace, directory, backend string, foreground bool,
 	runtimeDir := filepath.Join(baseStateDir(), "native", id)
 	rec := mountRecord{Backend: backend, ID: id, Workspace: meta.Name, WorkspaceID: meta.ID,
 		ReadOnly: opts.ReadOnly, UID: opts.UID, GID: opts.GID, AllowOther: opts.AllowOther,
+		SessionID: opts.SessionID, AgentID: opts.AgentID, User: opts.User, Label: opts.Label, AgentVersion: opts.AgentVersion,
 		LocalPath: root, Redis: redisDisplay(a.config), RedisIdentity: redisIdentity(a.config),
 		RedisKey: controlplane.WorkspaceFSKey(meta.ID), Generation: generation, Token: token,
 		RuntimeDir: runtimeDir, SyncLog: filepath.Join(runtimeDir, "native.log"), StartedAt: time.Now().UTC()}
+	if err := prepareManagedMount(a.config, &rec); err != nil {
+		return err
+	}
 	// The helper is detached and may outlive this command at any point during
 	// startup. Persist its control identity before allowing it to start a mount;
 	// PID zero is a recoverable pending intent, never authority to signal a PID.
@@ -223,7 +227,8 @@ func startNativeHelper(helper string, cfg config, rec mountRecord, detachOnly bo
 	boot := mountcontrol.Bootstrap{RedisURL: cfg.Redis, Backend: rec.Backend, WorkspaceID: rec.WorkspaceID,
 		RedisKey: rec.RedisKey, Generation: rec.Generation, Mountpoint: rec.LocalPath,
 		RuntimeDir: rec.RuntimeDir, Token: rec.Token, ReadyPath: ready, DetachOnly: detachOnly,
-		ReadOnly: rec.ReadOnly, UID: rec.UID, GID: rec.GID, AllowOther: rec.AllowOther}
+		ReadOnly: rec.ReadOnly, UID: rec.UID, GID: rec.GID, AllowOther: rec.AllowOther,
+		Management: managedConfig(cfg), Registration: managedRegistration(rec)}
 	raw, err := json.Marshal(boot)
 	if err != nil {
 		return nil, err
@@ -246,7 +251,7 @@ func startNativeHelper(helper string, cfg config, rec mountRecord, detachOnly bo
 	}
 	defer log.Close()
 	cmd := exec.Command(helper)
-	cmd.Env = append(os.Environ(), "AFS_NATIVE_BOOTSTRAP="+f.Name())
+	cmd.Env = append(daemonEnvironment(cfg), "AFS_NATIVE_BOOTSTRAP="+f.Name())
 	cmd.Stdout, cmd.Stderr = log, log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err = cmd.Start(); err != nil {
@@ -366,6 +371,7 @@ func nativeMountStatus(rec mountRecord, row map[string]any) {
 		return
 	}
 	row["state"] = "running"
+	row["management"] = result.Management
 	row["native"] = map[string]any{"connected": result.Connected, "backend": result.Backend, "endpoint": result.Endpoint}
 	if result.Error != "" {
 		row["error"] = result.Error

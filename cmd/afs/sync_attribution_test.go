@@ -28,8 +28,8 @@ func TestSyncAttributionMountOptionsPreserveDeclaredLabels(t *testing.T) {
 	if opts.SessionID != "cli-session" || opts.AgentID != "cli-agent" || opts.User != "cli-user" || opts.Label != "env-label" || opts.AgentVersion != "env-version" {
 		t.Fatalf("mount attribution flag/env precedence: %+v", opts)
 	}
-	if err := validateMountOptions(flags, "fuse"); err == nil {
-		t.Fatal("native mount silently accepted sync-only attribution options")
+	if err := validateMountOptions(flags, "fuse"); err != nil {
+		t.Fatalf("native attribution options rejected: %v", err)
 	}
 	boot := syncDaemonBootstrap{Record: mountRecord{SessionID: opts.SessionID, AgentID: opts.AgentID, User: opts.User, Label: opts.Label, AgentVersion: opts.AgentVersion}}
 	body, err := json.Marshal(boot)
