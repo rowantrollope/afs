@@ -4,13 +4,20 @@
 
 - [x] Verify GitHub destination, branch ancestry and pending source inventory.
 - [x] Confirm completed local build, unit/race, isolated Redis and UI checks.
-- [ ] Commit all pending source changes and push `main` to GitHub.
-- [ ] Verify the remote commit, clean checkout and GitHub check status.
+- [x] Commit all pending source changes and push `main` to GitHub.
+- [x] Verify the remote commit, clean checkout and GitHub check status.
 
 Scope: user requested all current changes committed and pushed to GitHub.
 Destination: `rowantrollope/afs`, default branch `main`; fetched remote and local
 HEAD both start at `980c8ed`. Keep generated builds, dependencies, credentials
 and runtime data outside Git. No unresolved questions.
+
+Review: published all 179 changed source/docs/test/assets paths in `e883410` to
+`origin/main` and verified the remote SHA matches. Working tree was clean.
+Local validation is recorded below; GitHub CI run `35384146961` started and
+was still running when publication was verified. The dependency symlink and
+generated bundles remain ignored. This publication record is a documentation
+follow-up; it does not change the tested product code.
 
 ## Restore the auth command workflow — 2026-09-18
 
