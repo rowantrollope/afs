@@ -15,3 +15,9 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 - The optional control plane is `cmd/afs-control-plane`; do not add HTTP server commands to `afs`. Build embedded UI with `make control-plane`, not plain Go build.
 - New implementation belongs here; the original `agent-filesystem` checkout is read-only reference. Keep one storage engine and direct Redis mounted I/O.
 - Control-plane scope is one Redis backend and a trusted self-managed team token; no Cloud, search, hosted MCP, templates, or multi-database catalog.
+
+## Git workflow
+
+- Work directly on `main` for this project. Do not create feature branches or branch-based worktrees.
+- Commit completed work and push it to `origin/main`; do not leave finished changes only in a local branch or worktree.
+- Preserve existing work when integrating changes. Use normal pushes; never force-push `main`.

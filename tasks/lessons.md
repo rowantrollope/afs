@@ -1,5 +1,22 @@
 # Lessons
 
+## 2026-09-21 — Work directly on main
+
+- User instruction: all project work belongs on `main`, without new branches, and completed changes must be pushed to GitHub `origin/main`.
+
+## 2026-09-21 — Verify sidebar height in the browser
+
+The user reported that the sidebar stopped before the bottom of the browser.
+Percentage heights need definite heights through every ancestor; `min-height`
+alone does not establish that chain. Check short and overflowing pages at multiple
+viewport sizes, with the sidebar expanded and collapsed.
+
+The user then reported no visible change because only a separate worktree build
+had been verified. For a reported local UI bug, identify the process serving the
+user's URL, update its actual checkout and embedded assets, and restart it while
+preserving its configuration. Reload and inspect the user's browser before
+reporting the visible issue fixed.
+
 ## 2026-09-18 — Carry over the user-facing auth entry point
 
 The user corrected the missing `afs auth` workflow after management and credential

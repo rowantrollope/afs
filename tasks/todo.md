@@ -1,5 +1,31 @@
 # AFS extraction
 
+## Fill the browser height with the UI sidebar — 2026-09-21
+
+- [x] Trace the sidebar's percentage heights through the root layout.
+- [x] Give the document, body and React root a definite full height.
+- [x] Verify expanded/collapsed navigation, viewport resizing and content scrolling.
+- [x] Run UI checks, embedded control-plane build and required Go checks.
+
+Scope: restore the viewport-height layout and keep page scrolling inside the main
+content pane. No Redis, CLI or service configuration changes.
+
+Review: browser verification against a disposable Redis/control-plane instance
+reproduced a 536px sidebar in an 1100px viewport with the old height rule and
+confirmed the fixed sidebar reaches 1100px. All 24 combinations of two skins,
+expanded/collapsed navigation, short/long pages and three viewport sizes pass.
+Long content scrolls inside main while the sidebar remains in place; the profile
+menu remains visible in a short viewport. UI build, 41 tests, lint, embedded
+control-plane build, Go build/vet/unit/race and the isolated real-Redis managed
+control-plane lifecycle test pass. Evidence: `/private/tmp/afs-sidebar-*`.
+
+Live follow-up: the user's Safari page at `127.0.0.1:8091` was served from
+`/Users/rowantrollope/git/afs`, which still had the old embedded CSS. Applied the
+same source fix there, rebuilt with `make control-plane`, and gracefully restarted
+only that server, preserving its original arguments and environment (PID 16784).
+Reloaded Safari and visually confirmed the sidebar reaches the bottom of the
+window with its footer at the bottom. Redis and mounted clients were not restarted.
+
 ## Publish complete control-plane, UI and auth work — 2026-09-18
 
 - [x] Verify GitHub destination, branch ancestry and pending source inventory.
