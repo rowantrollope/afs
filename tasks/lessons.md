@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-21 — Home recipes need complete linked content
+
+- Migrate the actual upstream templates into usable recipe guides; generic command drawers do not replace the requested content. Verify every card, direct URL, starter-file preview and setup prompt end to end.
+- Use the user's clarified source, https://github.com/redis/agent-filesystem, rather than assuming a similarly named local checkout is current.
+
 ## 2026-09-21 — Availability does not establish build freshness
 
 - When the user asks for the new control plane, a healthy existing server is not completion. Rebuild the latest main checkout, restart the actual listener with its existing settings, and compare served assets with the new build.

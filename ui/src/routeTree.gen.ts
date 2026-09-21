@@ -11,13 +11,16 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as RecipesRouteImport } from './routes/recipes'
 import { Route as MonitorRouteImport } from './routes/monitor'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DatabasesRouteImport } from './routes/databases'
 import { Route as ApiKeysRouteImport } from './routes/api-keys'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RecipesIndexRouteImport } from './routes/recipes.index'
 import { Route as WorkspacesWorkspaceIdRouteImport } from './routes/workspaces.$workspaceId'
+import { Route as RecipesRecipeIdRouteImport } from './routes/recipes.$recipeId'
 
 const WorkspacesRoute = WorkspacesRouteImport.update({
   id: '/workspaces',
@@ -27,6 +30,11 @@ const WorkspacesRoute = WorkspacesRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RecipesRoute = RecipesRouteImport.update({
+  id: '/recipes',
+  path: '/recipes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MonitorRoute = MonitorRouteImport.update({
@@ -59,10 +67,20 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecipesIndexRoute = RecipesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RecipesRoute,
+} as any)
 const WorkspacesWorkspaceIdRoute = WorkspacesWorkspaceIdRouteImport.update({
   id: '/$workspaceId',
   path: '/$workspaceId',
   getParentRoute: () => WorkspacesRoute,
+} as any)
+const RecipesRecipeIdRoute = RecipesRecipeIdRouteImport.update({
+  id: '/$recipeId',
+  path: '/$recipeId',
+  getParentRoute: () => RecipesRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -72,9 +90,12 @@ export interface FileRoutesByFullPath {
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
+  '/recipes': typeof RecipesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
+  '/recipes/$recipeId': typeof RecipesRecipeIdRoute
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
+  '/recipes/': typeof RecipesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -85,7 +106,9 @@ export interface FileRoutesByTo {
   '/monitor': typeof MonitorRoute
   '/settings': typeof SettingsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
+  '/recipes/$recipeId': typeof RecipesRecipeIdRoute
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
+  '/recipes': typeof RecipesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,9 +118,12 @@ export interface FileRoutesById {
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
+  '/recipes': typeof RecipesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
+  '/recipes/$recipeId': typeof RecipesRecipeIdRoute
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
+  '/recipes/': typeof RecipesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -108,9 +134,12 @@ export interface FileRouteTypes {
     | '/databases'
     | '/docs'
     | '/monitor'
+    | '/recipes'
     | '/settings'
     | '/workspaces'
+    | '/recipes/$recipeId'
     | '/workspaces/$workspaceId'
+    | '/recipes/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -121,7 +150,9 @@ export interface FileRouteTypes {
     | '/monitor'
     | '/settings'
     | '/workspaces'
+    | '/recipes/$recipeId'
     | '/workspaces/$workspaceId'
+    | '/recipes'
   id:
     | '__root__'
     | '/'
@@ -130,9 +161,12 @@ export interface FileRouteTypes {
     | '/databases'
     | '/docs'
     | '/monitor'
+    | '/recipes'
     | '/settings'
     | '/workspaces'
+    | '/recipes/$recipeId'
     | '/workspaces/$workspaceId'
+    | '/recipes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -142,6 +176,7 @@ export interface RootRouteChildren {
   DatabasesRoute: typeof DatabasesRoute
   DocsRoute: typeof DocsRoute
   MonitorRoute: typeof MonitorRoute
+  RecipesRoute: typeof RecipesRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   WorkspacesRoute: typeof WorkspacesRouteWithChildren
 }
@@ -160,6 +195,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/recipes': {
+      id: '/recipes'
+      path: '/recipes'
+      fullPath: '/recipes'
+      preLoaderRoute: typeof RecipesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/monitor': {
@@ -204,6 +246,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recipes/': {
+      id: '/recipes/'
+      path: '/'
+      fullPath: '/recipes/'
+      preLoaderRoute: typeof RecipesIndexRouteImport
+      parentRoute: typeof RecipesRoute
+    }
     '/workspaces/$workspaceId': {
       id: '/workspaces/$workspaceId'
       path: '/$workspaceId'
@@ -211,8 +260,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesWorkspaceIdRouteImport
       parentRoute: typeof WorkspacesRoute
     }
+    '/recipes/$recipeId': {
+      id: '/recipes/$recipeId'
+      path: '/$recipeId'
+      fullPath: '/recipes/$recipeId'
+      preLoaderRoute: typeof RecipesRecipeIdRouteImport
+      parentRoute: typeof RecipesRoute
+    }
   }
 }
+
+interface RecipesRouteChildren {
+  RecipesRecipeIdRoute: typeof RecipesRecipeIdRoute
+  RecipesIndexRoute: typeof RecipesIndexRoute
+}
+
+const RecipesRouteChildren: RecipesRouteChildren = {
+  RecipesRecipeIdRoute: RecipesRecipeIdRoute,
+  RecipesIndexRoute: RecipesIndexRoute,
+}
+
+const RecipesRouteWithChildren =
+  RecipesRoute._addFileChildren(RecipesRouteChildren)
 
 interface WorkspacesRouteChildren {
   WorkspacesWorkspaceIdRoute: typeof WorkspacesWorkspaceIdRoute
@@ -233,6 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   DatabasesRoute: DatabasesRoute,
   DocsRoute: DocsRoute,
   MonitorRoute: MonitorRoute,
+  RecipesRoute: RecipesRouteWithChildren,
   SettingsRoute: SettingsRoute,
   WorkspacesRoute: WorkspacesRouteWithChildren,
 }

@@ -94,6 +94,7 @@ export function resolveNavigationTitleParts(
       subtitle:
         "Manage trusted access for developers, agents, and integrations.",
     };
+  if (pathname.startsWith("/recipes")) return { page: "Recipes" };
   if (pathname.startsWith("/docs")) return { page: "Documentation" };
   if (pathname.startsWith("/monitor"))
     return {

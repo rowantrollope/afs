@@ -8,8 +8,6 @@ import {
   Copy,
   FileCode2,
   FolderOpen,
-  GitBranch,
-  History,
   KeyRound,
   Layers,
   Radio,
@@ -25,8 +23,9 @@ import {
   agentSetupPrompt,
   apiAccessGuide,
   cliQuickstart,
-  homeCookbooks,
 } from "../foundation/home-content";
+import { recipes } from "../features/recipes/recipe-catalog";
+import { RecipeCards } from "../features/recipes/recipe-cards";
 import "../styles/home.css";
 
 export const Route = createFileRoute("/")({ component: HomePage });
@@ -38,7 +37,7 @@ const HomeCard = styled(SurfaceCard)`
   }
 `;
 
-const cookbookIcons = [FolderOpen, Users, GitBranch, History];
+const featuredRecipes = recipes.filter((recipe) => recipe.id !== "blank");
 
 function HomePage() {
   const { open } = useDrawer();
@@ -144,60 +143,15 @@ function HomePage() {
               </span>
               <h2 id="cookbooks-title">AFS in action</h2>
             </div>
-            <span className="home-section-label">COOKBOOKS / 01–04</span>
+            <span className="home-section-label">RECIPES / 01–04</span>
           </div>
           <p className="home-section-intro">
             Small recipes for agents that do real work.
           </p>
-          <div className="home-recipe-grid">
-            {homeCookbooks.map((cookbook, index) => {
-              const Icon = cookbookIcons[index];
-              return (
-                <HomeCard
-                  as="button"
-                  key={cookbook.id}
-                  className="home-recipe"
-                  type="button"
-                  onClick={() => open({ kind: "commands", ...cookbook })}
-                >
-                  <div className="home-recipe-top">
-                    <Icon size={23} strokeWidth={1.5} />
-                    <span>0{index + 1}</span>
-                  </div>
-                  <span className="home-recipe-category">
-                    {cookbook.category}
-                  </span>
-                  <h3>{cookbook.title}</h3>
-                  <p>{cookbook.description}</p>
-                  <span className="home-recipe-footer">
-                    <span>{cookbook.duration} read</span>
-                    <ArrowUpRight size={17} />
-                  </span>
-                </HomeCard>
-              );
-            })}
-          </div>
-          <button
-            className="home-text-link home-all-cookbooks"
-            type="button"
-            onClick={() =>
-              open({
-                kind: "commands",
-                title: "AFS cookbooks",
-                subline:
-                  "Practical recipes for persistent agent workspaces. Connect with Quickstart before running these commands.",
-                sections: homeCookbooks.map((cookbook) => ({
-                  title: cookbook.title,
-                  description: cookbook.subline,
-                  command: cookbook.sections
-                    .map((section) => `# ${section.title}\n${section.command}`)
-                    .join("\n\n"),
-                })),
-              })
-            }
-          >
-            Explore all cookbooks <ArrowRight size={16} />
-          </button>
+          <RecipeCards items={featuredRecipes} />
+          <Link to="/recipes" className="home-text-link home-all-cookbooks">
+            Explore all recipes <ArrowRight size={16} />
+          </Link>
           <HomeCard className="home-workspace-callout">
             <div className="home-callout-icon">
               <FolderOpen size={23} strokeWidth={1.5} />

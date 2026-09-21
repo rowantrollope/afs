@@ -1,0 +1,14 @@
+{
+  "id": "shared-agent-memory",
+  "slug": "shared-memory",
+  "title": "Shared Agent Memory",
+  "tagline": "A collective long-term memory your whole team of agents can read and write.",
+  "summary": [
+    "One memory, many agents, any machine",
+    "Unique entry files preserve each agent’s discoveries",
+    "Works with any agent that can read and write local files"
+  ],
+  "whyItMatters": "A Redis-backed shared workspace lets agents build on each other’s discoveries across machines and sessions. Folder synchronization distributes new learnings, so the next agent can start with the knowledge the team has already recorded.",
+  "firstPrompt": "What do you already know about this workspace? Grep shared-memory/ and summarize.",
+  "category": "Memory"
+}

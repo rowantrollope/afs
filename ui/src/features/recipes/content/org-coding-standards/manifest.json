@@ -1,0 +1,14 @@
+{
+  "id": "org-coding-standards",
+  "slug": "coding-standards",
+  "title": "Org Coding Standards",
+  "tagline": "A shared source of truth for your team’s coding standards and review rules.",
+  "summary": [
+    "Every agent consults the same canonical standards",
+    "Maintainers publish updates through a shared workspace",
+    "Read-only mounts receive standards without publishing agent edits"
+  ],
+  "whyItMatters": "Coding standards go stale when agents never consult them. This recipe gives agents a shared set of rules and a protocol for reading and citing them before implementation and review. A read-only mount keeps a consumer’s local edits from changing the shared standards.",
+  "firstPrompt": "Summarize every standard in this workspace in one paragraph each.",
+  "category": "Standards"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "blank",
+  "slug": "blank",
+  "title": "Blank Workspace",
+  "tagline": "Get started with an empty shared workspace.",
+  "summary": [
+    "No seed files, no protocol — just a workspace",
+    "Reach for this when your use case doesn't fit the others",
+    "You can always add shape later"
+  ],
+  "whyItMatters": "Create a Redis-backed workspace, mount it as a local folder, and use your usual editor or agent to work with files. Folder synchronization shares changes with other connected clients.",
+  "firstPrompt": "What shall we build in this workspace?",
+  "category": "Getting started"
+}

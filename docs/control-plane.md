@@ -47,6 +47,16 @@ The Vite development proxy keeps browser requests on the UI origin. Production
 assets use their serving origin. `--allow-origin` can be repeated when an
 explicit cross-origin development setup is needed.
 
+## Home recipes
+
+Home links to complete recipes at `/recipes`: Shared Agent Memory, Shared LLM
+Wiki, Org Coding Standards, Team Planning Board, and Blank Workspace. These
+migrate the original `redis/agent-filesystem` starter templates into guides for
+the current mounted-folder workflow. Each guide includes its starter files,
+companion instructions, copyable/downloadable setup prompt, and a first task.
+Reading or downloading a recipe does not create a workspace; the setup prompt
+guides your agent through the CLI and asks it to confirm the destination first.
+
 ## Named API keys
 
 Configure `AFS_CONTROL_PLANE_TOKEN` on the server first. It remains the bootstrap

@@ -1,5 +1,32 @@
 # AFS extraction
 
+## Migrate upstream templates into Home recipes — 2026-09-21
+
+- [x] Read current templates from the user-specified redis/agent-filesystem upstream.
+- [x] Migrate all four recipes, starter files and agent guidance to mounted-folder AFS.
+- [x] Link every Home recipe and the recipe index to complete, directly addressable guides.
+- [x] Validate content, navigation and responsive rendering; rebuild and restart the active server.
+- [x] Record results, commit and push main.
+
+Scope: preserve upstream recipe substance and useful starter content while adapting
+obsolete MCP-only setup to the current CLI. No provisioning backend or hosted MCP.
+Existing Home styling and quickstart remain. Source checkout is read-only.
+Review: migrated all five upstream manifests at revision `1ff1fa0589b0e01891f5137fe0ed6fb7cf3d5d2e`,
+including 32 starter files, four skills and four command guides. Four Home cards
+and the recipe index link to dedicated routes; Blank Workspace is available in
+the collection. Complete setup prompts and file previews/downloads retain the
+content while adapting MCP-only instructions to mounted folders.
+
+UI lint, all 97 UI tests (14 new recipe regressions), `make control-plane`, Go
+build/vet/unit/race checks and the isolated real-Redis managed-sync lifecycle
+test pass. Browser checks verified all five recipe links, expanded file content,
+the copy success state, and 390px collection/detail layouts without overflow.
+Moved the long wiki attribution URL into a proper guide link after finding card
+overflow. Browser console has no errors. Active server PID 74422 runs the main
+binary; health/workspace API pass and all 14 entry assets match the new build.
+Logs: `/private/tmp/afs-recipes-{ui-test,ui-lint,embedded-build,go-build,go-vet,go-test,go-race,process-test,server}.log`.
+Authentication remains unchanged; user was asked separately about enabling API keys.
+
 ## Serve the latest main build — 2026-09-21
 
 - [x] Inspect the active listener and preserve its launch settings privately.
