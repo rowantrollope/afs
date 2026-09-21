@@ -1,26 +1,29 @@
 import { useState } from "react";
 import styled, { keyframes } from "styled-components";
-import { controlPlaneEndpoint } from "../foundation/api/afs";
+import { workspaceCLICommand } from "../foundation/workspace-commands";
 import { displayWorkspaceName } from "../foundation/workspace-display";
 
 type Props = {
   workspaceId: string;
   workspaceName: string;
+  databaseId?: string;
   workspaceLabel?: string;
   agentConnected: boolean;
   onDismiss: () => void;
 };
 export function ConnectAgentBanner({
   workspaceName,
+  databaseId,
   workspaceLabel,
   agentConnected,
   onDismiss,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const quoted = "'" + workspaceName.replaceAll("'", "'\"'\"'") + "'";
-  const endpoint =
-    "'" + controlPlaneEndpoint().replaceAll("'", "'\"'\"'") + "'";
-  const command = `afs auth login --url ${endpoint}\nafs mount ${quoted} ~/afs/workspace`;
+  const command = workspaceCLICommand(
+    databaseId,
+    `afs mount ${quoted} ~/afs/workspace`,
+  );
   return (
     <Banner>
       <BannerHeader>

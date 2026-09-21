@@ -110,7 +110,7 @@ export const homeCookbooks: Cookbook[] = [
         description:
           "Wait for this machine’s writable mount to publish, then create a named checkpoint.",
         command:
-          "afs sync --wait my-workspace\nafs cp create my-workspace --name before-experiment\nafs cp list my-workspace",
+          "afs sync --wait my-workspace\nafs checkpoint create my-workspace --name before-experiment\nafs checkpoint list my-workspace",
       },
       {
         title: "Fork a saved state",

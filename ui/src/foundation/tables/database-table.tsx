@@ -16,6 +16,7 @@ type Props = {
   loading?: boolean;
   error?: boolean;
   errorMessage?: string;
+  onOpenDatabase?: (database: AFSDatabaseScopeRecord) => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -157,6 +158,7 @@ export function DatabaseTable({
   error = false,
   errorMessage = "Unable to load databases. Please retry.",
   toolbarAction,
+  onOpenDatabase,
 }: Props & { toolbarAction?: React.ReactNode }) {
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -214,7 +216,16 @@ export function DatabaseTable({
                 }
               >
                 <StatusNameLine>
-                  <NameButton as="span">{nameLabel}</NameButton>
+                  <NameButton
+                    type="button"
+                    disabled={!onOpenDatabase}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenDatabase?.(row.original);
+                    }}
+                  >
+                    {nameLabel}
+                  </NameButton>
                 </StatusNameLine>
 
                 <IdRow>
@@ -303,7 +314,7 @@ export function DatabaseTable({
           },
         },
       ] as ColumnDef<AFSDatabaseScopeRecord>[],
-    [copiedId],
+    [copiedId, onOpenDatabase],
   );
 
   return (
@@ -322,7 +333,7 @@ export function DatabaseTable({
       {!loading && !error && filteredRows.length === 0 ? (
         <S.EmptyState>
           {rows.length === 0
-            ? "The configured Redis backend is unavailable."
+            ? "No Redis databases are connected. Add a database to get started."
             : "No databases match the current filter."}
         </S.EmptyState>
       ) : null}
@@ -335,6 +346,7 @@ export function DatabaseTable({
               data={filteredRows}
               getRowId={(row) => row.id}
               stripedRows
+              onRowClick={onOpenDatabase}
             />
           </DatabaseTableViewport>
         </S.TableCard>

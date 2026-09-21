@@ -103,7 +103,7 @@ func TestReducedCLIContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := jsonValue(t, runJSON("cp", "create", "contract", "--name", "first")).(map[string]any)
+	first := jsonValue(t, runJSON("checkpoint", "create", "contract", "--name", "first")).(map[string]any)
 	firstID, _ := first["id"].(string)
 	if firstID == "" || first["name"] != "first" {
 		t.Fatalf("checkpoint identity missing: %v", first)
@@ -114,7 +114,7 @@ func TestReducedCLIContract(t *testing.T) {
 			t.Fatalf("mounted write changed %s: %q %v", rel, got, err)
 		}
 	}
-	show := jsonValue(t, runJSON("cp", "show", "contract", "first")).(map[string]any)
+	show := jsonValue(t, runJSON("checkpoint", "show", "contract", "first")).(map[string]any)
 	if show["checkpoint"].(map[string]any)["id"] != firstID {
 		t.Fatalf("wrong checkpoint shown: %v", show)
 	}
@@ -125,16 +125,16 @@ func TestReducedCLIContract(t *testing.T) {
 	if link := manifest["/link"].(map[string]any); link["type"] != "symlink" || link["target"] != "documents/today.txt" {
 		t.Fatalf("checkpoint lost symlink: %v", link)
 	}
-	jsonEqual(t, runJSON("cp", "show", "contract", firstID), show)
+	jsonEqual(t, runJSON("checkpoint", "show", "contract", firstID), show)
 
 	write(t, filepath.Join(root, "image.bin"), []byte("second checkpoint"))
-	second := jsonValue(t, runJSON("cp", "create", "contract", "--name", "second")).(map[string]any)
+	second := jsonValue(t, runJSON("checkpoint", "create", "contract", "--name", "second")).(map[string]any)
 	secondID, _ := second["id"].(string)
 	if secondID == "" || secondID == firstID {
 		t.Fatalf("checkpoint identities not distinct: %v", second)
 	}
 	found := map[string]bool{}
-	for _, item := range jsonValue(t, runJSON("cp", "list", "contract")).([]any) {
+	for _, item := range jsonValue(t, runJSON("checkpoint", "list", "contract")).([]any) {
 		found[item.(map[string]any)["id"].(string)] = true
 	}
 	if !found[firstID] || !found[secondID] {
@@ -156,7 +156,7 @@ func TestReducedCLIContract(t *testing.T) {
 			t.Fatalf("fork %s changed checkpoint bytes: %q %v", workspace, got, err)
 		}
 	}
-	restored := jsonValue(t, runJSON("cp", "restore", "contract", "first", "--yes")).(map[string]any)
+	restored := jsonValue(t, runJSON("checkpoint", "restore", "contract", "first", "--yes")).(map[string]any)
 	if restored["restored"] != true || restored["checkpoint_id"] != firstID || restored["safety_checkpoint_created"] != true {
 		t.Fatalf("restore missing safety checkpoint: %v", restored)
 	}
@@ -173,23 +173,23 @@ func TestReducedCLIContract(t *testing.T) {
 		t.Fatalf("restored symlink differs: %q %v", target, err)
 	}
 	c.unmount(restoredRoot)
-	generated := jsonValue(t, runJSON("cp", "create", "contract")).(map[string]any)
+	generated := jsonValue(t, runJSON("checkpoint", "create", "contract")).(map[string]any)
 	generatedID, _ := generated["id"].(string)
 	generatedName, _ := generated["name"].(string)
 	if generatedID == "" || generatedName == "" {
 		t.Fatalf("unnamed checkpoint must receive usable identity: %v", generated)
 	}
-	jsonEqual(t, runJSON("cp", "delete", "contract", "second", "--yes"), map[string]any{"deleted": "second", "workspace": "contract"})
+	jsonEqual(t, runJSON("checkpoint", "delete", "contract", "second", "--yes"), map[string]any{"deleted": "second", "workspace": "contract"})
 	jsonEqual(t, runJSON("delete", "contract", "--yes"), map[string]any{"deleted": "contract"})
 	got, err := c.remote("latest-fork", "image.bin")
 	if err != nil || string(got) != "second checkpoint" {
 		t.Fatalf("fork lost independent data: %q %v", got, err)
 	}
-	if got := runJSON("cp", "show", "first-fork", "latest"); !bytes.Contains(got, []byte("manifest")) {
+	if got := runJSON("checkpoint", "show", "first-fork", "latest"); !bytes.Contains(got, []byte("manifest")) {
 		t.Fatalf("fork checkpoint missing: %s", got)
 	}
 	c.mustFail("info", "contract")
-	c.mustFail("cp", "show", "contract", secondID)
+	c.mustFail("checkpoint", "show", "contract", secondID)
 }
 
 func TestReducedCLIHelpAndFailures(t *testing.T) {
@@ -197,8 +197,8 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 	c := newCLI(t, r)
 	commands := map[string][]string{
 		"create": {}, "list": {}, "info": {}, "fork": {}, "delete": {},
-		"cp":    {"create", "list", "show", "restore", "delete"},
-		"mount": {}, "unmount": {}, "status": {},
+		"checkpoint": {"create", "list", "show", "restore", "delete"},
+		"mount":      {}, "unmount": {}, "status": {},
 	}
 	var groups []string
 	for group := range commands {
@@ -220,7 +220,7 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 			})
 		}
 	}
-	for _, removed := range [][]string{{"fs"}, {"fs", "--help"}, {"fs", "cat", "validation", "file"}, {"fs", "put", "validation", "file", "--help"}, {"ws"}, {"ws", "--help"}, {"ws", "create", "validation"}, {"ws", "list", "--help"}} {
+	for _, removed := range [][]string{{"fs"}, {"fs", "--help"}, {"fs", "cat", "validation", "file"}, {"fs", "put", "validation", "file", "--help"}, {"ws"}, {"ws", "--help"}, {"ws", "create", "validation"}, {"ws", "list", "--help"}, {"cp"}, {"cp", "--help"}, {"cp", "create", "validation"}, {"cp", "list", "validation", "--help"}} {
 		t.Run("removed-"+strings.Join(removed, "-"), func(t *testing.T) {
 			args := append([]string{"--config", "/does-not-exist", "--redis", "redis://127.0.0.1:1/0"}, removed...)
 			out, diagnostic, err := c.runTimeout(3*time.Second, nil, args...)
@@ -241,7 +241,7 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 					if len(fields) == 0 {
 						continue
 					}
-					for _, excluded := range []string{"ws", "fs", "vol", "nfs", "fuse", "search", "query", "cloud"} {
+					for _, excluded := range []string{"ws", "fs", "cp", "vol", "nfs", "fuse", "search", "query", "cloud"} {
 						if fields[0] == excluded {
 							t.Fatalf("removed command in help: %q", excluded)
 						}
@@ -254,7 +254,7 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "validation")
 	c.mount("validation", root)
 	write(t, filepath.Join(root, "file"), []byte("retained"))
-	c.run(nil, "cp", "create", "validation", "--name", "saved")
+	c.run(nil, "checkpoint", "create", "validation", "--name", "saved")
 	write(t, filepath.Join(root, "file"), []byte("live"))
 	c.unmount(root)
 	invalid := [][]string{
@@ -262,13 +262,13 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 		{"create"}, {"create", "a", "b"}, {"create", "validation"}, {"create", "bad/name"},
 		{"list", "extra"}, {"info"}, {"fork", "validation"}, {"delete"},
 		{"list", "--from", "."}, {"info", "validation", "--yes"}, {"create", "nope", "--unknown"},
-		{"cp", "create"}, {"cp", "list", "validation", "extra"}, {"cp", "show", "validation"},
-		{"cp", "restore", "validation"}, {"cp", "delete", "validation"}, {"cp", "show", "validation", "missing"},
-		{"cp", "list", "validation", "--yes"}, {"cp", "show", "validation", "saved", "--name", "ignored"},
+		{"checkpoint", "create"}, {"checkpoint", "list", "validation", "extra"}, {"checkpoint", "show", "validation"},
+		{"checkpoint", "restore", "validation"}, {"checkpoint", "delete", "validation"}, {"checkpoint", "show", "validation", "missing"},
+		{"checkpoint", "list", "validation", "--yes"}, {"checkpoint", "show", "validation", "saved", "--name", "ignored"},
 		{"mount"}, {"mount", "validation"}, {"mount", "validation", "directory", "extra"},
 		{"mount", "validation", "directory", "--fuse"}, {"unmount"}, {"unmount", "one", "two"},
 		{"status", "one", "two"}, {"status", "--unknown"},
-		{"delete", "validation"}, {"cp", "restore", "validation", "saved"}, {"cp", "delete", "validation", "saved"},
+		{"delete", "validation"}, {"checkpoint", "restore", "validation", "saved"}, {"checkpoint", "delete", "validation", "saved"},
 	}
 	for _, args := range invalid {
 		t.Run("reject-"+strings.Join(args, "-"), func(t *testing.T) {
@@ -283,7 +283,7 @@ func TestReducedCLIHelpAndFailures(t *testing.T) {
 	if got, err := c.remote("validation", "file"); err != nil || string(got) != "live" {
 		t.Fatalf("rejected destructive commands changed workspace: %q %v", got, err)
 	}
-	c.run(nil, "cp", "show", "validation", "saved")
+	c.run(nil, "checkpoint", "show", "validation", "saved")
 }
 
 func TestConfigurationFileSelection(t *testing.T) {

@@ -4,17 +4,21 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"io"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type serverOptions struct {
 	listen, redisURL, token string
+	databasesFile           string
 	origins                 stringList
 	showVersion             bool
 }
@@ -31,12 +35,21 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	if value := getenv("AFS_REDIS_URL"); value != "" {
 		options.redisURL = value
 	}
+	options.databasesFile = getenv("AFS_DATABASES_FILE")
+	if options.databasesFile == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return options, errors.New("cannot locate database configuration; set AFS_DATABASES_FILE")
+		}
+		options.databasesFile = filepath.Join(home, ".config", "afs-lite", "databases.json")
+	}
 	flags := flag.NewFlagSet("afs-control-plane", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&options.listen, "listen", options.listen, "HTTP listen address (AFS_CONTROL_PLANE_LISTEN)")
 	flags.StringVar(&options.redisURL, "redis", options.redisURL, "Redis URL (AFS_REDIS_URL); default redis://localhost:6379/0; password override: AFS_REDIS_PASSWORD")
 	// flag defaults appear in help; the selected URL may contain a password.
 	flags.Lookup("redis").DefValue = ""
+	flags.StringVar(&options.databasesFile, "databases-file", options.databasesFile, "Private saved Redis connections file (AFS_DATABASES_FILE)")
 	flags.Var(&options.origins, "allow-origin", "Allowed browser origin; repeat for multiple origins")
 	flags.BoolVar(&options.showVersion, "version", false, "Print version")
 	flags.Usage = func() {
@@ -72,6 +85,7 @@ func redisOptions(rawURL string, lookupEnv func(string) (string, bool)) (*redis.
 		options.Password = password
 	}
 	options.DialTimeout = 5 * time.Second
+	options.ContextTimeoutEnabled = true
 	options.MaxRetries = 1
 	return options, nil
 }

@@ -1,6 +1,16 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { FilesTab } from "./-files-tab";
+
+const { treeCalls, fileCalls, updateFile } = vi.hoisted(() => ({
+  treeCalls: vi.fn(),
+  fileCalls: vi.fn(),
+  updateFile: vi.fn(),
+}));
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 vi.mock("@redis-ui/components", () => ({
   Button: Object.assign((props: any) => <button {...props} />, {
@@ -28,38 +38,44 @@ vi.mock("@redis-ui/components", () => ({
 }));
 
 vi.mock("../../foundation/hooks/use-afs", () => ({
-  useWorkspaceTree: () => ({
-    isLoading: false,
-    isError: false,
-    data: {
-      items: [
-        {
-          path: "/README.md",
-          name: "README.md",
-          kind: "file",
-          size: 42,
-          modifiedAt: "2026-04-29T00:00:00Z",
-        },
-      ],
-    },
-  }),
-  useWorkspaceFileContent: (input: { path: string }) => ({
-    isLoading: false,
-    data:
-      input.path === "/README.md"
-        ? {
+  useWorkspaceTree: (input: unknown) => {
+    treeCalls(input);
+    return {
+      isLoading: false,
+      isError: false,
+      data: {
+        items: [
+          {
             path: "/README.md",
+            name: "README.md",
             kind: "file",
-            revision: "rev-1",
-            language: "markdown",
             size: 42,
-            binary: false,
-            content: "# hello",
-          }
-        : null,
-  }),
+            modifiedAt: "2026-04-29T00:00:00Z",
+          },
+        ],
+      },
+    };
+  },
+  useWorkspaceFileContent: (input: { path: string }) => {
+    fileCalls(input);
+    return {
+      isLoading: false,
+      data:
+        input.path === "/README.md"
+          ? {
+              path: "/README.md",
+              kind: "file",
+              revision: "rev-1",
+              language: "markdown",
+              size: 42,
+              binary: false,
+              content: "# hello",
+            }
+          : null,
+    };
+  },
   useUpdateWorkspaceFileMutation: () => ({
-    mutate: vi.fn(),
+    mutate: updateFile,
     isPending: false,
   }),
 }));
@@ -71,6 +87,40 @@ vi.mock("./-file-history-drawer", () => ({
 }));
 
 describe("FilesTab version history entry point", () => {
+  test("scopes tree, file reads, and edits to the workspace database", async () => {
+    render(
+      <FilesTab
+        workspace={buildWorkspace()}
+        browserView="working-copy"
+        onBrowserViewChange={vi.fn()}
+      />,
+    );
+    expect(treeCalls).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db-1",
+        workspaceId: "workspace-1",
+      }),
+    );
+    fireEvent.click(screen.getByText("README.md"));
+    expect(fileCalls).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db-1",
+        workspaceId: "workspace-1",
+        path: "/README.md",
+      }),
+    );
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "# updated" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(updateFile).toHaveBeenCalledWith({
+      databaseId: "db-1",
+      workspaceId: "workspace-1",
+      path: "/README.md",
+      content: "# updated",
+    });
+  });
+
   test("opens the history drawer for the selected file", async () => {
     render(
       <FilesTab

@@ -444,7 +444,7 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 		a.t = t
 		b.t = t
 		write(t, filepath.Join(left, "checkpoint-local"), []byte("flushed"))
-		a.run(nil, "cp", "create", "shared", "--name", "capture")
+		a.run(nil, "checkpoint", "create", "shared", "--name", "capture")
 		a.run(nil, "fork", "shared", "fork", "--checkpoint", "capture")
 		if got := a.published("fork", "checkpoint-local"); string(got) != "flushed" {
 			t.Fatalf("local flush missing: %q", got)
@@ -455,11 +455,11 @@ func TestTwoIndependentWritableClientsAndCLI(t *testing.T) {
 		}
 		awaitFile(t, filepath.Join(left, "checkpoint-local"), []byte("changed"))
 		awaitFile(t, filepath.Join(right, "checkpoint-local"), []byte("changed"))
-		a.run(nil, "cp", "create", "shared", "--name", "newer")
-		a.run(nil, "cp", "list", "shared")
-		a.run(nil, "cp", "show", "shared", "newer")
-		a.run(nil, "cp", "delete", "shared", "capture", "--yes")
-		a.mustFail("cp", "show", "shared", "capture")
+		a.run(nil, "checkpoint", "create", "shared", "--name", "newer")
+		a.run(nil, "checkpoint", "list", "shared")
+		a.run(nil, "checkpoint", "show", "shared", "newer")
+		a.run(nil, "checkpoint", "delete", "shared", "capture", "--yes")
+		a.mustFail("checkpoint", "show", "shared", "capture")
 		if got := a.published("fork", "checkpoint-local"); string(got) != "flushed" {
 			t.Fatal("checkpoint deletion broke independent fork")
 		}
@@ -553,7 +553,7 @@ func TestRestoreFencesOtherProcessAndPreservesPendingLocalData(t *testing.T) {
 	owner, peer := newCLI(t, r), newCLI(t, r)
 	owner.run(nil, "create", "restore")
 	owner.put("restore", "file", []byte("old"))
-	owner.run(nil, "cp", "create", "restore", "--name", "old")
+	owner.run(nil, "checkpoint", "create", "restore", "--name", "old")
 	root := filepath.Join(t.TempDir(), "peer")
 	pid := peer.mount("restore", root)
 	awaitFile(t, filepath.Join(root, "file"), []byte("old"))
@@ -564,7 +564,7 @@ func TestRestoreFencesOtherProcessAndPreservesPendingLocalData(t *testing.T) {
 	write(t, filepath.Join(root, "file"), []byte("pending local bytes"))
 	owner.put("restore", "file", []byte("published newer"))
 	owner.closeWriter("restore")
-	owner.run(nil, "cp", "restore", "restore", "old", "--yes")
+	owner.run(nil, "checkpoint", "restore", "restore", "old", "--yes")
 	if err := p.Signal(syscall.SIGCONT); err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func TestDeleteAndRenameVersusPausedWriter(t *testing.T) {
 			}
 			return containsBytes([]string{root}, changed)
 		})
-		b.run(nil, "cp", "create", "mutations", "--name", op+"-reconciled")
+		b.run(nil, "checkpoint", "create", "mutations", "--name", op+"-reconciled")
 		if !containsBytes([]string{root}, changed) {
 			t.Fatalf("%s discarded modified content", op)
 		}
@@ -781,7 +781,7 @@ func TestPerformanceSmoke(t *testing.T) {
 	awaitFile(t, filepath.Join(right, "dir-19/file-0999"), []byte("small edit"))
 	t.Logf("small edit in 1000-file tree: %s", time.Since(start))
 	start = time.Now()
-	a.run(nil, "cp", "create", "performance", "--name", "synchronized")
+	a.run(nil, "checkpoint", "create", "performance", "--name", "synchronized")
 	t.Logf("checkpoint after synchronization: %s", time.Since(start))
 	info, _ := r.client.Info(context.Background(), "stats").Result()
 	before := statNumber(info, "total_commands_processed")
@@ -871,11 +871,11 @@ func TestImportedMetadataAndUnreadableRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chmod(left, 0o755)
-	message := a.mustFail("cp", "create", "metadata", "--name", "unreadable")
+	message := a.mustFail("checkpoint", "create", "metadata", "--name", "unreadable")
 	if !strings.Contains(strings.ToLower(message), "permission denied") {
 		t.Fatalf("unreadable root did not report its scan failure: %s", message)
 	}
-	a.mustFail("cp", "show", "metadata", "unreadable")
+	a.mustFail("checkpoint", "show", "metadata", "unreadable")
 	if got := b.published("metadata", "sub/executable"); string(got) != "#!/bin/sh\n" {
 		t.Fatal("unreadable root changed remote content")
 	}

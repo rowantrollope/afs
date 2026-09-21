@@ -4,7 +4,9 @@ Current update: the original extraction below excluded HTTP/UI. The optional
 [control plane and copied UI](control-plane.md) now live in this project, using
 the shared engine. Self-managed `afs auth login`, `status` and `logout` connect
 the CLI to that server for management and mount credential bootstrap.
-Cloud/search/MCP/catalog subsystems remain excluded.
+Cloud/search/MCP/catalog subsystems remain excluded. The current checkpoint
+command group is `afs checkpoint`; references to `cp` below describe the
+original extraction.
 
 ## Optional native mounting follow-up
 

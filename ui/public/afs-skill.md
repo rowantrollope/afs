@@ -53,8 +53,8 @@ to that workspace, then run:
 
 ```sh
 afs sync --wait ~/afs/my-workspace
-afs cp create my-workspace --name before-refactor
-afs cp list my-workspace
+afs checkpoint create my-workspace --name before-refactor
+afs checkpoint list my-workspace
 ```
 
 `sync --wait` verifies the included tree in Redis and creates no checkpoint. A
@@ -93,7 +93,7 @@ copying it into the mounted directory. `afs history undelete my-workspace <path>
 can publish a retained deleted file back to the workspace.
 
 For whole-workspace restore, unmount local clients first, then use
-`afs cp restore my-workspace before-refactor` within the user's authorized scope.
+`afs checkpoint restore my-workspace before-refactor` within the user's authorized scope.
 Other mounted clients become stale; preserve their needed local edits and mount
 into new directories after restore. Do not reuse pre-restore mount baselines.
 

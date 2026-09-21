@@ -26,6 +26,7 @@ import type {
   AFSWorkspaceSummary,
   AFSWorkspaceVersioningPolicy,
   AFSWorkspaceView,
+  CreateDatabaseInput,
   CreateSavepointInput,
   CreateWorkspaceInput,
   DiffFileVersionsInput,
@@ -39,6 +40,7 @@ import type {
   RestoreFileVersionInput,
   RestoreSavepointInput,
   UndeleteFileVersionInput,
+  UpdateDatabaseInput,
   UpdateWorkspaceFileInput,
   UpdateWorkspaceInput,
   UpdateWorkspaceVersioningPolicyInput,
@@ -50,6 +52,8 @@ const HTTP_REQUEST_TIMEOUT_MS = 8000;
 type AFSClient = {
   mode: AFSClientMode;
   listDatabases: () => Promise<AFSDatabase[]>;
+  createDatabase: (input: CreateDatabaseInput) => Promise<AFSDatabase>;
+  updateDatabase: (input: UpdateDatabaseInput) => Promise<AFSDatabase>;
   listWorkspaceSummaries: (
     databaseId?: string,
   ) => Promise<AFSWorkspaceSummary[]>;
@@ -206,6 +210,8 @@ type HTTPDatabase = {
   can_create_workspaces?: boolean;
   redis_addr: string;
   redis_username?: string;
+  has_password?: boolean;
+  config_revision?: string;
   redis_db: number;
   redis_tls: boolean;
   is_default: boolean;
@@ -620,11 +626,13 @@ type HTTPAuthConfig = {
 
 class HTTPError extends Error {
   status: number;
+  code?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "HTTPError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -632,11 +640,14 @@ const HTTP_BASE_URL = (
   import.meta.env.VITE_AFS_API_BASE_URL?.replace(/\/+$/, "") ?? ""
 ).trim();
 
-export function controlPlaneEndpoint() {
-  return (
+export function controlPlaneEndpoint(databaseId?: string) {
+  const endpoint = (
     HTTP_BASE_URL ||
     (import.meta.env.DEV ? "http://127.0.0.1:8091" : window.location.origin)
-  );
+  ).replace(/\/$/, "");
+  return databaseId && databaseId !== "local"
+    ? `${endpoint}/databases/${encodeURIComponent(databaseId)}`
+    : endpoint;
 }
 
 export function monitorStreamURL() {
@@ -694,17 +705,19 @@ async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 401 && path !== "/auth/config")
       notifyUnauthorized();
     let message = `Request failed with status ${response.status}`;
+    let code: string | undefined;
     try {
-      const payload = JSON.parse(rawBody) as { error?: string };
+      const payload = JSON.parse(rawBody) as { error?: string; code?: string };
       if (payload.error) {
         message = payload.error;
       }
+      if (typeof payload.code === "string") code = payload.code;
     } catch {
       if (rawBody.trim() !== "") {
         message = rawBody;
       }
     }
-    throw new HTTPError(response.status, message);
+    throw new HTTPError(response.status, message, code);
   }
 
   if (response.status === 204) {
@@ -761,7 +774,8 @@ function mapDatabase(input: HTTPDatabase): AFSDatabase {
     canCreateWorkspaces: input.can_create_workspaces ?? true,
     redisAddr: input.redis_addr,
     redisUsername: input.redis_username ?? "",
-    redisPassword: "",
+    hasPassword: input.has_password ?? false,
+    configRevision: input.config_revision ?? "",
     redisDB: input.redis_db,
     redisTLS: input.redis_tls,
     isDefault: input.is_default,
@@ -1344,6 +1358,44 @@ const httpAFSClient: AFSClient = {
       AFSDatabaseListResponse & { items: HTTPDatabase[] }
     >("/databases");
     return response.items.map(mapDatabase);
+  },
+
+  async createDatabase(input: CreateDatabaseInput) {
+    return mapDatabase(
+      await requestJSON<HTTPDatabase>("/databases", {
+        method: "POST",
+        body: JSON.stringify({
+          name: input.name,
+          description: input.description,
+          redis_addr: input.redisAddr,
+          redis_username: input.redisUsername,
+          redis_password: input.redisPassword,
+          redis_db: input.redisDB,
+          redis_tls: input.redisTLS,
+        }),
+      }),
+    );
+  },
+
+  async updateDatabase(input: UpdateDatabaseInput) {
+    return mapDatabase(
+      await requestJSON<HTTPDatabase>(
+        `/databases/${encodeURIComponent(input.databaseId)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            name: input.name,
+            description: input.description,
+            redis_addr: input.redisAddr,
+            redis_username: input.redisUsername,
+            redis_password: input.redisPassword,
+            redis_db: input.redisDB,
+            redis_tls: input.redisTLS,
+            config_revision: input.configRevision,
+          }),
+        },
+      ),
+    );
   },
 
   async listWorkspaceSummaries(databaseId = "") {

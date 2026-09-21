@@ -88,7 +88,7 @@ export function FileHistoryDrawer({
     setPanelMode("content");
     setActionMessage(null);
     setLoadMoreError(null);
-  }, [path, initialVersionId]);
+  }, [databaseId, workspaceId, path, initialVersionId]);
 
   const mergedHistory = useMemo(() => {
     const pages = [historyQuery.data, ...extraPages].filter(

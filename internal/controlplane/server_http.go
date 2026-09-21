@@ -22,19 +22,23 @@ import (
 
 // HandlerOptions configures the separate server. The engine never requires it.
 type HandlerOptions struct {
-	DatabaseID     string
-	DatabaseName   string
-	AuthToken      string
-	RedisURL       string // Effective connection, disclosed only by authenticated bootstrap.
-	Version        string
-	UI             fs.FS
-	AllowedOrigins []string
+	DatabaseID          string
+	DatabaseName        string
+	DatabaseDescription string
+	DatabaseRevision    string
+	AdditionalDatabase  bool
+	AuthToken           string
+	RedisURL            string // Effective connection, disclosed only by authenticated bootstrap.
+	Version             string
+	UI                  fs.FS
+	AllowedOrigins      []string
 }
 
 type serverHandler struct {
-	service *Service
-	options HandlerOptions
-	history http.Handler
+	service  *Service
+	options  HandlerOptions
+	history  http.Handler
+	registry *DatabaseHandler
 }
 
 func NewHandler(service *Service, options HandlerOptions) http.Handler {
@@ -137,7 +141,18 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := h.service.store.rdb.Ping(ctx).Err(); err != nil {
+		service := h.service
+		release := func() {}
+		if h.registry != nil {
+			target, done := h.registry.acquire(h.options.DatabaseID)
+			if target == nil {
+				serverJSON(w, 503, map[string]bool{"ok": false})
+				return
+			}
+			service, release = target.service, done
+		}
+		defer release()
+		if err := service.store.rdb.Ping(ctx).Err(); err != nil {
 			serverJSON(w, 503, map[string]bool{"ok": false})
 			return
 		}
@@ -154,6 +169,19 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
 	if strings.HasPrefix(path, "/databases/") {
 		parts := strings.SplitN(strings.TrimPrefix(path, "/databases/"), "/", 2)
+		if h.registry != nil {
+			if len(parts) == 1 && r.Method == http.MethodPut {
+				h.registry.updateDatabaseRoute(w, r, parts[0])
+				return
+			}
+			if target, release := h.registry.acquire(parts[0]); target != nil {
+				defer release()
+				target.ServeHTTP(w, r)
+			} else {
+				http.NotFound(w, r)
+			}
+			return
+		}
 		if parts[0] != h.options.DatabaseID {
 			http.NotFound(w, r)
 			return
@@ -163,6 +191,18 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			path = "/" + parts[1]
 		}
+	}
+	// Root collection views aggregate databases. Everything else without an
+	// explicit database targets the current default's immutable handler snapshot.
+	if h.registry != nil && !(path == "/databases" || r.Method == http.MethodGet && (path == "/workspaces" || path == "/agents" || path == "/events" || path == "/activity" || path == "/changes" || path == "/monitor/stream")) {
+		target, release := h.registry.acquire(h.options.DatabaseID)
+		if target == nil {
+			serverJSON(w, 503, map[string]string{"error": "control plane is shutting down"})
+			return
+		}
+		defer release()
+		target.ServeHTTP(w, r)
+		return
 	}
 	if strings.HasPrefix(path, "/sessions/") {
 		h.sessionRoute(w, r, strings.TrimPrefix(path, "/sessions/"))
@@ -179,6 +219,10 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.cliImportRoute(w, r)
 		return
 	case "/databases", "/database":
+		if path == "/databases" && h.registry != nil {
+			h.registry.databasesRoute(w, r)
+			return
+		}
 		if r.Method != http.MethodGet {
 			serverMethod(w, "GET")
 			return
@@ -197,6 +241,10 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/workspaces":
 		switch r.Method {
 		case http.MethodGet:
+			if h.registry != nil {
+				h.registry.workspacesRoute(w, r)
+				return
+			}
 			metas, err := h.service.ListWorkspaces(ctx)
 			if err != nil {
 				serverError(w, err)
@@ -252,6 +300,10 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/agents":
 		if r.Method != http.MethodGet {
 			serverMethod(w, "GET")
+			return
+		}
+		if h.registry != nil {
+			h.registry.agentsRoute(w, r)
 			return
 		}
 		items, err := h.sessions(ctx, "")

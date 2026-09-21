@@ -55,6 +55,7 @@ type managementProcess struct {
 	redis                *redisServer
 	addr, token, logPath string
 	redisURL             string
+	databasesFile        string
 	cmd                  *exec.Cmd
 }
 
@@ -64,7 +65,8 @@ func newManagementProcess(t *testing.T, r *redisServer, redisURL ...string) *man
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &managementProcess{t: t, redis: r, addr: listener.Addr().String(), token: "isolated-management-test-token", logPath: filepath.Join(t.TempDir(), "server.log")}
+	dir := t.TempDir()
+	p := &managementProcess{t: t, redis: r, addr: listener.Addr().String(), token: "isolated-management-test-token", logPath: filepath.Join(dir, "server.log"), databasesFile: filepath.Join(dir, "databases.json")}
 	if len(redisURL) != 0 {
 		p.redisURL = redisURL[0]
 	}
@@ -85,7 +87,7 @@ func (p *managementProcess) start() {
 	if endpoint == "" {
 		endpoint = p.redis.url()
 	}
-	p.cmd = exec.Command(controlPlaneBinary(p.t), "--listen", p.addr, "--redis", endpoint)
+	p.cmd = exec.Command(controlPlaneBinary(p.t), "--listen", p.addr, "--redis", endpoint, "--databases-file", p.databasesFile)
 	for _, entry := range os.Environ() {
 		if !strings.HasPrefix(entry, "AFS_") {
 			p.cmd.Env = append(p.cmd.Env, entry)
@@ -130,6 +132,14 @@ func (p *managementProcess) stop() {
 }
 func (p *managementProcess) request(method, path string, body any) []byte {
 	p.t.Helper()
+	status, raw := p.requestStatus(method, path, body)
+	if status < 200 || status >= 300 {
+		p.t.Fatalf("%s %s: status %d: %s", method, path, status, raw)
+	}
+	return raw
+}
+func (p *managementProcess) requestStatus(method, path string, body any) (int, []byte) {
+	p.t.Helper()
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -153,15 +163,13 @@ func (p *managementProcess) request(method, path string, body any) []byte {
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		p.t.Fatalf("%s %s: status %d: %s", method, path, response.StatusCode, raw)
-	}
-	return raw
+	return response.StatusCode, raw
 }
 
 type observedManagedSession struct {
 	ID          string `json:"session_id"`
 	WorkspaceID string `json:"workspace_id"`
+	DatabaseID  string `json:"database_id"`
 	State       string `json:"state"`
 	LastSeen    string `json:"last_seen_at"`
 	LocalPath   string `json:"local_path"`

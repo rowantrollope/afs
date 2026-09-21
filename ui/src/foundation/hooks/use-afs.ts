@@ -16,6 +16,7 @@ import { afsApi, monitorStreamURL } from "../api/afs";
 import { subscribeMonitorStream } from "../api/monitor-stream";
 import type {
   AFSAgentSession,
+  CreateDatabaseInput,
   CreateSavepointInput,
   CreateWorkspaceInput,
   DiffFileVersionsInput,
@@ -31,6 +32,7 @@ import type {
   RestoreFileVersionInput,
   RestoreSavepointInput,
   UndeleteFileVersionInput,
+  UpdateDatabaseInput,
   UpdateWorkspaceFileInput,
   UpdateWorkspaceInput,
   UpdateWorkspaceVersioningPolicyInput,
@@ -648,6 +650,24 @@ function useWorkspaceInvalidation() {
         Array.isArray(query.queryKey) && query.queryKey[0] === "afs",
     });
   };
+}
+
+export function useCreateDatabaseMutation() {
+  const invalidate = useWorkspaceInvalidation();
+
+  return useMutation({
+    mutationFn: (input: CreateDatabaseInput) => afsApi.createDatabase(input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateDatabaseMutation() {
+  const invalidate = useWorkspaceInvalidation();
+
+  return useMutation({
+    mutationFn: (input: UpdateDatabaseInput) => afsApi.updateDatabase(input),
+    onSuccess: invalidate,
+  });
 }
 
 export function useCreateWorkspaceMutation() {

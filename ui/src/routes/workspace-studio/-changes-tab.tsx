@@ -1,5 +1,5 @@
 import { Button } from "@redis-ui/components";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import {
   SectionCard,
@@ -45,6 +45,10 @@ export function ChangesTab({ databaseId, workspaceId, editable }: Props) {
     null,
   );
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("timeline");
+  useEffect(() => {
+    setSelectedChange(null);
+    setHistoryFilter("timeline");
+  }, [databaseId, workspaceId]);
   const query = useInfiniteChangelog({
     databaseId,
     workspaceId,

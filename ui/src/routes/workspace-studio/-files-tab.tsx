@@ -72,7 +72,7 @@ export function FilesTab({
     setCurrentPath("/");
     setSelectedPath("");
     setHistoryPath("");
-  }, [browserView]);
+  }, [browserView, workspace.databaseId, workspace.id]);
 
   useEffect(() => {
     if (selectedPath === "") return;
@@ -85,6 +85,7 @@ export function FilesTab({
 
   const treeQuery = useWorkspaceTree(
     {
+      databaseId: workspace.databaseId,
       workspaceId: workspace.id,
       view: browserView,
       path: currentPath,
@@ -95,6 +96,7 @@ export function FilesTab({
 
   const selectedFileQuery = useWorkspaceFileContent(
     {
+      databaseId: workspace.databaseId,
       workspaceId: workspace.id,
       view: browserView,
       path: selectedPath,
@@ -339,6 +341,7 @@ export function FilesTab({
                 onSubmit={(e) => {
                   e.preventDefault();
                   updateFile.mutate({
+                    databaseId: workspace.databaseId,
                     workspaceId: workspace.id,
                     path: selectedFile.path,
                     content: draftContent,

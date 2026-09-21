@@ -36,7 +36,7 @@ Commands:
   info <workspace>               Show workspace details
   fork <source> <new-workspace>  Fork a workspace from a checkpoint
   delete <workspace>             Delete a workspace
-  cp                             Create and manage checkpoints
+  checkpoint                     Create and manage checkpoints
   history                        Browse, compare, and recover file versions
   auth                           Connect to a self-managed control plane
   config set <key> <value>       Save a configuration setting
@@ -90,12 +90,12 @@ its most recently created checkpoint; uncheckpointed changes are excluded.
 
 Delete a workspace. Local mounts must be unmounted first; confirmation is required.
 `,
-	"cp": `Usage:
-  afs cp create <workspace> [--name <name>]
-  afs cp list <workspace>
-  afs cp show <workspace> <id-or-name>
-  afs cp restore <workspace> <id-or-name> [--yes]
-  afs cp delete <workspace> <id-or-name> [--yes]
+	"checkpoint": `Usage:
+  afs checkpoint create <workspace> [--name <name>]
+  afs checkpoint list <workspace>
+  afs checkpoint show <workspace> <id-or-name>
+  afs checkpoint restore <workspace> <id-or-name> [--yes]
+  afs checkpoint delete <workspace> <id-or-name> [--yes]
 
 Create flushes this machine's registered mounts first; a failed flush fails the
 command. It captures published remote state, not another machine's pending writes.
@@ -207,7 +207,7 @@ func runCLI(args []string) error {
 			return nil
 		}
 	}
-	if (args[0] == "cp" || args[0] == "sync" || args[0] == "history") && len(args) == 1 {
+	if (args[0] == "checkpoint" || args[0] == "sync" || args[0] == "history") && len(args) == 1 {
 		fmt.Print(usage)
 		return nil
 	}
@@ -230,7 +230,7 @@ func runCLI(args []string) error {
 	switch args[0] {
 	case "create", "list", "info", "fork", "delete":
 		return a.workspace(args)
-	case "cp":
+	case "checkpoint":
 		return a.checkpoints(args[1:])
 	case "mount":
 		return a.mount(args[1:])
@@ -475,7 +475,7 @@ func (a *app) workspace(args []string) error {
 }
 
 func (a *app) checkpoints(args []string) error {
-	f := flag.NewFlagSet("cp", flag.ContinueOnError)
+	f := flag.NewFlagSet("checkpoint", flag.ContinueOnError)
 	name := f.String("name", "", "checkpoint name")
 	yes := f.Bool("yes", false, "confirm destructive operation")
 	pos, err := parseCommandFlags(f, args[1:])
@@ -491,7 +491,7 @@ func (a *app) checkpoints(args []string) error {
 		want = 1
 	}
 	if len(pos) != want {
-		return errors.New(commandUsage["cp"])
+		return errors.New(commandUsage["checkpoint"])
 	}
 	ctx := context.Background()
 	if err = a.connect(ctx); err != nil {

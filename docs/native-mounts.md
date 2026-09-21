@@ -2,7 +2,7 @@
 
 Native mounting is optional. `afs mount` defaults to folder sync; selecting
 `--backend=fuse` or `--backend=nfs` starts the separate `afsmount` helper.
-Workspace actions remain at the root and checkpoints remain under `afs cp`.
+Workspace actions remain at the root and checkpoints remain under `afs checkpoint`.
 
 ## Encapsulation
 
@@ -42,7 +42,7 @@ creation publishes the requested permissions atomically, including mode `000`.
 make native
 ./bin/afs mount shared ./live --backend=fuse
 ./bin/afs mount shared ./network-files --backend=nfs
-./bin/afs cp create shared --name before-change
+./bin/afs checkpoint create shared --name before-change
 ./bin/afs status ./live
 ./bin/afs unmount ./live
 ./bin/afs unmount ./network-files

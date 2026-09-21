@@ -148,4 +148,16 @@ describe("ChangesTab version deep links", () => {
     expect(screen.getByText("event:evt-session")).toBeInTheDocument();
     expect(screen.queryByText("event:evt-checkpoint")).not.toBeInTheDocument();
   });
+  test("closes the selected change and resets filters when database scope changes", () => {
+    const { rerender } = render(<ChangesTab databaseId="db-1" workspaceId="workspace-1" editable />);
+    fireEvent.click(screen.getByRole("button", { name: /open change/i }));
+    expect(screen.getByTestId("history-drawer")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Sessions" }));
+
+    rerender(<ChangesTab databaseId="db-2" workspaceId="workspace-1" editable />);
+    expect(screen.queryByTestId("history-drawer")).not.toBeInTheDocument();
+    expect(screen.getByText("event:evt-checkpoint")).toBeInTheDocument();
+    expect(screen.queryByText("event:evt-session")).not.toBeInTheDocument();
+  });
+
 });

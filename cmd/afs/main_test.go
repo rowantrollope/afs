@@ -8,20 +8,22 @@ import (
 )
 
 func TestHelpAndVersionDoNotLoadRedisOrConfiguration(t *testing.T) {
-	for _, args := range [][]string{{"--config", "/does/not/exist", "--redis", "not-a-url", "--help"}, {"--config", "/does/not/exist", "create", "--help"}, {"--redis", "invalid", "--version"}} {
+	for _, args := range [][]string{{"--config", "/does/not/exist", "--redis", "not-a-url", "--help"}, {"--config", "/does/not/exist", "create", "--help"}, {"--config", "/does/not/exist", "--redis", "invalid", "checkpoint"}, {"--config", "/does/not/exist", "checkpoint", "--help"}, {"--redis", "invalid", "--version"}} {
 		out, err := captureStdout(t, func() error { return runCLI(args) })
 		if err != nil || out == "" {
 			t.Fatalf("%v: output %q error %v", args, out, err)
 		}
 	}
 	out, _ := captureStdout(t, func() error { return runCLI([]string{"--help"}) })
-	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "\n  recover ", "\n  versioning ", "\n  file ", "\n  serve ", "mcp", "query", "cloud"} {
+	for _, excluded := range []string{"vol ", "\n  ws ", "\n  fs ", "\n  cp ", "\n  recover ", "\n  versioning ", "\n  file ", "\n  serve ", "mcp", "query", "cloud"} {
 		if strings.Contains(out, excluded) {
 			t.Errorf("root help contains excluded surface %q", excluded)
 		}
 	}
-	if !strings.Contains(out, "\n  auth ") {
-		t.Fatal("root help omits auth")
+	for _, command := range []string{"auth", "checkpoint"} {
+		if !strings.Contains(out, "\n  "+command+" ") {
+			t.Fatalf("root help omits %s", command)
+		}
 	}
 }
 
@@ -77,7 +79,7 @@ func TestGlobalOptions(t *testing.T) {
 }
 
 func TestRemovedCommandGroupsFailBeforeConfigOrRedis(t *testing.T) {
-	for _, group := range []string{"fs", "ws", "recover", "versioning", "file", "serve"} {
+	for _, group := range []string{"fs", "ws", "cp", "recover", "versioning", "file", "serve"} {
 		for _, args := range [][]string{{group}, {group, "--help"}, {group, "create", "demo"}} {
 			args = append([]string{"--config", "/does/not/exist", "--redis", "invalid"}, args...)
 			out, err := captureStdout(t, func() error { return runCLI(args) })

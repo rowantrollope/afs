@@ -166,24 +166,6 @@ func (h *serverHandler) eventRoute(w http.ResponseWriter, r *http.Request, works
 		}
 		until = &v
 	}
-	metas, err := h.service.ListWorkspaces(r.Context())
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	names := map[string]string{}
-	streams := map[string]string{}
-	for _, meta := range metas {
-		id := workspaceStorageID(meta)
-		names[id] = meta.Name
-		if workspace == "" || workspace == id {
-			streams["afs:{"+id+"}:changes"] = id
-		}
-	}
-	if route != "/changes" {
-		streams[managementEventsKey] = ""
-	}
-	items := []serverEvent{}
 	matches := func(e serverEvent) bool {
 		if workspace != "" && e.WorkspaceID != workspace {
 			return false
@@ -205,77 +187,36 @@ func (h *serverHandler) eventRoute(w http.ResponseWriter, r *http.Request, works
 		}
 		return true
 	}
-	for stream, id := range streams {
-		start, end := "-", "+"
-		if since != nil {
-			start = since.ID
-		}
-		if until != nil {
-			end = until.ID
-		}
-		found := 0
-		// Freeze the upper edge for ascending reads too; new writes cannot
-		// extend this request indefinitely while sparse filters scan retention.
-		if end == "+" {
-			tail, e := h.service.store.rdb.XRevRangeN(r.Context(), stream, "+", "-", 1).Result()
-			if e != nil {
-				serverError(w, e)
-				return
-			}
-			if len(tail) == 0 {
-				continue
-			}
-			end = tail[0].ID
-		}
-		for found <= limit {
-			var rows []redis.XMessage
-			if reverse {
-				rows, err = h.service.store.rdb.XRevRangeN(r.Context(), stream, end, start, 256).Result()
-			} else {
-				rows, err = h.service.store.rdb.XRangeN(r.Context(), stream, start, end, 256).Result()
-			}
-			if err != nil {
+	items := []serverEvent{}
+	aggregate := workspace == "" && h.registry != nil
+	handlers := []*serverHandler{h}
+	if aggregate {
+		var release func()
+		handlers, release = h.acquireDatabaseHandlers()
+		defer release()
+	}
+	var results []databaseQueryResult[[]serverEvent]
+	if aggregate {
+		results = runDatabaseQueries(r.Context(), handlers, func(ctx context.Context, handler *serverHandler) ([]serverEvent, error) {
+			return handler.collectEvents(ctx, workspace, route, limit, reverse, since, until, matches, true)
+		})
+	} else {
+		rows, err := h.collectEvents(r.Context(), workspace, route, limit, reverse, since, until, matches, false)
+		results = []databaseQueryResult[[]serverEvent]{{Value: rows, Err: err}}
+	}
+	for _, result := range results {
+		if result.Err != nil {
+			if err := r.Context().Err(); err != nil {
 				serverError(w, err)
 				return
 			}
-			for _, row := range rows {
-				var e serverEvent
-				if stream == managementEventsKey {
-					if json.Unmarshal([]byte(fmt.Sprint(row.Values["event"])), &e) != nil {
-						continue
-					}
-					e.ID = row.ID
-					millis, _ := serverStreamParts(row.ID)
-					e.CreatedAt = serverTime(time.UnixMilli(int64(millis)))
-				} else {
-					change, ok := historyChangeFromMessage(id, row)
-					if !ok {
-						continue
-					}
-					e = fileServerEvent(id, names[id], change)
-				}
-				e.stream = stream
-				e.DatabaseID, e.DatabaseName = h.options.DatabaseID, h.options.DatabaseName
-				if name := names[e.WorkspaceID]; name != "" {
-					e.WorkspaceName = name
-				}
-				if matches(e) {
-					items = append(items, e)
-					found++
-					if found > limit {
-						break
-					}
-				}
+			if aggregate {
+				continue
 			}
-			if len(rows) < 256 || found > limit {
-				break
-			}
-			if reverse {
-				end = "(" + rows[len(rows)-1].ID
-			} else {
-				start = "(" + rows[len(rows)-1].ID
-			}
+			serverError(w, result.Err)
+			return
 		}
+		items = append(items, result.Value...)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if reverse {
@@ -312,6 +253,103 @@ func (h *serverHandler) eventRoute(w http.ResponseWriter, r *http.Request, works
 		result["entries"] = entries
 	}
 	serverJSON(w, 200, result)
+}
+
+// collectEvents retains the per-stream scan bounds and filtering before the
+// caller merges databases. Cursor stream names are qualified only for aggregate
+// routes, so equal Redis stream IDs remain distinct across databases.
+func (h *serverHandler) collectEvents(ctx context.Context, workspace, route string, limit int, reverse bool, since, until *serverEvent, matches func(serverEvent) bool, qualifyStream bool) ([]serverEvent, error) {
+	metas, err := h.service.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	streams := map[string]string{}
+	for _, meta := range metas {
+		id := workspaceStorageID(meta)
+		names[id] = meta.Name
+		if workspace == "" || workspace == id {
+			streams["afs:{"+id+"}:changes"] = id
+		}
+	}
+	if route != "/changes" {
+		streams[managementEventsKey] = ""
+	}
+	items := []serverEvent{}
+	for stream, id := range streams {
+		start, end := "-", "+"
+		if since != nil {
+			start = since.ID
+		}
+		if until != nil {
+			end = until.ID
+		}
+		found := 0
+		// Freeze the upper edge for ascending reads too; new writes cannot
+		// extend this request indefinitely while sparse filters scan retention.
+		if end == "+" {
+			tail, e := h.service.store.rdb.XRevRangeN(ctx, stream, "+", "-", 1).Result()
+			if e != nil {
+				return nil, e
+			}
+			if len(tail) == 0 {
+				continue
+			}
+			end = tail[0].ID
+		}
+		for found <= limit {
+			var rows []redis.XMessage
+			if reverse {
+				rows, err = h.service.store.rdb.XRevRangeN(ctx, stream, end, start, 256).Result()
+			} else {
+				rows, err = h.service.store.rdb.XRangeN(ctx, stream, start, end, 256).Result()
+			}
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				var e serverEvent
+				if stream == managementEventsKey {
+					if json.Unmarshal([]byte(fmt.Sprint(row.Values["event"])), &e) != nil {
+						continue
+					}
+					e.ID = row.ID
+					millis, _ := serverStreamParts(row.ID)
+					e.CreatedAt = serverTime(time.UnixMilli(int64(millis)))
+				} else {
+					change, ok := historyChangeFromMessage(id, row)
+					if !ok {
+						continue
+					}
+					e = fileServerEvent(id, names[id], change)
+				}
+				e.stream = stream
+				if qualifyStream {
+					e.stream = h.options.DatabaseID + "\x00" + stream
+				}
+				e.DatabaseID, e.DatabaseName = h.options.DatabaseID, h.options.DatabaseName
+				if name := names[e.WorkspaceID]; name != "" {
+					e.WorkspaceName = name
+				}
+				if matches(e) {
+					items = append(items, e)
+					found++
+					if found > limit {
+						break
+					}
+				}
+			}
+			if len(rows) < 256 || found > limit {
+				break
+			}
+			if reverse {
+				end = "(" + rows[len(rows)-1].ID
+			} else {
+				start = "(" + rows[len(rows)-1].ID
+			}
+		}
+	}
+	return items, nil
 }
 
 func (h *serverHandler) monitor(w http.ResponseWriter, r *http.Request) {
@@ -396,6 +434,31 @@ func (state *monitorRefreshState) update(signature string, err error, now time.T
 }
 
 func (h *serverHandler) monitorSignature(ctx context.Context) (string, error) {
+	if h.registry == nil {
+		return h.databaseMonitorSignature(ctx)
+	}
+	handlers, release := h.acquireDatabaseHandlers()
+	defer release()
+	results := runDatabaseQueries(ctx, handlers, func(ctx context.Context, handler *serverHandler) (string, error) {
+		return handler.databaseMonitorSignature(ctx)
+	})
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	parts := []string{}
+	for index, result := range results {
+		parts = append(parts, handlers[index].options.DatabaseID)
+		if result.Err != nil {
+			parts = append(parts, "unavailable")
+		} else {
+			parts = append(parts, "available", result.Value)
+		}
+		parts = append(parts, handlers[index].options.DatabaseRevision)
+	}
+	return strings.Join(parts, "\x00"), nil
+}
+
+func (h *serverHandler) databaseMonitorSignature(ctx context.Context) (string, error) {
 	metas, err := h.service.ListWorkspaces(ctx)
 	if err != nil {
 		return "", err

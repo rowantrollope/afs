@@ -2,13 +2,13 @@
 
 AFS includes an optional, separate `afs-control-plane` executable and the copied
 React UI from the original project. It manages the current AFS engine: one
-workspace is one tree, backed by one configured Redis database. Managed CLI
+workspace is one tree, backed by its selected Redis database. Managed CLI
 commands use its HTTP API; mounted file traffic continues directly to Redis.
 Standalone CLI use remains available without a control plane.
 
 The UI retains its existing Monitor/topology, workspace browser, checkpoints,
 History and versioning settings. Its scope is smaller: no Cloud accounts,
-search, hosted MCP, templates, multi-database administration or API-key product.
+search, hosted MCP, templates or API-key product.
 See the [capability inventory](control-plane-capabilities.md) for the original
 features and the migration decisions.
 
@@ -46,6 +46,53 @@ The Vite development proxy keeps browser requests on the UI origin. Production
 assets use their serving origin. `--allow-origin` can be repeated when an
 explicit cross-origin development setup is needed.
 
+## Add a Redis database
+
+On the Databases tab, choose **Add database** and enter a name, Redis host and
+port, credentials, database index and TLS setting. You can paste a Redis URL
+into the endpoint field. The server checks the connection before saving it.
+This registers an existing Redis service; it does not provision a Redis server.
+New workspace creation includes a database selector, and Monitor, workspaces
+and History combine the configured connections. Unavailable connections remain
+listed with their connection status.
+
+The startup `--redis` connection remains the default. Added connections are
+saved atomically with mode `0600` in `~/.config/afs-lite/databases.json`.
+Override that path with `--databases-file` or `AFS_DATABASES_FILE`, including
+for separate server instances. One server owns each file at a time. The file
+contains credentials and belongs to the control-plane host; ordinary database
+API responses exclude them. Profiles persist across restarts without a SQL
+catalog. Click a database row or its name to review and edit its display name,
+description, endpoint, username, database index and TLS setting. This includes
+the default connection. The saved password is never displayed: leaving the
+password field blank preserves it; enter a replacement or explicitly select
+**Remove saved password**. Save checks Redis before atomically replacing the
+settings. A failed check leaves the previous connection intact. Concurrent
+changes require reopening the settings to avoid overwriting another edit.
+
+Database IDs and default status stay fixed when editing. Changing the endpoint
+or index points the connection at another existing Redis database; it does not
+move workspaces. New requests and mounts use the updated connection, while
+in-flight requests finish on their original client and existing mounts keep
+their startup credentials until remounted. Edited default settings are persisted
+in the same private file and take precedence over the startup Redis URL on
+restart. The startup URL supplies the initial default before it has been edited.
+Removing connections or selecting a different default database is not part of
+this flow.
+
+To use an added database from the CLI, copy the workspace's connection command,
+which uses a database-scoped server URL:
+
+```sh
+afs auth login --url "http://127.0.0.1:8091/databases/<database-id>" &&
+afs list &&
+afs mount shared ~/shared
+```
+
+That URL scopes management, credential bootstrap and daemon sessions to the
+selected Redis database. The unscoped server URL continues to use the startup
+connection. A failed or unknown database never falls back to the default.
+
 ## Connect the CLI
 
 Log in with the server URL. No Redis configuration is needed on a managed client:
@@ -76,7 +123,7 @@ reachable from the client. Redis credentials stay in memory and private daemon
 bootstrap files; they are not saved into the client's user configuration.
 
 The configured team token authorizes both administration and credential delivery
-for the server's single Redis backend. The returned credentials have the same
+for the server's configured Redis connections. The returned credentials have the same
 Redis permissions as the server; this does not provision per-client Redis ACLs.
 Only the authenticated connection endpoint returns them, with caching disabled.
 

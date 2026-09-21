@@ -173,7 +173,7 @@ func (s *Service) GetCheckpoint(ctx context.Context, workspace, ref string) (Sav
 			return SavepointMeta{}, Manifest{}, err
 		}
 		if len(checkpoints) == 0 {
-			return SavepointMeta{}, Manifest{}, fmt.Errorf("workspace %q has no checkpoints; create one with afs cp create %s", meta.Name, meta.Name)
+			return SavepointMeta{}, Manifest{}, fmt.Errorf("workspace %q has no checkpoints; create one with afs checkpoint create %s", meta.Name, meta.Name)
 		}
 		ref = checkpoints[0].ID
 	}

@@ -213,7 +213,7 @@ func (c *cli) checkpoint(name, mount string) {
 	if c.prior && mount != "" {
 		c.run("vol", "save", "--json", mount)
 	}
-	c.mapped([]string{"cp", "create", "--volume", "corpus", name}, []string{"cp", "create", "corpus", "--name", name})
+	c.mapped([]string{"cp", "create", "--volume", "corpus", name}, []string{"checkpoint", "create", "corpus", "--name", name})
 }
 func decode(t *testing.T, raw []byte, v any) {
 	t.Helper()
@@ -266,7 +266,7 @@ func (c *cli) checkpointInfo(name string) checkpointStats {
 		var v struct {
 			Checkpoint summary `json:"checkpoint"`
 		}
-		decode(c.t, c.run("--json", "cp", "show", "corpus", name), &v)
+		decode(c.t, c.run("--json", "checkpoint", "show", "corpus", name), &v)
 		s = v.Checkpoint
 	}
 	return checkpointStats{s.Name, s.Files, s.Dirs, s.Bytes}
@@ -403,7 +403,7 @@ func TestOfflineHelpAndVersion(t *testing.T) {
 				t.Fatalf("offline version: %v\n%s", err, version)
 			}
 			if !prior {
-				for _, action := range []string{"create", "list", "info", "fork", "delete", "mount", "unmount", "status", "cp"} {
+				for _, action := range []string{"create", "list", "info", "fork", "delete", "mount", "unmount", "status", "checkpoint"} {
 					if !regexp.MustCompile(`(?m)^\s+` + action + `(?:\s|$)`).Match(help) {
 						t.Errorf("root help missing %s:\n%s", action, help)
 					}
@@ -413,7 +413,7 @@ func TestOfflineHelpAndVersion(t *testing.T) {
 					}
 				}
 			}
-			for _, removed := range []string{"ws", "fs"} {
+			for _, removed := range []string{"ws", "fs", "cp"} {
 				out, err := run(removed, "--help")
 				if prior {
 					if err != nil {
@@ -459,7 +459,7 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 			}
 			c.checkpoint("before", "")
 			result.Before = c.checkpointInfo("before")
-			cps := c.mapped([]string{"cp", "list", "corpus"}, []string{"--json", "cp", "list", "corpus"})
+			cps := c.mapped([]string{"cp", "list", "corpus"}, []string{"--json", "checkpoint", "list", "corpus"})
 			if !bytes.Contains(cps, []byte("before")) || !bytes.Contains(cps, []byte("initial")) {
 				t.Fatalf("checkpoint list missing names: %s", cps)
 			}
@@ -499,7 +499,7 @@ func TestCLIBehaviorMatchesPrior(t *testing.T) {
 			result.Forked = snapshot(t, fork)
 			equal(t, "fork unaffected by source edits", result.Forked, imported)
 			c.unmount(fork)
-			c.mapped([]string{"cp", "restore", "corpus", "before"}, []string{"cp", "restore", "corpus", "before", "--yes"})
+			c.mapped([]string{"cp", "restore", "corpus", "before"}, []string{"checkpoint", "restore", "corpus", "before", "--yes"})
 			restored := filepath.Join(c.root, "restored")
 			c.mount("corpus", restored)
 			result.Restored = snapshot(t, restored)
@@ -606,11 +606,11 @@ func TestDefaultPresentationMatchesPrior(t *testing.T) {
 			readableDefault(t, "workspace table", list, []string{"volume", "workspace", "name"}, []string{"blank"}, []string{"corpus"})
 			info := c.mapped([]string{"vol", "info", "corpus"}, []string{"info", "corpus"})
 			readableDefault(t, "workspace details", info, []string{"corpus"}, []string{"head"}, []string{"initial"})
-			checkpoint := c.mapped([]string{"cp", "create", "--volume", "corpus", "before"}, []string{"cp", "create", "corpus", "--name", "before"})
+			checkpoint := c.mapped([]string{"cp", "create", "--volume", "corpus", "before"}, []string{"checkpoint", "create", "corpus", "--name", "before"})
 			readableDefault(t, "checkpoint confirmation", checkpoint, []string{"before"}, []string{"created"})
-			checkpoints := c.mapped([]string{"cp", "list", "corpus"}, []string{"cp", "list", "corpus"})
+			checkpoints := c.mapped([]string{"cp", "list", "corpus"}, []string{"checkpoint", "list", "corpus"})
 			readableDefault(t, "checkpoint table", checkpoints, []string{"checkpoint", "name"}, []string{"created"}, []string{"size", "bytes"}, []string{"before"}, []string{"initial"})
-			detail := c.mapped([]string{"cp", "show", "corpus", "before"}, []string{"cp", "show", "corpus", "before"})
+			detail := c.mapped([]string{"cp", "show", "corpus", "before"}, []string{"checkpoint", "show", "corpus", "before"})
 			readableDefault(t, "checkpoint details", detail, []string{"before"}, []string{"files"}, []string{"folders", "directories", "dirs"}, []string{"size", "bytes"})
 			if !regexp.MustCompile(`(?im)^\s*files\s*:?\s+1\s*$`).Match(detail) {
 				t.Errorf("checkpoint detail must label its one-file count:\n%s", detail)

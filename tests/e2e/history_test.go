@@ -59,7 +59,7 @@ func TestFileHistoryCLIRecoveryAndLineages(t *testing.T) {
 	}
 	// An already-running upgraded writer must observe the shared policy.
 	c.run(nil, "history", "policy", "versions", "--mode", "all")
-	checkpoints := c.run(nil, "--json", "cp", "list", "versions")
+	checkpoints := c.run(nil, "--json", "checkpoint", "list", "versions")
 	write(t, file, []byte("updated"))
 	flush()
 	page := historyLineage(t, history("file"), "")
@@ -167,7 +167,7 @@ func TestFileHistoryCLIRecoveryAndLineages(t *testing.T) {
 	if got, _ := os.ReadFile(oldOut); string(got) != "updated" {
 		t.Fatalf("old lineage bytes %q", got)
 	}
-	if after := c.run(nil, "--json", "cp", "list", "versions"); !bytes.Equal(checkpoints, after) {
+	if after := c.run(nil, "--json", "checkpoint", "list", "versions"); !bytes.Equal(checkpoints, after) {
 		t.Fatal("file history modified checkpoints")
 	}
 

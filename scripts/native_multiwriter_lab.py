@@ -328,14 +328,14 @@ class NativeCase(Case):
         try:
             assert os.write(fd, b"kernel-buffered checkpoint bytes") == 32
             # No application fsync: the checkpoint's native flush must do it.
-            cp = a.run("cp", "create", self.name, "--name", "native-buffered")
+            cp = a.run("checkpoint", "create", self.name, "--name", "native-buffered")
         finally:
             os.close(fd)
-        shown = a.run("cp", "show", self.name, cp["id"])
+        shown = a.run("checkpoint", "show", self.name, cp["id"])
         entry = shown["manifest"]["entries"].get("/checkpoint-bytes")
         if not entry or entry.get("size") != 32 or base64.b64decode(entry.get("inline", "")) != b"kernel-buffered checkpoint bytes":
             raise AssertionError(f"checkpoint missed native buffered writes: {entry}")
-        for command in (("delete", self.name, "--yes"), ("cp", "restore", self.name, cp["id"], "--yes")):
+        for command in (("delete", self.name, "--yes"), ("checkpoint", "restore", self.name, cp["id"], "--yes")):
             try:
                 a.run(*command)
             except AssertionError as error:
@@ -359,10 +359,10 @@ class NativeCase(Case):
     def native_generation(self):
         self.create_shared("fenced", b"checkpoint bytes")
         admin = Client(self, "restore-admin")
-        cp = admin.run("cp", "create", self.name, "--name", "generation-baseline")
+        cp = admin.run("checkpoint", "create", self.name, "--name", "generation-baseline")
         handles = [(c, os.open(c.root / "fenced", os.O_RDWR)) for c in self.native]
         try:
-            admin.run("cp", "restore", self.name, cp["id"], "--yes")
+            admin.run("checkpoint", "restore", self.name, cp["id"], "--yes")
             for client, fd in handles:
                 try:
                     os.pwrite(fd, b"stale corruption", 0)

@@ -43,18 +43,22 @@ func run(ctx context.Context, args []string) error {
 	}
 	rdb := redis.NewClient(redisConfig)
 	defer rdb.Close()
-	ready, cancel := context.WithTimeout(ctx, 5*time.Second)
-	err = rdb.Ping(ready).Err()
-	cancel()
-	if err != nil {
-		return errors.New("cannot connect to Redis; check AFS_REDIS_URL and AFS_REDIS_PASSWORD")
-	}
 	assets := uistatic.Assets()
-	handler := controlplane.NewHandler(controlplane.NewService(controlplane.NewStore(rdb)), controlplane.HandlerOptions{
+	databaseHandler, err := controlplane.NewDatabaseHandler(controlplane.NewService(controlplane.NewStore(rdb)), controlplane.HandlerOptions{
 		DatabaseID: "local", DatabaseName: "Redis", AuthToken: options.token, RedisURL: connectionURL,
 		Version: version.Short(), UI: assets, AllowedOrigins: options.origins,
-	})
-	handler = guardUnauthenticatedLoopbackHost(handler, options.token)
+	}, options.databasesFile)
+	if err != nil {
+		return err
+	}
+	defer databaseHandler.Close()
+	ready, cancel := context.WithTimeout(ctx, 5*time.Second)
+	err = databaseHandler.CheckDefaultConnection(ready)
+	cancel()
+	if err != nil {
+		return errors.New("cannot connect to default Redis; check saved database settings or AFS_REDIS_URL and AFS_REDIS_PASSWORD")
+	}
+	handler := guardUnauthenticatedLoopbackHost(databaseHandler, options.token)
 	server := &http.Server{Addr: options.listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}

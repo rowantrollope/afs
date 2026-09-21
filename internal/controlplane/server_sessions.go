@@ -339,6 +339,7 @@ func (h *serverHandler) sessions(ctx context.Context, workspace string) ([]Manag
 			return nil, err
 		}
 		if workspace == "" || session.WorkspaceID == workspace {
+			session.DatabaseID, session.DatabaseName = h.options.DatabaseID, h.options.DatabaseName
 			items = append(items, session)
 		}
 	}

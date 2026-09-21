@@ -77,7 +77,7 @@ export function resolveNavigationTitleParts(
   if (pathname.startsWith("/databases"))
     return {
       page: "Redis",
-      subtitle: "Storage and health of the configured Redis backend.",
+      subtitle: "Storage and health of connected Redis databases.",
     };
   if (pathname.startsWith("/activity"))
     return {

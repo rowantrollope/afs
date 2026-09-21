@@ -503,7 +503,8 @@ export type AFSDatabase = {
   canCreateWorkspaces: boolean;
   redisAddr: string;
   redisUsername: string;
-  redisPassword: string;
+  hasPassword: boolean;
+  configRevision: string;
   redisDB: number;
   redisTLS: boolean;
   isDefault: boolean;
@@ -527,6 +528,23 @@ export type AFSDatabase = {
 
 export type AFSDatabaseListResponse = {
   items: AFSDatabase[];
+};
+
+export type CreateDatabaseInput = {
+  name: string;
+  description: string;
+  redisAddr: string;
+  redisUsername: string;
+  redisPassword: string;
+  redisDB: number;
+  redisTLS: boolean;
+};
+
+export type UpdateDatabaseInput = Omit<CreateDatabaseInput, "redisPassword"> & {
+  databaseId: string;
+  configRevision: string;
+  // Omit to retain the saved password; an empty string explicitly removes it.
+  redisPassword?: string;
 };
 
 export type CreateWorkspaceInput = {

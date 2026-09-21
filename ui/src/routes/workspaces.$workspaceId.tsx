@@ -23,6 +23,7 @@ import {
 import { SurfaceCard } from "../components/card-shell";
 import { ConnectAgentBanner } from "../components/connect-agent-banner";
 import { ForkWorkspaceDialog } from "../features/workspaces/ForkWorkspaceDialog";
+import { workspaceCLICommand } from "../foundation/workspace-commands";
 import { useDatabaseScope } from "../foundation/database-scope";
 import type { CommandsDrawerConfig } from "../foundation/drawer-context";
 import { useDrawerCommands } from "../foundation/drawer-context";
@@ -253,8 +254,8 @@ function WorkspaceStudioPage() {
         <NoticeCard $tone="warning" role="status">
           <NoticeTitle>Redis is unavailable</NoticeTitle>
           <NoticeBody>
-            The configured Redis backend cannot be reached. Workspace data may
-            be incomplete.
+            Some Redis databases cannot be reached. Workspace data may be
+            incomplete.
           </NoticeBody>
         </NoticeCard>
       ) : null}
@@ -263,6 +264,7 @@ function WorkspaceStudioPage() {
         <ConnectAgentBanner
           workspaceId={workspaceId}
           workspaceName={workspace.name}
+          databaseId={workspace.databaseId}
           workspaceLabel={workspaceLabel}
           agentConnected={hasAgents}
           onDismiss={() => {
@@ -614,7 +616,7 @@ function workspaceCommandsFor(
       tab: "checkpoints",
       title: "List checkpoints",
       description: "See saved checkpoints for this workspace.",
-      command: `afs --json cp list ${name}`,
+      command: `afs --json checkpoint list ${name}`,
     },
     {
       tab: "settings",
@@ -627,7 +629,10 @@ function workspaceCommandsFor(
   const orderedSections = [
     ...sections.filter((section) => section.tab === activeTab),
     ...sections.filter((section) => section.tab !== activeTab),
-  ].map(({ tab: _tab, ...section }) => section);
+  ].map(({ tab: _tab, ...section }) => ({
+    ...section,
+    command: workspaceCLICommand(workspace.databaseId, section.command),
+  }));
 
   return {
     title: `Work with ${displayWorkspaceName(workspace.name)}`,

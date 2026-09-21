@@ -16,6 +16,36 @@ had been verified. For a reported local UI bug, identify the process serving the
 user's URL, update its actual checkout and embedded assets, and restart it while
 preserving its configuration. Reload and inspect the user's browser before
 reporting the visible issue fixed.
+## 2026-09-21 — Verify sidebar height in the active version
+
+The user reported that the full-height sidebar fix had not carried into this
+version. Verify the rendered layout at the active URL after rebuilding. A chain
+of `height: 100%` requires a definite root height; `min-height` alone does not
+provide one. Keep the sidebar viewport-height while the main panel scrolls,
+and check both expanded and collapsed navigation.
+
+## 2026-09-21 — Keep the user's active UI current
+
+The user expected UI changes to appear in the browser and asked for the running
+control plane to be restarted. Distinguish the live process from the edited
+worktree. An embedded production build needs rebuild/restart plus page refresh;
+use the existing Vite development server for automatic UI updates during edits.
+When authorized to restart, preserve the actual process's Redis/auth settings
+and verify the user's active URL, rather than stopping at an isolated QA build.
+
+## 2026-09-21 — Restore adding self-managed Redis databases
+
+The user explicitly requested Add database on the Databases tab. This supersedes
+the earlier single-backend UI restriction. Restore the complete usable flow:
+validated connection entry, durable private settings, database selection for
+workspace creation, scoped data and correct CLI connection commands. Continue
+using the retained AFS engine without restoring Cloud or a SQL catalog.
+## 2026-09-21 — Spell out checkpoint commands
+
+The user replaced `afs cp` with `afs checkpoint`: public command groups should
+use full names, and `cp` already means Unix copy. This supersedes earlier
+instructions to retain `cp`. Update dispatch, help, errors, examples and test
+callers together; do not keep an abbreviated compatibility alias.
 
 ## 2026-09-18 — Carry over the user-facing auth entry point
 
@@ -238,6 +268,11 @@ User required implementation to continue until the concurrent tests pass.
 - User correction: the left navigation must extend to the bottom of the browser.
 - Give html/body/root a definite height; min-height alone does not resolve child percentage heights. Keep main-content scrolling inside the viewport-sized shell.
 - When promoting a design preview to the real instance, inspect the active server checkout and preserve newer work there instead of replacing it with the preview backend.
+## 2026-09-21 — Promote designs without regressing the active instance
+
+- User asked to run the Home design in the real instance and keep navigation full-height.
+- Identify the running server checkout before restarting. Merge UI work into that checkout, preserving concurrent features and saved connection settings.
+- Verify actual sidebar/viewport bounds and independent content scrolling; a full-page screenshot alone can miss the shell-height defect.
 
 ## 2026-09-21 — Reuse opaque application cards on Home
 

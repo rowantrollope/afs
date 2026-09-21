@@ -28,6 +28,9 @@ Build the copied management UI and separate server with `make web-install` then
 `make control-plane`. Start `./bin/afs-control-plane` against your Redis backend,
 then run `afs auth login --url http://127.0.0.1:8091`. The CLI uses
 the API for management and obtains Redis credentials for mounts automatically.
+Use **Add database** on the Databases tab to save additional Redis connections
+and select them when creating workspaces. Click a database row to review or edit
+its connection settings.
 See the [control-plane guide](docs/control-plane.md) for
 authentication, daemon registration and the [capability inventory](docs/control-plane-capabilities.md).
 The ordinary CLI build and direct Redis operation remain independent.
@@ -308,12 +311,12 @@ rm ~/agent-a/documents/yesterday.txt
 ```
 
 Folder synchronization publishes these changes and receives changes from other
-clients. Use `afs cp create` or normal `afs unmount` when you need a completed
-local flush. There is no separate remote-file command group.
+clients. Use `afs checkpoint create` or normal `afs unmount` when you need a
+completed local flush. There is no separate remote-file command group.
 
 Commands print readable text by default: tables for lists, labeled details for
-`info`, `cp show` and `status <directory>`, and short confirmations for changes.
-Database commands show a credential-free Redis URL header, including the effective
+`info`, `checkpoint show` and `status <directory>`, and short confirmations for
+changes. Database commands show a credential-free Redis URL header, including the effective
 database number. `status` labels the configured endpoint and lists each mount's
 Redis endpoint; targeted status and unmount identify the mount's database.
 JSON output keeps its existing schema without a text header.
@@ -332,17 +335,17 @@ afs status ~/agent-a       # connection, pending work, conflicts and errors
 Workspace actions are `create`, `list`, `info`, `fork` and `delete` at the root,
 alongside `mount`, `unmount` and `status`. Optional file history stays under
 `history`: `list`, `show`, `diff`, `restore`, `undelete`, `export` and `policy`.
-Checkpoints stay under `cp`:
-`afs delete shared` deletes a workspace; `afs cp delete shared old-checkpoint`
+Checkpoints stay under `checkpoint`:
+`afs delete shared` deletes a workspace; `afs checkpoint delete shared old-checkpoint`
 deletes a checkpoint. Both retain their confirmation and safety checks.
-The former `ws` prefix and `fs` group are removed, with no compatibility aliases.
+The former `cp`, `ws` and `fs` groups are removed, with no compatibility aliases.
 
 ## Checkpoints and forks
 
 ```sh
-afs cp create shared --name before-refactor
-afs cp list shared
-afs cp show shared before-refactor
+afs checkpoint create shared --name before-refactor
+afs checkpoint list shared
+afs checkpoint show shared before-refactor
 afs fork shared experiment --checkpoint before-refactor
 afs fork shared latest-experiment
 ```
@@ -353,16 +356,16 @@ the original `initial` seed checkpoint; file edits do not move that checkpoint.
 Create a checkpoint to fork newly published work. Conflicts retain the original
 best-effort automatic conflict checkpoint behavior.
 
-`cp create` first flushes this machine's registered mounts of that workspace and
-Redis connection. A stopped mount or failed flush aborts it. Without a local
+`checkpoint create` first flushes this machine's registered mounts of that
+workspace and Redis connection. A stopped mount or failed flush aborts it. Without a local
 mount it snapshots published Redis state. It cannot include another machine's
 unuploaded changes. Pause applications on all clients when application-consistent
 contents matter; this is not a distributed filesystem transaction.
 
 ```sh
 afs unmount ~/agent-a
-afs cp restore shared before-refactor --yes
-afs cp delete shared old-checkpoint --yes
+afs checkpoint restore shared before-refactor --yes
+afs checkpoint delete shared old-checkpoint --yes
 afs delete experiment --yes
 ```
 

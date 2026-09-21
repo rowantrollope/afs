@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { FileHistoryDrawer } from "./-file-history-drawer";
+
+afterEach(() => cleanup());
 
 vi.mock("@redis-ui/components", () => ({
   Button: Object.assign((props: any) => <button {...props} />, {
@@ -173,4 +175,16 @@ describe("FileHistoryDrawer merged history surfaces", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("second revision")).toBeInTheDocument();
   });
+  test("resets a selected version when the same path is opened in another database", () => {
+    const props = { workspaceId: "workspace-1", path: "/README.md", editable: true, onClose: vi.fn() };
+    const { rerender } = render(<FileHistoryDrawer {...props} databaseId="db-1" />);
+    const activityButtons = screen.getAllByText("agent-one");
+    fireEvent.click(activityButtons[1].closest("button") as HTMLButtonElement);
+    expect(screen.getByText("first revision")).toBeInTheDocument();
+
+    rerender(<FileHistoryDrawer {...props} databaseId="db-2" />);
+    expect(screen.getByText("second revision")).toBeInTheDocument();
+    expect(screen.queryByText("first revision")).not.toBeInTheDocument();
+  });
+
 });

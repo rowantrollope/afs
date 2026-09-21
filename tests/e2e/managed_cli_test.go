@@ -106,7 +106,7 @@ func TestManagedCLIURLOnlyWorkflow(t *testing.T) {
 	}
 	c.run(nil, "sync", "--wait", root, "--timeout", "20s")
 	awaitRemote(t, c, "managed-contract", "file", first)
-	runJSON("cp", "create", "managed-contract", "--name", "first")
+	runJSON("checkpoint", "create", "managed-contract", "--name", "first")
 	var history controlplane.FileHistoryResponse
 	if err := json.Unmarshal(runJSON("history", "list", "managed-contract", "file"), &history); err != nil {
 		t.Fatal(err)
@@ -120,13 +120,13 @@ func TestManagedCLIURLOnlyWorkflow(t *testing.T) {
 	write(t, filepath.Join(root, "file"), second)
 	// This command must drain the local daemon before asking the server to
 	// checkpoint, preserving the standalone CLI's ordinary workflow.
-	runJSON("cp", "create", "managed-contract", "--name", "second")
+	runJSON("checkpoint", "create", "managed-contract", "--name", "second")
 	awaitRemote(t, c, "managed-contract", "file", second)
-	shown := runJSON("cp", "show", "managed-contract", "second")
+	shown := runJSON("checkpoint", "show", "managed-contract", "second")
 	if !bytes.Contains(shown, []byte("manifest")) {
 		t.Fatalf("managed checkpoint show omitted manifest: %s", shown)
 	}
-	listed := runJSON("cp", "list", "managed-contract")
+	listed := runJSON("checkpoint", "list", "managed-contract")
 	if !bytes.Contains(listed, []byte("first")) || !bytes.Contains(listed, []byte("second")) {
 		t.Fatalf("managed checkpoints missing: %s", listed)
 	}
@@ -143,11 +143,11 @@ func TestManagedCLIURLOnlyWorkflow(t *testing.T) {
 	if got := c.published("managed-fork", "file"); !bytes.Equal(got, first) {
 		t.Fatalf("managed fork ignored checkpoint: %q", got)
 	}
-	runJSON("cp", "restore", "managed-contract", "first", "--yes")
+	runJSON("checkpoint", "restore", "managed-contract", "first", "--yes")
 	if got := c.published("managed-contract", "file"); !bytes.Equal(got, first) {
 		t.Fatalf("managed restore ignored checkpoint: %q", got)
 	}
-	runJSON("cp", "delete", "managed-contract", "second", "--yes")
+	runJSON("checkpoint", "delete", "managed-contract", "second", "--yes")
 	for _, workspace := range []string{"managed-contract", "managed-fork", "managed-import"} {
 		runJSON("delete", workspace, "--yes")
 	}

@@ -22,13 +22,13 @@ per-file version capture already belong to the AFS engine and daemon.
 | Workspace administration | List/detail/create/update/fork/delete and view live/checkpoint trees | Keep through the shared engine |
 | Checkpoint administration | Create, compare, inspect and restore published snapshots | Keep; never imply a remote-daemon flush |
 | File history and policy | Version list/content/diff, recovery and retention policy | Reuse the already retained engine/HTTP contracts and copied drawer |
-| Redis monitoring | Health, version, memory, keys, operations, connected clients and workspace/session counts | Keep for one configured backend |
-| Managed connection setup | Original auth login/status/logout plus storage and credential discovery | Keep self-managed `afs auth login`, `status` and `logout`; authenticated bootstrap returns the single backend's effective Redis credentials, used directly by mounts |
+| Redis monitoring | Health, version, memory, keys, operations, connected clients and workspace/session counts | Keep per configured self-managed connection |
+| Managed connection setup | Original auth login/status/logout plus storage and credential discovery | Keep self-managed `afs auth login`, `status` and `logout`; authenticated bootstrap returns the selected backend's effective Redis credentials, used directly by mounts |
 | CLI management through the API | Workspace discovery, lifecycle and checkpoint management without local Redis setup | Keep current workspace/checkpoint/history commands over HTTP, including streaming directory imports; explicit Redis operation remains available |
 | Browser/API authentication | Original supported none, trusted-header and Clerk/Cloud identity | One self-managed bearer token; loopback-only when unset |
 | Scoped API-key management | Multiple key families, expiry, ownership and API capabilities | Omit issuance/catalog/UI; shared server token is configured by the operator |
 | Browser-to-CLI onboarding | One-use browser token exchange and setup | Omit browser exchange; use `afs auth login` with the server URL and optional shared team token |
-| Multi-database administration | Profiles, credentials, defaults, cross-database views and catalog reconciliation | One configured Redis backend; no SQL catalog |
+| Multi-database administration | Profiles, credentials, defaults, cross-database views and catalog reconciliation | Add and edit self-managed connections with private file persistence and scoped/global views; default identity stays fixed; no SQL catalog, UI removal/default switching or Cloud provisioning |
 | Search | Ranked/semantic query, index status/build, embedding providers and model runtime | Omit backend and corresponding UI controls |
 | Hosted MCP | Remote filesystem/checkpoint/query tools and scoped MCP keys | Omit |
 | Templates | Static gallery plus installation through MCP and key issuance | Omit gallery and installation together |
@@ -62,8 +62,8 @@ the [earlier proposal](lightweight-control-plane.md), which is superseded for
 this implementation's scope.
 
 Client host/agent/user labels are provenance supplied by a client, not independent
-proof of identity. API token holders are trusted administrators of this single
-backend. Per-file versions depend on the workspace capture policy; ordinary
+proof of identity. API token holders are trusted administrators of all configured
+backends. Per-file versions depend on the workspace capture policy; ordinary
 file-change activity does not require retaining every historical file body.
 
 ## Why keep a control plane

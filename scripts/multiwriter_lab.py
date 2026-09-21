@@ -340,7 +340,7 @@ class Case:
 
     def flush(self):
         def save(client):
-            client.run("cp", "create", self.name,
+            client.run("checkpoint", "create", self.name,
                        "--name", f"lab-{client.name}-{self.sequence}")
         # Checkpoint creation takes a workspace-wide lease. Serialize receipts;
         # simultaneous checkpoint contention is unrelated to writer convergence.

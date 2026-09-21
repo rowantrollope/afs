@@ -1,5 +1,20 @@
 # AFS extraction
 
+## Consolidate database management and checkpoint naming on main — 2026-09-21
+
+- [x] Integrate d39a database addition/editing, private persistence and scoped operations into main.
+- [x] Integrate 29a9 full checkpoint command naming without the old cp alias.
+- [x] Preserve the Home UI and main-only workflow; update Home recipes, skill and added-database acceptance to use checkpoint.
+- [x] Verify all source additions from both worktrees are retained, with backups and original worktrees preserved.
+- [x] Validate the combined main checkout before GitHub publication.
+
+Review: make control-plane, Go build/vet and UI lint pass. Unit and race suites
+each pass 1,040 cases with four existing optional Array skips. All 223 isolated
+Redis integration cases, 75 UI tests and 38 lab-script tests pass. The original
+CLI compatibility suite compiles; its comparison workload was not run. Existing
+user Redis data, saved connection settings and running services were unchanged.
+Logs: /private/tmp/afs-main-consolidated-*.log.
+
 ## Publish Home on main — 2026-09-21
 
 - [x] Integrate the completed Home design, solid shared cards, larger typography and full-height navigation into main.
@@ -86,6 +101,137 @@ cookbook and access drawers, the skill viewer, Docs and Monitor navigation.
 No browser errors or warnings. Local preview: `http://127.0.0.1:8097`; its
 Redis backend is disposable. Logs: `/private/tmp/afs-home-*.log`.
 
+## New Home page in the active instance — 2026-09-21
+
+- [x] Merge the reviewed Home UI from the 139b design checkout.
+- [x] Preserve database settings/addition work and the full-height sidebar fix.
+- [x] Build the embedded control plane, run all 75 UI tests and lint.
+- [x] Restart the existing server with unchanged launch arguments and AFS settings.
+- [x] Open live Home and verify full-height sidebar/independent content scrolling.
+
+Review: server PID 57588 is healthy at `http://127.0.0.1:8091`. Home has the
+learning banner, cookbook drawers, agent/CLI copy controls, skill viewer/download
+and API-access/docs links. Monitor moved to `/monitor`; View agents follows it.
+No database configuration or workspace contents changed. At 820px and 500px
+viewport heights, sidebar/root match the viewport and the profile remains usable;
+only main content scrolls. Browser console is clean. Logs:
+`/private/tmp/afs-home-live-{build,ui-tests,ui-lint}.log`. Existing Vite source
+also receives the changes. No commit or push requested.
+
+## Review and edit database settings — 2026-09-21
+
+- [x] Open prefilled settings from database rows and keyboard-accessible names.
+- [x] Add validated atomic updates, password preservation/removal and revision checks.
+- [x] Persist default connection edits and safely drain replaced Redis clients.
+- [x] Restore definite viewport height so the sidebar fills the active app shell.
+- [x] Validate browser flow, full checks and disposable Redis regressions.
+- [x] Rebuild/restart the active control plane and verify the live development URL.
+
+Scope: all database entries, including the startup/default connection, support
+review/edit. Keep IDs and default selection stable. Preserve private credentials,
+advanced Redis options and existing mounts; changing endpoints does not migrate
+workspace data. Leave failed/stale edits unpublished. No removal/default-switch
+controls requested. Existing uncommitted Add database changes belong to this
+session and remain intact. No commit or push requested.
+
+Review: database rows and keyboard-accessible names open a prefilled settings
+dialog for default and added connections. Updates preserve omitted passwords,
+support explicit replacement/removal, check connectivity before atomic private
+persistence, reject stale revisions, and drain in-flight queries before retiring
+replaced clients. Saved default overrides survive restart even if the original
+startup endpoint is unavailable. Existing mounts keep their current connection
+until remounted. Metadata edits preserve effective advanced Redis URL options.
+
+Validation: build, vet and diff checks pass. Unit and race suites each pass
+1,040 tests/subtests with four optional Array skips. All 219 isolated real-Redis
+integration cases pass with no skips. UI passes 75 tests, full lint and final
+`make control-plane`. Browser checks on disposable Redis verified default/added
+settings, password preservation, failed-connection recovery, duplicate correction
+and concurrent-edit rejection. Logs: `/private/tmp/afs-database-settings-*.jsonl`.
+
+The user also reported the missing full-height sidebar fix. The root now has a
+definite viewport height; the main panel retains independent scrolling. Read-only
+checks of the live UI measured both sidebar and root at the full 720px viewport,
+and confirmed the default database opens editable settings. Disposable browser
+checks also passed expanded/collapsed navigation at 1152px height and independent
+main-panel scrolling at 400px height; the profile menu remains usable. All QA
+services were stopped and viewport overrides reset. Evidence is recorded in
+`/private/tmp/afs-edit-database-browser-w6qed3s7/qa-results.json`. Backend restarted
+from the final worktree binary as PID 36358 at `http://127.0.0.1:8091`; the existing
+Vite UI remains at `http://127.0.0.1:5173/databases`. API and proxy return editable
+database revisions without passwords or private connection URLs. No live database
+settings or workspace contents were changed during verification.
+
+## Restart the current server and enable UI live updates — 2026-09-21
+
+- [x] Identify the current process and preserve its Redis/listener settings.
+- [x] Restart port 8091 using the current worktree's rebuilt embedded server.
+- [x] Start the existing Vite development UI on port 5173 and verify its API proxy.
+
+Review: the user explicitly requested the restart and expected browser updates
+while editing. The control plane is healthy at `http://127.0.0.1:8091` (PID 30440).
+The hot-reloading UI is at `http://127.0.0.1:5173` (npm PID 30497); queued the
+Databases preview in the app. Server and UI PID/log files live in the existing private
+`~/.local/state/afs-lite/control-plane` directory. Both processes run this
+worktree; original binary files and Redis content were unchanged. Checks were
+read-only HTTP readiness, embedded/Vite asset presence and API proxy checks.
+UI source edits hot-update on 5173; Go backend edits still need rebuild/restart.
+
+## Restore Add database on the Databases tab — 2026-09-21
+
+- [x] Trace the removed flow and retain the original dialog/API conventions.
+- [x] Restore adding validated Redis connections with private atomic persistence.
+- [x] Route workspace, session, history and CLI connections to the selected backend.
+- [x] Validate UI, build, vet, unit/race and disposable real-Redis process tests.
+
+Scope: the user's request restores adding self-managed Redis connections and
+supersedes the previous one-backend restriction. Keep the startup Redis as the
+default; reuse one storage engine per connection, without Cloud or a SQL catalog.
+New connections are checked before saving in a private local file. No original
+installation or existing user Redis data is used for tests. No commit or push
+requested. Unresolved questions: none.
+
+Review: restored the Add database dialog with URL paste, credentials, TLS and
+index validation; save verifies Redis before publishing a private, atomic
+connection profile. Added databases survive restart and use independent shared
+engine instances. Workspace creation, browsing, history, checkpoints, sessions,
+monitoring and CLI bootstrap preserve database scope. Concurrent aggregate
+queries remain bounded when connections are unavailable; event cursors and UI
+identities distinguish matching IDs on separate backends. Copied CLI commands
+select the workspace's database and stop if login fails.
+
+Validation: build, vet and diff checks pass. Full unit and race suites each pass
+1,033 cases, with four optional Array skips; all 211 isolated real-Redis process
+cases pass without skips. Final affected-package race checks pass 122 cases and
+all three added-database process regressions pass after the last backend edits.
+UI passes all 62 tests, full lint and `make control-plane`. Real-browser checks
+verified adding a database, selecting it for workspace creation, scoped CLI
+commands, and tree/content browsing on both disposable backends. The browser
+check caught and fixed omitted scope in file-browser requests. All temporary
+services were stopped. The rebuilt embedded server is in `bin/afs-control-plane`.
+Evidence: `/private/tmp/afs-databases-{unit,race,integration}.jsonl` and
+`/private/tmp/afs-databases-final-{race,integration}.jsonl`.
+## Spell out the checkpoint command — 2026-09-21
+
+- [x] Rename the public `afs cp` group to `afs checkpoint`, without an alias.
+- [x] Update active help, docs, UI examples, scripts and CLI acceptance tests.
+- [x] Verify build, vet, unit/race tests and isolated real-Redis process tests.
+
+Decision: use full command names consistently and avoid overlap with Unix `cp`.
+Checkpoint subcommands, options and storage behavior remain the same. This
+supersedes the earlier decision to retain the `cp` group. Preserve original CLI
+spellings in historical records and prior/current compatibility fixtures.
+Unresolved questions: none.
+
+Review: build/vet pass; rebuilt this checkout's `bin/afs`. Unit and race suites
+each pass 1,027 test/subtest cases with four optional Array skips; all 212
+isolated real-Redis process cases pass, including standalone and managed
+checkpoint workflows and rejection of `cp` before config/Redis access. All 38
+lab-script tests pass. The prior/current compatibility suite compiles; its
+original-command side retains `cp`. UI changes are command text only; no UI
+bundle was rebuilt. Existing Redis data and installed binaries were unchanged.
+Evidence: `/private/tmp/afs-checkpoint-{unit,race,integration}.jsonl` and
+`/private/tmp/afs-checkpoint-script-tests.log`.
 
 ## Publish complete control-plane, UI and auth work — 2026-09-18
 

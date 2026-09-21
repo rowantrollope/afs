@@ -62,23 +62,23 @@ func TestDefaultCommandOutput(t *testing.T) {
 		{"create from directory", []string{"create", "friendly", "--from", importRoot}, nil, [][]string{{"created", "imported"}, {"friendly"}}},
 		{"list", []string{"list"}, nil, [][]string{{"friendly"}, {"blank"}}},
 		{"info", []string{"info", "friendly"}, nil, [][]string{{"friendly"}, {"id"}, {"head", "checkpoint"}}},
-		{"cp create", []string{"cp", "create", "friendly", "--name", "before-edit"}, nil, [][]string{{"checkpoint"}, {"created"}, {"before-edit"}}},
-		{"cp list", []string{"cp", "list", "friendly"}, nil, [][]string{{"before-edit"}}},
-		{"cp show", []string{"cp", "show", "friendly", "before-edit"}, nil, [][]string{{"before-edit"}, {"files"}, {"bytes"}, {"notes/original"}}},
+		{"checkpoint create", []string{"checkpoint", "create", "friendly", "--name", "before-edit"}, nil, [][]string{{"checkpoint"}, {"created"}, {"before-edit"}}},
+		{"checkpoint list", []string{"checkpoint", "list", "friendly"}, nil, [][]string{{"before-edit"}}},
+		{"checkpoint show", []string{"checkpoint", "show", "friendly", "before-edit"}, nil, [][]string{{"before-edit"}, {"files"}, {"bytes"}, {"notes/original"}}},
 		{"fork", []string{"fork", "friendly", "friendly-copy", "--checkpoint", "before-edit"}, nil, [][]string{{"forked"}, {"friendly"}, {"friendly-copy"}}},
-		{"cp create next", []string{"cp", "create", "friendly", "--name", "after-edit"}, func() {
+		{"checkpoint create next", []string{"checkpoint", "create", "friendly", "--name", "after-edit"}, func() {
 			c.mount("friendly", writer)
 			if err := os.Remove(filepath.Join(writer, "notes", "original")); err != nil {
 				t.Fatal(err)
 			}
 			c.unmount(writer)
 		}, [][]string{{"checkpoint"}, {"after-edit"}}},
-		{"cp restore", []string{"cp", "restore", "friendly", "before-edit", "--yes"}, func() {
+		{"checkpoint restore", []string{"checkpoint", "restore", "friendly", "before-edit", "--yes"}, func() {
 			c.mount("friendly", writer)
 			write(t, filepath.Join(writer, "pending"), []byte("preserve in safety checkpoint"))
 			c.unmount(writer)
 		}, [][]string{{"restored"}, {"friendly"}, {"safety"}}},
-		{"cp delete", []string{"cp", "delete", "friendly", "after-edit", "--yes"}, nil, [][]string{{"deleted"}, {"checkpoint"}, {"after-edit"}}},
+		{"checkpoint delete", []string{"checkpoint", "delete", "friendly", "after-edit", "--yes"}, nil, [][]string{{"deleted"}, {"checkpoint"}, {"after-edit"}}},
 		{"delete", []string{"delete", "friendly-copy", "--yes"}, nil, [][]string{{"deleted"}, {"workspace"}, {"friendly-copy"}}},
 	}
 	for _, s := range steps {

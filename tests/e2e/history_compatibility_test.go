@@ -16,7 +16,7 @@ func TestHistoryCompatibilityCLIProcess(t *testing.T) {
 	c.run(nil, "create", "compatible")
 	c.run(nil, "history", "policy", "compatible", "--mode", "all")
 	c.put("compatible", "file.txt", []byte("old\n"))
-	c.run(nil, "cp", "create", "compatible", "--name", "old")
+	c.run(nil, "checkpoint", "create", "compatible", "--name", "old")
 	c.put("compatible", "file.txt", []byte("new\n"))
 	c.closeWriter("compatible")
 	var first controlplane.FileHistoryResponse

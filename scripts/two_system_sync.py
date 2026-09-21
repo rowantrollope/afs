@@ -515,7 +515,7 @@ class Case:
     def flush(self, label):
         for role in ("a", "b"):
             if self.lab.role == role:
-                self.client.run("cp", "create", self.name, "--name", f"{label}-{role}")
+                self.client.run("checkpoint", "create", self.name, "--name", f"{label}-{role}")
             self.barrier("flush:" + label + ":" + role)
 
     def setup(self):
@@ -703,7 +703,7 @@ class Case:
             # B's unpublished candidate must not be expected on A until reconnect.
             extra = self.expected.pop("B-only")
             self.converge("A continues while B offline", local_only=True)
-            self.client.run("cp", "create", self.name, "--name", "offline-A")
+            self.client.run("checkpoint", "create", self.name, "--name", "offline-A")
             self.expected["B-only"] = extra
         elif not crash:
             self.wait("B reports disconnected", lambda:
@@ -738,7 +738,7 @@ class Case:
             self.delete("a", "source")
         if self.lab.role == "a":
             self.converge("A mutation published", local_only=True)
-            self.client.run("cp", "create", self.name, "--name", "A-mutated")
+            self.client.run("checkpoint", "create", self.name, "--name", "A-mutated")
         self.barrier("A mutation complete")
         if rename:
             original = self.expected.pop("destination")

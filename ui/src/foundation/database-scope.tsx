@@ -28,7 +28,8 @@ export type AFSDatabaseScopeRecord = {
   endpointLabel: string;
   dbIndex: string;
   username: string;
-  password: string;
+  hasPassword: boolean;
+  configRevision: string;
   useTLS: boolean;
   isDefault: boolean;
   workspaceCount: number;
@@ -89,7 +90,8 @@ function mapDatabaseRecord(
     endpointLabel: input.redisAddr,
     dbIndex: String(input.redisDB),
     username: input.redisUsername,
-    password: input.redisPassword,
+    hasPassword: input.hasPassword,
+    configRevision: input.configRevision,
     useTLS: input.redisTLS,
     isDefault: input.isDefault,
     workspaceCount: input.workspaceCount,

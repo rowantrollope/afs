@@ -392,7 +392,7 @@ export function WorkspaceTable({
               const hasAgents = agentCount > 0;
               return (
                 <S.WorkspaceCard
-                  key={ws.id}
+                  key={workspaceRowKey(ws)}
                   onMouseEnter={() => onPreviewWorkspace?.(ws)}
                   onFocus={() => onPreviewWorkspace?.(ws)}
                   onClick={() => onOpenWorkspace(ws)}

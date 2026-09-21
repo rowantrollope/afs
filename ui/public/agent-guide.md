@@ -16,8 +16,8 @@ afs list
 afs mount my-workspace ~/afs/my-workspace
 afs sync status
 afs sync --wait my-workspace
-afs cp create my-workspace
-afs cp list my-workspace
+afs checkpoint create my-workspace
+afs checkpoint list my-workspace
 afs history list my-workspace README.md
 ```
 

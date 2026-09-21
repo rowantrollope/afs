@@ -1,4 +1,4 @@
-import { Button } from "@redis-ui/components";
+import { Button, Select } from "@redis-ui/components";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import {
@@ -15,6 +15,7 @@ import {
   TextInput,
 } from "../../components/afs-kit";
 import { useCreateWorkspaceMutation } from "../../foundation/hooks/use-afs";
+import { useDatabaseScope } from "../../foundation/database-scope";
 
 type Props = { open: boolean; onClose: () => void; resourceLabel?: string };
 export function CreateWorkspaceDialog({ open, onClose }: Props) {
@@ -22,17 +23,38 @@ export function CreateWorkspaceDialog({ open, onClose }: Props) {
 }
 function CreateWorkspaceForm({ onClose }: { onClose: () => void }) {
   const create = useCreateWorkspaceMutation();
+  const { databases, isLoading } = useDatabaseScope();
+  const eligibleDatabases = databases.filter(
+    (database) => database.canCreateWorkspaces && database.isHealthy,
+  );
+  const [selectedDatabaseId, setSelectedDatabaseId] = useState("");
+  const selectedDatabase = selectedDatabaseId
+    ? eligibleDatabases.find((database) => database.id === selectedDatabaseId)
+    : (eligibleDatabases.find((database) => database.isDefault) ??
+      eligibleDatabases.at(0));
+  const selectionUnavailable = Boolean(selectedDatabaseId && !selectedDatabase);
+  const databaseOptions = eligibleDatabases.map((database) => ({
+    value: database.id,
+    label: `${database.displayName}${database.isDefault ? " (default)" : ""}`,
+  }));
+  if (selectionUnavailable) {
+    databaseOptions.push({
+      value: selectedDatabaseId,
+      label: "Selected database (unavailable)",
+    });
+  }
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!selectedDatabase || create.isPending || !name.trim()) return;
     try {
       await create.mutateAsync({
-        databaseId: "local",
+        databaseId: selectedDatabase.id,
         name: name.trim(),
         description: description.trim(),
         cloudAccount: "Direct Redis",
-        databaseName: "Redis",
+        databaseName: selectedDatabase.databaseName,
         region: "",
         source: "blank",
       });
@@ -68,6 +90,30 @@ function CreateWorkspaceForm({ onClose }: { onClose: () => void }) {
         </DialogHeader>
         <FormGrid onSubmit={submit}>
           <Field>
+            Database
+            <Select
+              aria-label="Database"
+              options={databaseOptions}
+              value={selectedDatabaseId || selectedDatabase?.id || ""}
+              onChange={setSelectedDatabaseId}
+              isDisabled={
+                create.isPending || isLoading || eligibleDatabases.length === 0
+              }
+            />
+          </Field>
+          {selectionUnavailable && (
+            <DialogError role="alert">
+              The selected database is unavailable. Choose an available database
+              to continue.
+            </DialogError>
+          )}
+          {!isLoading && eligibleDatabases.length === 0 && (
+            <DialogError role="alert">
+              Connect an available Redis database in the Databases tab before
+              creating a workspace.
+            </DialogError>
+          )}
+          <Field>
             Workspace name
             <TextInput
               autoFocus
@@ -97,7 +143,15 @@ function CreateWorkspaceForm({ onClose }: { onClose: () => void }) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={create.isPending || !name.trim()}>
+            <Button
+              type="submit"
+              disabled={
+                create.isPending ||
+                !name.trim() ||
+                !selectedDatabase ||
+                isLoading
+              }
+            >
               {create.isPending ? "Creating…" : "Create workspace"}
             </Button>
           </DialogActions>

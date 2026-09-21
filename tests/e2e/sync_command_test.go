@@ -19,7 +19,7 @@ func TestSyncWaitVerifiesAndResumesWithoutCheckpoint(t *testing.T) {
 	r := newRedis(t)
 	c := newCLI(t, r)
 	c.run(nil, "create", "barrier")
-	before := c.run(nil, "--json", "cp", "list", "barrier")
+	before := c.run(nil, "--json", "checkpoint", "list", "barrier")
 	root := filepath.Join(t.TempDir(), "mounted")
 	pid := c.mount("barrier", root)
 	write(t, filepath.Join(root, "dir", "file"), []byte("verified bytes"))
@@ -70,7 +70,7 @@ func TestSyncWaitVerifiesAndResumesWithoutCheckpoint(t *testing.T) {
 	if err != nil || string(got) != "verified bytes" {
 		t.Fatalf("remote: %q %v", got, err)
 	}
-	if after := c.run(nil, "--json", "cp", "list", "barrier"); !bytes.Equal(before, after) {
+	if after := c.run(nil, "--json", "checkpoint", "list", "barrier"); !bytes.Equal(before, after) {
 		t.Fatalf("sync created checkpoint: before %s after %s", before, after)
 	}
 	if err := syscall.Kill(pid, 0); err != nil {

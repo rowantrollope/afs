@@ -91,7 +91,7 @@ func TestReadOnlyMountLifecycleAndCheckpoint(t *testing.T) {
 	// reconciliation paths after the observer's local mutations.
 	write(t, filepath.Join(writable, "after-edits"), []byte("peer publication"))
 	awaitFile(t, filepath.Join(observer, "after-edits"), []byte("peer publication"))
-	reader.run(nil, "cp", "create", "readonly", "--name", "observer-checkpoint")
+	reader.run(nil, "checkpoint", "create", "readonly", "--name", "observer-checkpoint")
 	reader.run(nil, "fork", "readonly", "reader-snapshot", "--checkpoint", "observer-checkpoint")
 	for _, workspace := range []string{"readonly", "reader-snapshot"} {
 		for name, want := range map[string]string{"edited": "published", "removed": "still remote", "after-edits": "peer publication"} {
@@ -109,7 +109,7 @@ func TestReadOnlyMountLifecycleAndCheckpoint(t *testing.T) {
 	write(t, filepath.Join(writable, "after-remount"), []byte("new peer bytes"))
 	mountReadOnly(t, reader, "readonly", observer)
 	awaitFile(t, filepath.Join(observer, "after-remount"), []byte("new peer bytes"))
-	reader.run(nil, "cp", "create", "readonly", "--name", "after-reader-remount")
+	reader.run(nil, "checkpoint", "create", "readonly", "--name", "after-reader-remount")
 	reader.awaitMissingPublished("readonly", "stopped-only")
 	unmountReadOnly(t, reader, observer)
 	if message := reader.mustFail("mount", "readonly", observer); !strings.Contains(message, "different read-only setting") {

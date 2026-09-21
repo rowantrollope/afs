@@ -4,7 +4,7 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 - Reuse the retained folder sync, Redis client, manifests, checkpoints, and recovery code.
 - One workspace is one tree; no public volumes, cloud, MCP, or search. Native FUSE/NFS mounting is optional, with folder sync as the default.
-- Workspace actions live at the root; cp manages checkpoints, config manages settings, and sync provides status and an explicit verification wait. No ws/fs aliases. Access files through mounted directories.
+- Workspace actions live at the root; checkpoint manages checkpoints, config manages settings, and sync provides status and an explicit verification wait. No ws/fs aliases. Access files through mounted directories.
 - Never run tests against existing user Redis data or change the original installation.
 - Retain multi-writer behavior and prove safety changes with focused regressions.
 - Local lifecycle belongs in cmd/afs; Redis content and checkpoints remain internal.
@@ -14,7 +14,7 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 - The optional control plane is `cmd/afs-control-plane`; do not add HTTP server commands to `afs`. Build embedded UI with `make control-plane`, not plain Go build.
 - New implementation belongs here; the original `agent-filesystem` checkout is read-only reference. Keep one storage engine and direct Redis mounted I/O.
-- Control-plane scope is one Redis backend and a trusted self-managed team token; no Cloud, search, hosted MCP, templates, or multi-database catalog.
+- Control-plane scope is self-managed Redis connections and a trusted team token. The Databases tab can add and edit connections saved in a private local file; reuse the same storage engine per connection. No Cloud, search, hosted MCP, templates, or SQL catalog.
 
 ## Git workflow
 

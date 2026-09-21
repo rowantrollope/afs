@@ -32,7 +32,7 @@ func TestHistoryLifecycleCheckpointRestoreAndIndependentFork(t *testing.T) {
 	second := bytes.Repeat([]byte{17, 0, 128, 'z'}, 5000)
 	c.put("history-source", "file", first)
 	c.put("history-source", "empty", []byte{})
-	c.run(nil, "cp", "create", "history-source", "--name", "first")
+	c.run(nil, "checkpoint", "create", "history-source", "--name", "first")
 	c.put("history-source", "file", second)
 	c.put("history-source", "later", []byte("created after checkpoint"))
 	c.closeWriter("history-source")
@@ -57,7 +57,7 @@ func TestHistoryLifecycleCheckpointRestoreAndIndependentFork(t *testing.T) {
 		t.Fatalf("fork omitted the post-checkpoint file tombstone: %+v", forkLater)
 	}
 
-	c.run(nil, "cp", "restore", "history-source", "first", "--yes")
+	c.run(nil, "checkpoint", "restore", "history-source", "first", "--yes")
 	restored := page("history-source", "file")
 	if restored.FileID != sourcePage.FileID || len(restored.Versions) == 0 || restored.Versions[0].Source != "checkpoint_restore" || restored.Versions[0].Op != "put" {
 		t.Fatalf("restored history = %+v", restored)

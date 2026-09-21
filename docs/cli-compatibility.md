@@ -11,17 +11,17 @@ The compatibility suite runs two real CLI binaries against separate disposable R
 | List / inspect | `vol list` / `vol info NAME` | `list` / `info NAME` |
 | Read and change files | Ordinary tools inside the mounted folder | Ordinary tools inside the mounted folder |
 | Fork checkpoint head | `vol fork SOURCE NEW` | `fork SOURCE NEW` |
-| Create named checkpoint | `cp create --volume NAME LABEL` | `cp create NAME --name LABEL` |
-| List / inspect checkpoint | `cp list NAME` / `cp show NAME LABEL` | `cp list NAME` / `cp show NAME LABEL` |
-| Restore checkpoint | `cp restore NAME LABEL` | `cp restore NAME LABEL --yes` |
+| Create named checkpoint | `cp create --volume NAME LABEL` | `checkpoint create NAME --name LABEL` |
+| List / inspect checkpoint | `cp list NAME` / `cp show NAME LABEL` | `checkpoint list NAME` / `checkpoint show NAME LABEL` |
+| Restore checkpoint | `cp restore NAME LABEL` | `checkpoint restore NAME LABEL --yes` |
 | Sync ordinary local folder | `vol mount NAME DIR` | `mount NAME DIR` |
-| Flush before checkpoint | `vol save --json DIR`, then `cp create` | `cp create` flushes registered local mounts |
+| Flush before checkpoint | `vol save --json DIR`, then `cp create` | `checkpoint create` flushes registered local mounts |
 | Stop sync, preserve local files | `vol unmount DIR` | `unmount DIR` |
 | Delete file tree | `vol delete --no-confirmation NAME` | `delete NAME --yes` |
 
 The tests compare workspace names and checkpoint head availability, checkpoint file/folder/byte totals, and materialized paths, file sizes, SHA-256 byte digests, permission modes, and symlink targets. Workspace and checkpoint machine comparisons request JSON explicitly. All file reads and directory observations use ordinary filesystem calls inside real mounted folders; the tests invoke no deleted file commands or compatibility aliases. Timestamps, random identifiers, exact whitespace, and private local control directories (`.afs-sync` / `.afs-lite-sync`) are excluded from equality. Ordinary hidden user files are included.
 
-The shared fixture includes text, empty and binary files, an executable, an empty directory, a hidden file, and a relative symlink. Both CLIs must import and materialize that fixture, then publish ordinary local edits, rename, chmod, deletion, directory creation, and a 2,150,005-byte binary file. An independent remount verifies the published tree; the original fork must remain unchanged; restoring the earlier checkpoint must recover the original bytes and metadata. Unmount must preserve the local tree. A separate paired test starts with a local `.afsignore` containing `private/` and an existing `private/local.txt`, then mounts a workspace containing `public.txt`. Both CLIs must preserve the ignore file and private bytes, hydrate the public file, exclude the private paths through a completed save/checkpoint, preserve them on unmount, and expose only public content on an independent mount. Help and version run with a nonexistent config, without Redis. The extracted root help must advertise `create`, `list`, `info`, `fork`, `delete`, `mount`, `unmount`, `status`, and `cp`; `ws` and `fs` must be rejected even though their original help commands succeed.
+The shared fixture includes text, empty and binary files, an executable, an empty directory, a hidden file, and a relative symlink. Both CLIs must import and materialize that fixture, then publish ordinary local edits, rename, chmod, deletion, directory creation, and a 2,150,005-byte binary file. An independent remount verifies the published tree; the original fork must remain unchanged; restoring the earlier checkpoint must recover the original bytes and metadata. Unmount must preserve the local tree. A separate paired test starts with a local `.afsignore` containing `private/` and an existing `private/local.txt`, then mounts a workspace containing `public.txt`. Both CLIs must preserve the ignore file and private bytes, hydrate the public file, exclude the private paths through a completed save/checkpoint, preserve them on unmount, and expose only public content on an independent mount. Help and version run with a nonexistent config, without Redis. The extracted root help must advertise `create`, `list`, `info`, `fork`, `delete`, `mount`, `unmount`, `status`, and `checkpoint`; `cp`, `ws` and `fs` must be rejected even though their original help commands succeed.
 
 ## Default presentation
 
@@ -33,6 +33,7 @@ JSON is opt-in through `--json`. Existing machine comparisons and parsing helper
 
 - The reduced grammar and opt-in global `--json` flag replace the old command spelling and output schemas. Help moves from styled stderr to plain stdout. This is behavior compatibility for retained operations, not a drop-in command-line or configuration replacement.
 - Workspace actions are root commands. The `ws` group and the complete public `fs` surface are removed. Users read and change files with ordinary tools in the synchronized folder; the paired tests compare that shared workflow for text, empty, and binary files.
+- Checkpoint commands use `checkpoint` in place of the original `cp` group, with no `cp` alias.
 - Checkpoint deletion and choosing an arbitrary checkpoint when forking have no corresponding command in the original CLI. Their direct command contracts are tested in `tests/e2e/cli_contract_test.go`.
 - Restore requires local mounts to be stopped and explicit confirmation. Unmount now flushes pending changes and fails if it cannot flush. The original workflow uses an explicit `vol save` before unmount/checkpoint.
 - The old Redis config is an object and requires explicit `productMode: local`, `mode: sync`, and `runtime.mount.backend: none` for this test. The extracted config takes a Redis URL. The suite creates both configs and separate child homes/state directories; it never reads an installed AFS config or existing Redis endpoint.

@@ -653,12 +653,20 @@ function displayAgentPrimaryName(agent: AFSAgentSession): string {
   return sessionId ? `Session: ${sessionId}` : "Session: unknown";
 }
 
+function databaseScopedId(databaseId: string | undefined, id: string): string {
+  return `${databaseId ?? ""}:${id}`;
+}
+
 function getAgentTopologyId(agent: AFSAgentSession): string {
-  return agent.sessionId;
+  return databaseScopedId(agent.databaseId, agent.sessionId);
+}
+
+function getAgentWorkspaceTopologyId(agent: AFSAgentSession): string {
+  return databaseScopedId(agent.databaseId, agent.workspaceId);
 }
 
 function getWorkspaceTopologyId(workspace: TopologyTarget): string {
-  return workspace.id;
+  return databaseScopedId(workspace.databaseId, workspace.id);
 }
 
 function connectionColor(agentId: string, workspaceId: string): string {
@@ -674,7 +682,7 @@ function buildTopologyTargets(
   agents: AFSAgentSession[],
   workspaces: AFSWorkspaceSummary[],
 ): TopologyTarget[] {
-  const mounted = new Set(agents.map((agent) => agent.workspaceId));
+  const mounted = new Set(agents.map(getAgentWorkspaceTopologyId));
   const targets: TopologyTarget[] = workspaces.map((workspace) => ({
     id: workspace.id,
     kind: "workspace",
@@ -682,12 +690,13 @@ function buildTopologyTargets(
     databaseId: workspace.databaseId,
     fileCount: workspace.fileCount,
     totalBytes: workspace.totalBytes,
-    mounted: mounted.has(workspace.id),
+    mounted: mounted.has(databaseScopedId(workspace.databaseId, workspace.id)),
   }));
-  const known = new Set(targets.map((target) => target.id));
+  const known = new Set(targets.map(getWorkspaceTopologyId));
   for (const agent of agents) {
-    if (!agent.workspaceId || known.has(agent.workspaceId)) continue;
-    known.add(agent.workspaceId);
+    const key = getAgentWorkspaceTopologyId(agent);
+    if (!agent.workspaceId || known.has(key)) continue;
+    known.add(key);
     targets.push({
       id: agent.workspaceId,
       kind: "workspace",
@@ -709,8 +718,8 @@ function agentIsHighlighted(
   hovered: HoveredTopologyItem | null,
 ): boolean {
   if (hovered == null) return false;
-  if (hovered.kind === "agent") return hovered.id === agent.sessionId;
-  return hovered.id === agent.workspaceId;
+  if (hovered.kind === "agent") return hovered.id === getAgentTopologyId(agent);
+  return hovered.id === getAgentWorkspaceTopologyId(agent);
 }
 
 function workspaceIsHighlighted(
@@ -718,8 +727,9 @@ function workspaceIsHighlighted(
   hovered: HoveredTopologyItem | null,
 ): boolean {
   if (hovered == null) return false;
-  if (hovered.kind === "workspace") return hovered.id === workspace.id;
-  return hovered.workspaceId === workspace.id;
+  const workspaceId = getWorkspaceTopologyId(workspace);
+  if (hovered.kind === "workspace") return hovered.id === workspaceId;
+  return hovered.workspaceId === workspaceId;
 }
 
 function targetKindLabel(_kind: TopologyTargetKind): string {
@@ -843,7 +853,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
     [sortedAgents, workspaces],
   );
   const targetById = useMemo(
-    () => new Map(sortedWorkspaces.map((target) => [target.id, target])),
+    () => new Map(sortedWorkspaces.map((target) => [getWorkspaceTopologyId(target), target])),
     [sortedWorkspaces],
   );
   const animatedAgents = useAnimatedTopologyItems(
@@ -875,7 +885,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
   // Build a map: workspaceId -> index in the displayed mounted target list.
   const wsIndexMap = useMemo(() => {
     const map = new Map<string, number>();
-    visibleWorkspaces.forEach(({ item }, i) => map.set(item.id, i));
+    visibleWorkspaces.forEach(({ item }, i) => map.set(getWorkspaceTopologyId(item), i));
     return map;
   }, [visibleWorkspaces]);
 
@@ -890,17 +900,19 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
     }[] = [];
     const seen = new Set<string>();
     visibleAgents.forEach(({ item: agent }, aIdx) => {
-      const wIdx = wsIndexMap.get(agent.workspaceId);
+      const workspaceId = getAgentWorkspaceTopologyId(agent);
+      const agentId = getAgentTopologyId(agent);
+      const wIdx = wsIndexMap.get(workspaceId);
       if (wIdx != null) {
         const key = `${aIdx}-${wIdx}`;
         if (!seen.has(key)) {
           seen.add(key);
           pairs.push({
-            agentId: agent.sessionId,
+            agentId,
             agentIdx: aIdx,
-            workspaceId: agent.workspaceId,
+            workspaceId,
             wsIdx: wIdx,
-            color: connectionColor(agent.sessionId, agent.workspaceId),
+            color: connectionColor(agentId, workspaceId),
           });
         }
       }
@@ -1166,7 +1178,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                     const highlighted = agentIsHighlighted(agent, hoveredItem);
                     return (
                       <AgentNode
-                        key={agent.sessionId}
+                        key={getAgentTopologyId(agent)}
                         $i={i}
                         $presence={presence}
                         $highlighted={highlighted}
@@ -1177,8 +1189,8 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                         onMouseEnter={() => {
                           setHoveredItem({
                             kind: "agent",
-                            id: agent.sessionId,
-                            workspaceId: agent.workspaceId,
+                            id: getAgentTopologyId(agent),
+                            workspaceId: getAgentWorkspaceTopologyId(agent),
                           });
                         }}
                         onMouseLeave={() => {
@@ -1187,8 +1199,8 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                         onFocus={() => {
                           setHoveredItem({
                             kind: "agent",
-                            id: agent.sessionId,
-                            workspaceId: agent.workspaceId,
+                            id: getAgentTopologyId(agent),
+                            workspaceId: getAgentWorkspaceTopologyId(agent),
                           });
                         }}
                         onBlur={() => {
@@ -1249,7 +1261,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                 const highlighted = workspaceIsHighlighted(ws, hoveredItem);
                 return (
                   <WorkspaceNode
-                    key={ws.id}
+                    key={getWorkspaceTopologyId(ws)}
                     $i={i}
                     $presence={presence}
                     $highlighted={highlighted}
@@ -1258,13 +1270,13 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                     aria-label={`Open ${targetKindLabel(ws.kind)} ${workspaceLabel}`}
                     title={`Open ${targetKindLabel(ws.kind)} ${workspaceLabel}`}
                     onMouseEnter={() => {
-                      setHoveredItem({ kind: "workspace", id: ws.id });
+                      setHoveredItem({ kind: "workspace", id: getWorkspaceTopologyId(ws) });
                     }}
                     onMouseLeave={() => {
                       setHoveredItem(null);
                     }}
                     onFocus={() => {
-                      setHoveredItem({ kind: "workspace", id: ws.id });
+                      setHoveredItem({ kind: "workspace", id: getWorkspaceTopologyId(ws) });
                     }}
                     onBlur={() => {
                       setHoveredItem(null);
@@ -1303,7 +1315,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
           onClose={() => setSelectedAgent(null)}
           onOpenWorkspace={(agent) => {
             setSelectedAgent(null);
-            const target = targetById.get(agent.workspaceId);
+            const target = targetById.get(getAgentWorkspaceTopologyId(agent));
             if (target != null) {
               openTopologyTarget(navigate, target);
               return;
