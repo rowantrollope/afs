@@ -1,5 +1,24 @@
 # AFS extraction
 
+## Restart the API-key control plane from main — 2026-09-21
+
+- [x] Locate the inherited server on port 8091 and inspect launch settings without exposing credentials.
+- [x] Rebuild the main checkout with `make control-plane`.
+- [x] Restart from `/Users/rowantrollope/git/afs`, preserving its environment and connection settings.
+- [x] Verify the listener, health, new API-key route and main executable/cwd; record the no-worktree correction.
+
+Scope: replace the inherited d39a worktree process. Do not change Redis data,
+server authentication settings, saved database profiles or mounted clients.
+
+Review: gracefully replaced PID 60269 from the old worktree with PID 78921,
+executing `/Users/rowantrollope/git/afs/bin/afs-control-plane` with cwd set to the
+main checkout. Preserved all launch arguments and environment (updated PWD only),
+without writing credentials to disk or output. Listener ownership, health and
+the new API-key route verified on port 8091. The existing server has no team
+token, so API-key issuance remains disabled; authentication was not changed.
+Log: `/private/tmp/afs-control-plane-main.log`. Source workflow correction is
+recorded in AGENTS.md and tasks/lessons.md. Existing worktrees were not deleted.
+
 ## Named administrator API keys — 2026-09-21
 
 - [x] Add a shared Redis key registry, hashed secrets, expiry and atomic revocation/usage tracking.

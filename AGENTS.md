@@ -18,6 +18,7 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 ## Git workflow
 
-- Work directly on `main` for this project. Do not create feature branches or branch-based worktrees.
+- Everything stays on `main` unless the user explicitly directs otherwise: edits, commits, builds and running services. Do not create or use worktrees or feature branches.
+- Run the control plane and development servers from `/Users/rowantrollope/git/afs`, never from a Codex worktree or its build artifacts.
 - Commit completed work and push it to `origin/main`; do not leave finished changes only in a local branch or worktree.
 - Preserve existing work when integrating changes. Use normal pushes; never force-push `main`.

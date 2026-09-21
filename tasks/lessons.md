@@ -294,3 +294,12 @@ focused: creation/list/revoke, expiry, last use, hashed secrets and key attribut
 All keys are trusted administrators; workspace isolation and revoking existing
 Redis access require separate storage authorization work. Retain the shared
 team token for bootstrap/recovery and keep the original checkout read-only.
+
+## No more worktrees, including running services — 2026-09-21
+
+The user reiterated: “NO MORE WORKTREES” and “Everything stays on main unless I direct otherwise.” This applies to service launch paths
+as well as source edits and Git workflow. Build and run AFS from the main
+checkout at `/Users/rowantrollope/git/afs`. When restarting an inherited server,
+verify its executable and working directory and replace an old worktree launch
+with the main checkout while preserving its existing configuration. Do not
+delete existing worktrees or their uncommitted work without a separate request.
