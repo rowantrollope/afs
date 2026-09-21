@@ -4,6 +4,7 @@ import {
   BookOpenIcon,
   DatabaseIcon,
   FoldersIcon,
+  HomeIcon,
   PieChartIcon,
 } from "../components/lucide-icons";
 
@@ -34,7 +35,8 @@ export type NavigationTitleParts = {
 };
 
 export const navigationItems: ReadonlyArray<NavigationRouteItem> = [
-  { kind: "route", label: "Monitor", path: "/", icon: PieChartIcon },
+  { kind: "route", label: "Home", path: "/", icon: HomeIcon },
+  { kind: "route", label: "Monitor", path: "/monitor", icon: PieChartIcon },
   {
     kind: "route",
     label: "Workspaces",
@@ -85,10 +87,12 @@ export function resolveNavigationTitleParts(
   if (pathname.startsWith("/settings"))
     return { page: "Settings", subtitle: "Customize the console appearance." };
   if (pathname.startsWith("/docs")) return { page: "Documentation" };
-  return {
-    page: "Monitor",
-    subtitle: "What your CLI and agents are doing right now.",
-  };
+  if (pathname.startsWith("/monitor"))
+    return {
+      page: "Monitor",
+      subtitle: "What your CLI and agents are doing right now.",
+    };
+  return { page: "Home" };
 }
 
 export function getNavigationPanel(

@@ -215,3 +215,21 @@ User required implementation to continue until the concurrent tests pass.
 - Serialize macOS native mount lifecycle tests and suites using system-wide
   open-file scans. An unrelated mount detaching during `lsof` can make that
   scan uncertain; preserve the refusal and test the suites in isolation.
+
+## 2026-09-21 — Keep navigation anchored to the viewport
+
+- User correction: the left navigation must extend to the bottom of the browser.
+- Give html/body/root a definite height; min-height alone does not resolve child percentage heights. Keep main-content scrolling inside the viewport-sized shell.
+- When promoting a design preview to the real instance, inspect the active server checkout and preserve newer work there instead of replacing it with the preview backend.
+
+## 2026-09-21 — Reuse opaque application cards on Home
+
+- User correction: Home cards should match other pages and must not be transparent.
+- Reuse SurfaceCard for Home panels and recipe cards rather than duplicating card chrome. Use the solid panel token for Classic, whose default panel token has alpha.
+- Keep card surfaces opaque in light and dark modes so the background grid does not show through.
+
+- Follow-up correction: the Learn Agent Filesystem hero is also a card. Use the same HomeCard surface for the hero, with no separate background or border; theme its text and avoid multiply blending on dark surfaces.
+
+## 2026-09-21 — Home text must be comfortably readable
+
+- User correction: enlarge all Home text, including labels, metadata, controls and the agent prompt. Do not retain tiny 8–11px editorial text; use 12px minimum for small labels, 16px body copy and larger headings, with responsive wrapping.

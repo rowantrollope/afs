@@ -8,6 +8,7 @@ import {
   CloudDownload,
   Database,
   Folders,
+  House,
   KeyRound,
   Laptop,
   LifeBuoy,
@@ -52,6 +53,7 @@ function makeLucideIcon(Icon: LucideIcon, defaultLabel: string) {
   };
 }
 
+export const HomeIcon = makeLucideIcon(House, "Home");
 export const PieChartIcon = makeLucideIcon(PieChart, "Pie chart");
 export const FoldersIcon = makeLucideIcon(Folders, "Folders");
 export const BotIcon = makeLucideIcon(Bot, "Bot");
