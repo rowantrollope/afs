@@ -45,7 +45,7 @@ function profileInitials(displayName: string) {
 }
 
 /** Routes that remain active even when no databases are configured. */
-const ALWAYS_ENABLED_PATHS = new Set(["/", "/docs"]);
+const ALWAYS_ENABLED_PATHS = new Set(["/", "/monitor", "/docs"]);
 
 const serverVersionQueryOptions = () =>
   queryOptions({

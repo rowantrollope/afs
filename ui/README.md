@@ -1,7 +1,8 @@
 # AFS Web UI
 
 The optional console for the AFS control plane retains the original Redis UI
-components and layout: Monitor and active-client topology, workspaces and file
+components and layout, with a learning-first Home for agent setup and cookbooks,
+Monitor and active-client topology, workspaces and file
 browsing, explicit checkpoints, global and per-workspace History, file versioning,
 and statistics for the configured Redis backend.
 

@@ -1,5 +1,14 @@
 # AFS extraction
 
+## Publish Home on main — 2026-09-21
+
+- [x] Integrate the completed Home design, solid shared cards, larger typography and full-height navigation into main.
+- [x] Preserve the existing sidebar work and both sets of review notes.
+- [x] Record the user's main-only, no-new-branches, push-to-origin/main workflow in AGENTS.md.
+- [x] Validate the merged main checkout with make control-plane, UI lint and all 41 UI tests.
+
+Scope: completed work from the Home-page task. Separate database-management changes in the active development checkout remain intact.
+
 ## Fill the browser height with the UI sidebar — 2026-09-21
 
 - [x] Trace the sidebar's percentage heights through the root layout.
@@ -25,6 +34,58 @@ same source fix there, rebuilt with `make control-plane`, and gracefully restart
 only that server, preserving its original arguments and environment (PID 16784).
 Reloaded Safari and visually confirmed the sidebar reaches the bottom of the
 window with its footer at the bottom. Redis and mounted clients were not restarted.
+
+## Match Home card surfaces — 2026-09-21
+
+- [x] Reuse shared SurfaceCard for cookbook/Quickstart panels, recipe buttons, prompt and workspace callout.
+- [x] Add standard card spacing and retain opaque fills in both theme families.
+- [x] Build active embedded UI, pass lint and all 75 UI tests, restart and refresh live Home.
+
+Review: live PID 58692 at `http://127.0.0.1:8091`. Browser confirms opaque
+white cards in light mode and rgb(14,35,48) in dark mode, with the shared
+4px corners and border treatment. Settings and database contents unchanged.
+Logs: `/private/tmp/afs-home-cards-{build,lint,tests}.log`.
+
+## Promote Home to the real instance — 2026-09-21
+
+- [x] Apply the full-height sidebar correction to this preview checkout.
+- [x] Merge Home into the active d39a checkout, retaining database features and its existing viewport fix.
+- [x] Build/test the merged UI and restart the main server with its original launch settings.
+- [x] Verify live Home, full-height navigation and reload the browser.
+
+Scope: user explicitly requested the real instance, currently on port 8091
+with Vite on 5173. Only source/UI merge, build and server lifecycle changes;
+no database settings or contents are changed.
+
+Review: active checkout build, lint and 75 UI tests pass. Main server restarted
+as PID 57588 and healthy at `http://127.0.0.1:8091`. Browser shows the new Home;
+root/sidebar both match 820px and 500px viewport heights. Main scroll changes
+while body scroll remains zero and header stays at the top. Compact profile
+control remains visible. Browser console has no errors/warnings. Launch arguments
+and AFS environment were retained privately, then the temporary launch file was
+removed. Logs: `/private/tmp/afs-home-live-{build,ui-tests,ui-lint}.log`.
+
+## Learning-first Home — 2026-09-21
+
+- [x] Adapt the supplied TypeSafe reference to the existing AFS design system.
+- [x] Add Home and retain Monitor at `/monitor`, including View agents links.
+- [x] Add agent/CLI quickstart, copy controls, downloadable skill and API access help.
+- [x] Add four CLI-backed cookbook drawers and learning/navigation shortcuts.
+- [x] Verify responsive light/dark design and primary interactions in the browser.
+- [x] Complete UI/build/vet/unit/race and isolated Redis validation.
+
+Scope: an implemented Home design in this checkout; one shared team token,
+existing storage engine and Monitor preserved. Preview and tests use disposable
+Redis only. No user installation, service, or saved configuration changes.
+
+Review: `make control-plane`, UI lint and all 41 UI tests pass. Go build/vet,
+unit and race pass (1,027 cases each, four optional Array skips); all 208
+isolated Redis process cases pass. Browser checks cover light/dark, narrow
+layout without horizontal overflow, exact clipboard content for agent/CLI,
+cookbook and access drawers, the skill viewer, Docs and Monitor navigation.
+No browser errors or warnings. Local preview: `http://127.0.0.1:8097`; its
+Redis backend is disposable. Logs: `/private/tmp/afs-home-*.log`.
+
 
 ## Publish complete control-plane, UI and auth work — 2026-09-18
 
@@ -980,3 +1041,17 @@ Checkpoint IDs and conflict filenames retain their filename-safe timestamps.
 - [x] Rebuild and verify focused CLI output checks.
 
 Review: focused unit and disposable-Redis output tests pass through rebuilt bin/afs.
+
+## Home hero card consistency
+
+- [x] Apply the shared opaque card background, border, corners and shadow to Learn Agent Filesystem.
+- [x] Rebuild the active control plane and refresh the real UI at port 8091.
+
+Review: make control-plane, UI lint and 75 UI tests passed. Live computed hero, cookbook and Quickstart surfaces match exactly in light and dark modes.
+
+## Home typography readability
+
+- [x] Enlarge every Home font-size rule, including responsive styles; widen Quickstart and increase prompt height.
+- [x] Rebuild and restart the real UI; verify desktop (1230px) and narrow (390px) layouts have no horizontal overflow.
+
+Review: embedded control-plane build, lint and all 75 UI tests passed.

@@ -1,446 +1,362 @@
-import { Loader } from "@redis-ui/components";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import styled from "styled-components";
-import { NoticeBody, NoticeCard, PageStack } from "../components/afs-kit";
-import { SurfaceCard } from "../components/card-shell";
-import { LiveTopologyCard } from "../components/live-topology-card";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  useScopedActivity,
-  useScopedAgents,
-  useScopedWorkspaceSummaries,
-} from "../foundation/database-scope";
-import { ActivityTable } from "../foundation/tables/activity-table";
-import type {
-  AFSActivityEvent,
-  AFSAgentSession,
-} from "../foundation/types/afs";
+  ArrowDownToLine,
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  Check,
+  Copy,
+  FileCode2,
+  FolderOpen,
+  GitBranch,
+  History,
+  KeyRound,
+  Layers,
+  Radio,
+  Terminal,
+  Users,
+} from "lucide-react";
+import { useState } from "react";
+import styled from "styled-components";
+import { SurfaceCard } from "../components/card-shell";
+import { controlPlaneEndpoint } from "../foundation/api/afs";
+import { useDrawer } from "../foundation/drawer-context";
+import {
+  agentSetupPrompt,
+  apiAccessGuide,
+  cliQuickstart,
+  homeCookbooks,
+} from "../foundation/home-content";
+import "../styles/home.css";
 
-export const Route = createFileRoute("/")({ component: MonitorPage });
-function MonitorPage() {
-  const navigate = useNavigate();
-  const workspaces = useScopedWorkspaceSummaries();
-  const agents = useScopedAgents();
-  const activity = useScopedActivity(50);
-  if (workspaces.isLoading || agents.isLoading)
-    return <Loader data-testid="loader--spinner" />;
-  const error = workspaces.error || agents.error;
-  function openActivity(event: AFSActivityEvent) {
-    if (event.workspaceId)
-      void navigate({
-        to: "/workspaces/$workspaceId",
-        params: { workspaceId: event.workspaceId },
-        search: { databaseId: event.databaseId, tab: "changes" },
+export const Route = createFileRoute("/")({ component: HomePage });
+// Reuse the application card chrome. Classic's default panel is translucent;
+// Home uses its solid counterpart so the page grid cannot show through cards.
+const HomeCard = styled(SurfaceCard)`
+  [data-skin="classic"] && {
+    background: var(--afs-panel-strong);
+  }
+`;
+
+const cookbookIcons = [FolderOpen, Users, GitBranch, History];
+
+function HomePage() {
+  const { open } = useDrawer();
+  const [mode, setMode] = useState<"agent" | "cli">("agent");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
+  const [skillState, setSkillState] = useState<"idle" | "loading" | "error">(
+    "idle",
+  );
+  const endpoint = controlPlaneEndpoint();
+  const skillURL = new URL("/afs-skill.md", window.location.origin).href;
+  const prompt = agentSetupPrompt(endpoint, skillURL);
+  const commands = cliQuickstart(endpoint);
+
+  async function copySetup() {
+    try {
+      await navigator.clipboard.writeText(mode === "agent" ? prompt : commands);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }
+
+  async function viewSkill() {
+    setSkillState("loading");
+    try {
+      const response = await fetch("/afs-skill.md");
+      if (!response.ok) throw new Error("Skill unavailable");
+      const skill = await response.text();
+      open({
+        kind: "commands",
+        title: "AFS agent skill",
+        subline:
+          "Read or copy this guide, or download SKILL.md from Quickstart for your agent.",
+        sections: [{ title: "SKILL.md", command: skill }],
       });
-  }
-  return (
-    <PageStack>
-      {error && (
-        <NoticeCard $tone="danger" role="alert">
-          <NoticeBody>{error.message}</NoticeBody>
-        </NoticeCard>
-      )}
-      <StatusHeader
-        workspaces={workspaces.data.length}
-        activeSessions={agents.data.length}
-        opsPerMin={computeOpsPerMin(activity.data)}
-        loading={activity.isLoading}
-      />
-      <MissionHudPanel agents={agents.data} />
-      <LiveTopologyCard agents={agents.data} workspaces={workspaces.data} />
-      <ActivityCard>
-        <ActivityCardHeader>
-          <ActivityCardEyebrow>Live activity</ActivityCardEyebrow>
-          <ActivityCardSub>
-            What your CLI and agents are doing right now.
-          </ActivityCardSub>
-        </ActivityCardHeader>
-        <ActivityTable
-          rows={activity.data}
-          loading={activity.isLoading}
-          error={activity.isError}
-          errorMessage={activity.error?.message}
-          onOpenActivity={openActivity}
-        />
-      </ActivityCard>
-    </PageStack>
-  );
-}
-function compareMonitorAgents(a: AFSAgentSession, b: AFSAgentSession) {
-  return monitorAgentSortKey(a).localeCompare(monitorAgentSortKey(b));
-}
-
-function monitorAgentSortKey(agent: AFSAgentSession) {
-  return [
-    agentDisplayLabel(agent),
-    agent.workspaceName,
-    agent.hostname,
-    agent.sessionId,
-  ]
-    .map((value) => value.trim().toLowerCase())
-    .join("\u0000");
-}
-
-function agentDisplayLabel(agent: AFSAgentSession) {
-  const sessionName = agent.sessionName?.trim();
-  const agentName = agent.agentName?.trim();
-  if (sessionName && agentName && sessionName !== agentName) {
-    return `${sessionName} · ${agentName}`;
-  }
-  return (
-    sessionName ||
-    agentName ||
-    agent.label?.trim() ||
-    agent.agentId ||
-    agent.hostname ||
-    agent.sessionId
-  );
-}
-
-function isAgentIdle(agent: AFSAgentSession) {
-  const last = Date.parse(agent.lastSeenAt);
-  if (!Number.isFinite(last)) return true;
-  return Date.now() - last > 30_000;
-}
-
-function relativeAgentSeen(iso: string) {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "—";
-  const seconds = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Helpers — uptime formatting
-// ──────────────────────────────────────────────────────────────────────
-
-function uptimeText(iso: string) {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "—";
-  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600)
-    return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
-  if (s < 86400) {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    return `${h}h${String(m).padStart(2, "0")}m`;
-  }
-  return `${Math.floor(s / 86400)}d`;
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// MissionHudPanel — htop / ps-aux feel. Mono column header. Per-agent row
-// shows uptime, last-seen time, and client kind + RO/RW.
-// ──────────────────────────────────────────────────────────────────────
-function MissionHudPanel({ agents }: { agents: AFSAgentSession[] }) {
-  if (agents.length === 0) return null;
-  const ordered = [...agents].sort(compareMonitorAgents);
-
-  return (
-    <HudCard>
-      <HudHeader>
-        <HudEyebrow>
-          <HudCursor />
-          ACTIVE AGENTS [{agents.length}]
-        </HudEyebrow>
-      </HudHeader>
-      <HudTable>
-        <HudColRow $head>
-          <HudCol>AGENT</HudCol>
-          <HudCol>WORKSPACE</HudCol>
-          <HudCol>KIND</HudCol>
-          <HudCol>UP</HudCol>
-          <HudCol $right>LAST SEEN</HudCol>
-        </HudColRow>
-        {ordered.map((agent) => {
-          const idle = isAgentIdle(agent);
-          const lastSeen = relativeAgentSeen(agent.lastSeenAt);
-          return (
-            <HudColRow key={agent.sessionId}>
-              <HudCol>
-                <HudActiveMark $idle={idle} />
-                <HudAgentName>{agentDisplayLabel(agent)}</HudAgentName>
-              </HudCol>
-              <HudCol $accent>{agent.workspaceName}</HudCol>
-              <HudCol>
-                {agent.clientKind} {agent.readonly ? "ro" : "rw"}
-              </HudCol>
-              <HudCol>{uptimeText(agent.startedAt)}</HudCol>
-              <HudCol $muted $right>
-                {lastSeen}
-              </HudCol>
-            </HudColRow>
-          );
-        })}
-      </HudTable>
-    </HudCard>
-  );
-}
-
-// Compact inline status. Replaces the four stat cards with a single line that
-// reads like a process header: live indicator, key counts, current op rate.
-function StatusHeader({
-  workspaces,
-  activeSessions,
-  opsPerMin,
-  loading,
-}: {
-  workspaces: number;
-  activeSessions: number;
-  opsPerMin: number;
-  loading: boolean;
-}) {
-  return (
-    <StatusBar>
-      <StatusLive>
-        <StatusDot $live={!loading} />
-        <StatusLiveText>{loading ? "loading" : "live"}</StatusLiveText>
-      </StatusLive>
-      <StatusSep>·</StatusSep>
-      <StatusItem>
-        <StatusValue>{workspaces}</StatusValue>
-        <StatusLabel>workspace{workspaces === 1 ? "" : "s"}</StatusLabel>
-      </StatusItem>
-      <StatusSep>·</StatusSep>
-      <StatusItem>
-        <StatusValue>{activeSessions}</StatusValue>
-        <StatusLabel>
-          active session{activeSessions === 1 ? "" : "s"}
-        </StatusLabel>
-      </StatusItem>
-      <StatusSep>·</StatusSep>
-      <StatusItem>
-        <StatusValue>{opsPerMin}</StatusValue>
-        <StatusLabel>ops/min</StatusLabel>
-      </StatusItem>
-    </StatusBar>
-  );
-}
-
-// Count activity events whose createdAt falls within the last 60s.
-function computeOpsPerMin(events: AFSActivityEvent[]) {
-  const cutoff = Date.now() - 60_000;
-  return events.reduce((count, e) => {
-    const t = Date.parse(e.createdAt);
-    return Number.isFinite(t) && t >= cutoff ? count + 1 : count;
-  }, 0);
-}
-
-const StatusBar = styled(SurfaceCard)`
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 14px 18px;
-  font-family: var(--afs-mono, "Monaco", "Menlo", monospace);
-  font-size: 13px;
-`;
-
-const StatusLive = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-`;
-
-const StatusDot = styled.span<{ $live?: boolean }>`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: ${(p) => (p.$live ? "#22c55e" : "var(--afs-muted)")};
-  box-shadow: ${(p) => (p.$live ? "0 0 8px rgba(34, 197, 94, 0.5)" : "none")};
-  animation: ${(p) =>
-    p.$live ? "afs-status-pulse 2s ease-in-out infinite" : "none"};
-
-  @keyframes afs-status-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.4;
+      setSkillState("idle");
+    } catch {
+      setSkillState("error");
     }
   }
-`;
 
-const StatusLiveText = styled.span`
-  color: var(--afs-accent);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 11px;
-`;
-
-const StatusSep = styled.span`
-  color: var(--afs-line-strong);
-`;
-
-const StatusItem = styled.span`
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-`;
-
-const StatusValue = styled.span`
-  color: var(--afs-ink);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-`;
-
-const StatusLabel = styled.span`
-  color: var(--afs-muted);
-  font-size: 12px;
-`;
-
-const ActivityCard = styled(SurfaceCard).attrs({ as: "section" })`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 18px 22px;
-`;
-
-// ──────────────────────────────────────────────────────────────────────
-// MissionHudPanel styles
-// ──────────────────────────────────────────────────────────────────────
-const HudCard = styled(SurfaceCard).attrs({ as: "section" })`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px 10px;
-  font-family: var(--afs-mono, "Monaco", "Menlo", monospace);
-  background: var(--afs-panel-strong);
-`;
-
-const HudHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-`;
-
-const HudEyebrow = styled.h3`
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--afs-ink);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-`;
-
-const hudCursorBlink = `
-  @keyframes afs-hud-cursor {
-    0%, 49% { opacity: 1; }
-    50%, 100% { opacity: 0; }
-  }
-`;
-
-const HudCursor = styled.span`
-  ${hudCursorBlink}
-  display: inline-block;
-  width: 7px;
-  height: 12px;
-  background: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
-  animation: afs-hud-cursor 1.1s steps(1, end) infinite;
-`;
-
-const HudTable = styled.div`
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--afs-line);
-  border-bottom: 1px solid var(--afs-line);
-`;
-
-const HudColRow = styled.div<{ $head?: boolean }>`
-  display: grid;
-  grid-template-columns:
-    minmax(0, 3fr)
-    minmax(0, 1.4fr)
-    minmax(0, 0.9fr)
-    minmax(60px, auto)
-    minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  padding: ${(p) => (p.$head ? "6px 4px" : "7px 4px")};
-  border-bottom: 1px dashed
-    ${(p) => (p.$head ? "var(--afs-line)" : "transparent")};
-  font-size: ${(p) => (p.$head ? "10px" : "11px")};
-  color: ${(p) => (p.$head ? "var(--afs-muted)" : "var(--afs-ink)")};
-  letter-spacing: ${(p) => (p.$head ? "0.12em" : "0")};
-  text-transform: ${(p) => (p.$head ? "uppercase" : "none")};
-
-  &:not(:first-child):hover {
-    background: var(--afs-selection-hover-bg);
-    color: var(--afs-selection-hover-ink);
-  }
-`;
-
-const HudCol = styled.span<{
-  $accent?: boolean;
-  $muted?: boolean;
-  $right?: boolean;
-}>`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  justify-content: ${(p) => (p.$right ? "flex-end" : "flex-start")};
-  text-align: ${(p) => (p.$right ? "right" : "left")};
-  color: ${(p) =>
-    p.$accent
-      ? "var(--afs-accent)"
-      : p.$muted
-        ? "var(--afs-muted)"
-        : "inherit"};
-  font-weight: ${(p) => (p.$accent ? 700 : 400)};
-`;
-
-// Solid row indicator. No animation — only the header HudCursor blinks.
-const HudActiveMark = styled.span<{ $idle: boolean }>`
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: ${(p) =>
-    p.$idle ? "var(--afs-line-strong, var(--afs-muted))" : "#22c55e"};
-  box-shadow: ${(p) =>
-    p.$idle
-      ? "none"
-      : "0 0 8px rgba(34,197,94,0.65), 0 0 0 2px rgba(34,197,94,0.18)"};
-  flex: 0 0 auto;
-`;
-
-const HudAgentName = styled.span`
-  color: var(--afs-ink);
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  white-space: normal;
-`;
-
-const ActivityCardHeader = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-`;
-
-const ActivityCardEyebrow = styled.h2`
-  margin: 0;
-  color: var(--afs-ink);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-`;
-
-const ActivityCardSub = styled.p`
-  margin: 0;
-  color: var(--afs-muted);
-  font-size: 13px;
-  line-height: 1.5;
-`;
+  return (
+    <div className="afs-home">
+      <HomeCard as="section" className="home-hero" aria-labelledby="home-title">
+        <div className="home-hero-copy">
+          <span className="home-eyebrow">
+            PERSISTENT FILES. ENDLESS POSSIBILITIES.
+          </span>
+          <h1 id="home-title">
+            Learn Agent
+            <br />
+            Filesystem<span className="home-title-dot">.</span>
+          </h1>
+          <p>
+            Your agents come and go. Their work stays.
+            <br />
+            Give every agent a filesystem to call home.
+          </p>
+          <div className="home-hero-actions">
+            <Link to="/docs" className="home-button home-button-dark">
+              Explore the guide <ArrowRight size={16} />
+            </Link>
+            <a href="#quickstart" className="home-text-link">
+              Start building <ArrowUpRight size={15} />
+            </a>
+          </div>
+        </div>
+        <div className="home-hero-visual">
+          <img
+            src="/images/afs-home-workspace.png"
+            alt=""
+            width="600"
+            height="400"
+          />
+          <span className="home-visual-caption">
+            ONE WORKSPACE. EVERY AGENT. ANYWHERE.
+          </span>
+        </div>
+      </HomeCard>
+      <div className="home-principles" aria-label="How AFS works">
+        <span>
+          <FolderOpen size={15} /> Ordinary files
+        </span>
+        <span>
+          <Users size={15} /> Shared across agents
+        </span>
+        <span>
+          <Layers size={15} /> Backed by Redis
+        </span>
+      </div>
+      <div className="home-main-grid">
+        <HomeCard
+          as="section"
+          className="home-cookbooks"
+          aria-labelledby="cookbooks-title"
+        >
+          <div className="home-section-heading">
+            <div>
+              <span className="home-eyebrow">
+                FROM FIRST FILE TO WHAT’S NEXT
+              </span>
+              <h2 id="cookbooks-title">AFS in action</h2>
+            </div>
+            <span className="home-section-label">COOKBOOKS / 01–04</span>
+          </div>
+          <p className="home-section-intro">
+            Small recipes for agents that do real work.
+          </p>
+          <div className="home-recipe-grid">
+            {homeCookbooks.map((cookbook, index) => {
+              const Icon = cookbookIcons[index];
+              return (
+                <HomeCard
+                  as="button"
+                  key={cookbook.id}
+                  className="home-recipe"
+                  type="button"
+                  onClick={() => open({ kind: "commands", ...cookbook })}
+                >
+                  <div className="home-recipe-top">
+                    <Icon size={23} strokeWidth={1.5} />
+                    <span>0{index + 1}</span>
+                  </div>
+                  <span className="home-recipe-category">
+                    {cookbook.category}
+                  </span>
+                  <h3>{cookbook.title}</h3>
+                  <p>{cookbook.description}</p>
+                  <span className="home-recipe-footer">
+                    <span>{cookbook.duration} read</span>
+                    <ArrowUpRight size={17} />
+                  </span>
+                </HomeCard>
+              );
+            })}
+          </div>
+          <button
+            className="home-text-link home-all-cookbooks"
+            type="button"
+            onClick={() =>
+              open({
+                kind: "commands",
+                title: "AFS cookbooks",
+                subline:
+                  "Practical recipes for persistent agent workspaces. Connect with Quickstart before running these commands.",
+                sections: homeCookbooks.map((cookbook) => ({
+                  title: cookbook.title,
+                  description: cookbook.subline,
+                  command: cookbook.sections
+                    .map((section) => `# ${section.title}\n${section.command}`)
+                    .join("\n\n"),
+                })),
+              })
+            }
+          >
+            Explore all cookbooks <ArrowRight size={16} />
+          </button>
+          <HomeCard className="home-workspace-callout">
+            <div className="home-callout-icon">
+              <FolderOpen size={23} strokeWidth={1.5} />
+            </div>
+            <div>
+              <h3>A place for your next idea.</h3>
+              <p>Pick up a workspace and make something with your agent.</p>
+            </div>
+            <Link to="/workspaces" aria-label="Open workspaces">
+              <ArrowRight size={20} />
+            </Link>
+          </HomeCard>
+        </HomeCard>
+        <HomeCard
+          as="aside"
+          className="home-quickstart"
+          id="quickstart"
+          aria-labelledby="quickstart-title"
+        >
+          <div className="home-quickstart-heading">
+            <h2 id="quickstart-title">Quickstart</h2>
+            <Terminal size={22} strokeWidth={1.5} />
+          </div>
+          <p className="home-section-intro">
+            From zero to your agent’s first workspace.
+          </p>
+          <div className="home-setup-tabs" aria-label="Setup method">
+            <button
+              aria-pressed={mode === "agent"}
+              onClick={() => {
+                setMode("agent");
+                setCopyState("idle");
+              }}
+              type="button"
+            >
+              Agent prompt
+            </button>
+            <button
+              aria-pressed={mode === "cli"}
+              onClick={() => {
+                setMode("cli");
+                setCopyState("idle");
+              }}
+              type="button"
+            >
+              Use the CLI
+            </button>
+          </div>
+          <HomeCard className="home-prompt-box">
+            <div className="home-prompt-caption">
+              <span className="home-eyebrow">
+                {mode === "agent"
+                  ? "GIVE THIS TO YOUR CODING AGENT"
+                  : "RUN IN YOUR TERMINAL"}
+              </span>
+              <span className="home-file-type">
+                {mode === "agent" ? "TXT" : "SH"}
+              </span>
+            </div>
+            <pre
+              tabIndex={0}
+              aria-label={
+                mode === "agent" ? "Agent setup prompt" : "CLI setup commands"
+              }
+            >
+              {mode === "agent" ? prompt : commands}
+            </pre>
+            <button
+              className="home-button home-copy-button"
+              type="button"
+              onClick={() => {
+                void copySetup();
+              }}
+            >
+              {copyState === "copied" ? (
+                <Check size={15} />
+              ) : (
+                <Copy size={15} />
+              )}
+              {copyState === "copied"
+                ? "Copied to clipboard"
+                : mode === "agent"
+                  ? "Copy agent prompt"
+                  : "Copy commands"}
+            </button>
+          </HomeCard>
+          <p className="home-copy-status" role="status">
+            {copyState === "error"
+              ? "Copy unavailable. Select and copy the text above."
+              : copyState === "copied"
+                ? "Ready to paste into your " +
+                  (mode === "agent" ? "coding agent." : "terminal.")
+                : mode === "agent"
+                  ? "Works with any agent that can read a skill."
+                  : "Install the afs CLI first. Set your team token if required."}
+          </p>
+          <div className="home-skill-row">
+            <FileCode2 size={18} />
+            <div>
+              <a href="/afs-skill.md" download="SKILL.md">
+                SKILL.md <ArrowDownToLine size={13} />
+              </a>
+              <span>The AFS guide for your agent</span>
+            </div>
+            <button
+              className="home-text-link"
+              type="button"
+              disabled={skillState === "loading"}
+              onClick={() => {
+                void viewSkill();
+              }}
+            >
+              {skillState === "loading" ? "Loading…" : "View"}{" "}
+              <ArrowUpRight size={13} />
+            </button>
+          </div>
+          {skillState === "error" && (
+            <p className="home-copy-status" role="alert">
+              Could not load the skill. Try again or download SKILL.md.
+            </p>
+          )}
+          <div className="home-resources">
+            <button
+              type="button"
+              onClick={() =>
+                open({ kind: "commands", ...apiAccessGuide(endpoint) })
+              }
+            >
+              <KeyRound size={20} strokeWidth={1.6} />
+              <strong>API access</strong>
+              <span>
+                Connect with a team token <ArrowUpRight size={13} />
+              </span>
+            </button>
+            <Link to="/docs">
+              <BookOpen size={20} strokeWidth={1.6} />
+              <strong>Documentation</strong>
+              <span>
+                Find your next step <ArrowUpRight size={13} />
+              </span>
+            </Link>
+          </div>
+          <Link to="/monitor" className="home-monitor-link">
+            <Radio size={17} />
+            <span>See your agents in action</span>
+            <ArrowRight size={16} />
+          </Link>
+        </HomeCard>
+      </div>
+      <footer className="home-footer">
+        <span>BUILT FOR AGENTS. GROUNDED IN FILES.</span>
+        <a
+          href="https://github.com/rowantrollope/afs"
+          target="_blank"
+          rel="noreferrer"
+        >
+          AFS on GitHub <ArrowUpRight size={13} />
+        </a>
+      </footer>
+    </div>
+  );
+}

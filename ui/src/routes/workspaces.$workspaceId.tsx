@@ -300,7 +300,7 @@ function WorkspaceStudioPage() {
               size="large"
               onClick={() => {
                 void navigate({
-                  to: "/",
+                  to: "/monitor",
                 });
               }}
             >

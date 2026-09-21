@@ -1,0 +1,9 @@
+Use case: stylized-concept
+Asset type: decorative raster hero illustration for the Agent Filesystem developer console home page; only the illustration, not a website mockup.
+Primary request: airy editorial technical line illustration of a central open file folder with layered document sheets connected by fine paths to two smaller agent terminal windows, plus small checkpoint rings.
+Scene/backdrop: flat uniform very light off-white #f8f9f6 background.
+Subject: a clearly recognizable open file folder holding several layered sheets at center, with one small floating terminal window toward upper left and one toward lower right, connected by precise light paths. Terminals contain only small simple geometric marks and short unlabeled strokes, never text or letters. Include small circular checkpoint rings along a couple of the paths.
+Style/medium: elegant isometric technical line illustration with crisp fine charcoal/navy ink outlines, restraint, editorial craft, airy negative space, confident precise geometry. Flat fills only.
+Composition/framing: horizontal 3:2 landscape, full objects comfortably within edges, generous negative space all around, a cohesive balanced compact scene suitable for displaying about 520 by 290 pixels on the right half of a hero panel. Main folder visible and legible at small size.
+Color palette: light off-white #f8f9f6 background, charcoal/navy thin crisp linework, restrained pale chartreuse accents based on #dcff1e, minimal soft blue details. Most surfaces remain off-white.
+Constraints: no text, no lettering, no numbers, no logos, no watermark, no gradients, no drop shadows, no texture, no photorealism, no UI page mockup, no border around the image. Create exactly one illustration.

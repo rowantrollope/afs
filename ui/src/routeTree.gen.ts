@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as MonitorRouteImport } from './routes/monitor'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DatabasesRouteImport } from './routes/databases'
 import { Route as ActivityRouteImport } from './routes/activity'
@@ -25,6 +26,11 @@ const WorkspacesRoute = WorkspacesRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MonitorRoute = MonitorRouteImport.update({
+  id: '/monitor',
+  path: '/monitor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsRoute = DocsRouteImport.update({
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/activity': typeof ActivityRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
+  '/monitor': typeof MonitorRoute
   '/settings': typeof SettingsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/activity': typeof ActivityRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
+  '/monitor': typeof MonitorRoute
   '/settings': typeof SettingsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/activity': typeof ActivityRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
+  '/monitor': typeof MonitorRoute
   '/settings': typeof SettingsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/databases'
     | '/docs'
+    | '/monitor'
     | '/settings'
     | '/workspaces'
     | '/workspaces/$workspaceId'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/databases'
     | '/docs'
+    | '/monitor'
     | '/settings'
     | '/workspaces'
     | '/workspaces/$workspaceId'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/databases'
     | '/docs'
+    | '/monitor'
     | '/settings'
     | '/workspaces'
     | '/workspaces/$workspaceId'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   ActivityRoute: typeof ActivityRoute
   DatabasesRoute: typeof DatabasesRoute
   DocsRoute: typeof DocsRoute
+  MonitorRoute: typeof MonitorRoute
   SettingsRoute: typeof SettingsRoute
   WorkspacesRoute: typeof WorkspacesRouteWithChildren
 }
@@ -134,6 +147,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/monitor': {
+      id: '/monitor'
+      path: '/monitor'
+      fullPath: '/monitor'
+      preLoaderRoute: typeof MonitorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -191,6 +211,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActivityRoute: ActivityRoute,
   DatabasesRoute: DatabasesRoute,
   DocsRoute: DocsRoute,
+  MonitorRoute: MonitorRoute,
   SettingsRoute: SettingsRoute,
   WorkspacesRoute: WorkspacesRouteWithChildren,
 }
