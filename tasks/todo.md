@@ -1,5 +1,23 @@
 # AFS extraction
 
+## Serve the latest main build — 2026-09-21
+
+- [x] Inspect the active listener and preserve its launch settings privately.
+- [x] Rebuild the embedded UI/server from main and replace the active process.
+- [x] Verify process identity, health, API and served assets against the new build.
+- [x] Record results and publish the task/lesson updates on main.
+
+Scope: restart the current control plane with the latest local main build and
+the existing Redis/authentication settings. Preserve database profiles and mounts.
+Review: `make control-plane` passed. Replaced PID 11097 with PID 70508 from the
+main checkout, preserving launch arguments and environment in memory. Health,
+workspace API and the new API-key route pass. Served index bytes match the
+fresh embedded build and differ from the previous server. Browser reload now
+shows Home, cookbooks, Quickstart and API Keys, with build `5b3e63e594b9` replacing
+the previous `980c8eda7218` build. Authentication remains unchanged. Build/server
+logs: `/private/tmp/afs-latest-main-build.log` and
+`/private/tmp/afs-latest-main-server.log`. Only task and lesson documentation changed.
+
 ## Restart the API-key control plane from main — 2026-09-21
 
 - [x] Locate the inherited server on port 8091 and inspect launch settings without exposing credentials.

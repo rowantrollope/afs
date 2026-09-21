@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-21 — Availability does not establish build freshness
+
+- When the user asks for the new control plane, a healthy existing server is not completion. Rebuild the latest main checkout, restart the actual listener with its existing settings, and compare served assets with the new build.
+- Verify local HTTP outside the network sandbox before reporting an endpoint unavailable. Check Redis configuration before giving a localhost example as the user's startup command.
+
 ## 2026-09-21 — Work directly on main
 
 - User instruction: all project work belongs on `main`, without new branches, and completed changes must be pushed to GitHub `origin/main`.
