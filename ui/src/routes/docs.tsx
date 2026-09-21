@@ -10,7 +10,8 @@ import {
 
 export const Route = createFileRoute("/docs")({ component: DocsPage });
 function DocsPage() {
-  const endpoint = "'" + controlPlaneEndpoint().replaceAll("'", "'\"'\"'") + "'";
+  const endpoint =
+    "'" + controlPlaneEndpoint().replaceAll("'", "'\"'\"'") + "'";
   return (
     <PageStack>
       <PageDescription>
@@ -38,9 +39,10 @@ function DocsPage() {
           />
         </SectionHeader>
         <PageDescription>
-          Connect the CLI to this console, create a workspace, then mount it in a
-          local directory for your agent. The server supplies the connection
-          details. If a token is required, set AFS_CONTROL_PLANE_TOKEN first.
+          Connect the CLI to this console, create a workspace, then mount it in
+          a local directory for your agent. The server supplies the connection
+          details. Set AFS_CONTROL_PLANE_TOKEN to an API key or team token first
+          when authentication is enabled.
         </PageDescription>
         <pre>{`afs auth login --url ${endpoint}
 afs create my-workspace
@@ -67,8 +69,8 @@ afs history list my-workspace README.md`}</pre>
           <SectionTitle title="Monitor" />
         </SectionHeader>
         <PageDescription>
-          Active clients appear when mounted through this control plane.
-          File history and checkpoints come from Redis independently of client
+          Active clients appear when mounted through this control plane. File
+          history and checkpoints come from Redis independently of client
           reporting. Redis shows storage, connections, and server health for the
           configured backend.
         </PageDescription>

@@ -1,5 +1,35 @@
 # AFS extraction
 
+## Named administrator API keys — 2026-09-21
+
+- [x] Add a shared Redis key registry, hashed secrets, expiry and atomic revocation/usage tracking.
+- [x] Add authenticated key identity to API lifecycle and managed-session attribution.
+- [x] Add `afs auth keys create/list/revoke` and preserve safe login/config handling.
+- [x] Add API Keys UI with one-time secret display, expiration and revocation.
+- [x] Verify build, vet, unit/race, isolated real-Redis process tests and browser flows.
+- [x] Commit completed changes on main and push normally to origin/main.
+
+Scope: user approved named keys for trusted administrators, with the existing
+team token retained for bootstrap/recovery. All keys share server-wide access;
+no workspace permissions, Cloud, MCP key families or additional catalog. API
+revocation never claims to revoke issued Redis credentials or existing mounts.
+Preserve the database management/checkpoint command work committed separately
+as `0bcbdab`. Pin the key registry to startup Redis across database profile edits.
+
+Review: Go build/vet, all unit and race suites, `make build`, embedded
+`make control-plane`, UI lint and all 83 UI tests across 21 files pass. All 14
+selected real-Redis auth/managed/database process tests pass (41.95 seconds),
+including key creation/login, Redis and server restarts, expiry, scoped database
+use, revocation and continued existing-mount I/O. Tests use disposable Redis only.
+Independent review caught and fixed HTTP CLI checkpoint-author spoofing; key
+identity now overrides the supplied author. Concurrency tests cover auth/revoke.
+Browser QA against disposable Redis verified creation, one-time copy, secret
+removal after closing, key identity/last use, self-revoke sign-out, rejected key
+reuse, administrator recovery, light/dark layouts and clean browser diagnostics.
+Build artifacts are refreshed; the existing user server was not restarted or
+reconfigured. Evidence: `/private/tmp/afs-api-keys-{unit,race,process,build}-final.log`
+and `/private/tmp/afs-api-keys-cli-build.log`; UI checks are in the task transcript.
+
 ## Consolidate database management and checkpoint naming on main — 2026-09-21
 
 - [x] Integrate d39a database addition/editing, private persistence and scoped operations into main.

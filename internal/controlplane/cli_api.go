@@ -171,6 +171,9 @@ func (h *serverHandler) dispatchCLI(ctx context.Context, r cliRequest) (any, err
 		return cliCheckpoint{Meta: meta, Manifest: manifest}, err
 	case "checkpoint.save":
 		r.CheckpointOptions.Source = CheckpointSourceCLI
+		if identity := requestIdentity(ctx); identity.Subject != "" {
+			r.CheckpointOptions.Author = identity.Subject
+		}
 		return s.SaveCheckpointFromLiveWithOptions(ctx, r.Workspace, r.Name, r.CheckpointOptions)
 	case "checkpoint.restore":
 		return s.RestoreCheckpoint(ctx, r.Workspace, r.Ref)

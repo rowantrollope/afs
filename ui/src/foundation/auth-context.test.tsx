@@ -74,7 +74,7 @@ describe("console bearer authentication", () => {
     );
     mount();
     expect(screen.queryByText("Private console")).not.toBeInTheDocument();
-    fireEvent.change(await screen.findByLabelText("Bearer token"), {
+    fireEvent.change(await screen.findByLabelText("API key or team token"), {
       target: { value: "operator-test-token" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));

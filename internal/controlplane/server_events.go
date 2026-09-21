@@ -27,6 +27,8 @@ type serverEvent struct {
 	Kind          string            `json:"kind"`
 	Op            string            `json:"op"`
 	Source        string            `json:"source,omitempty"`
+	APIKeyID      string            `json:"api_key_id,omitempty"`
+	APIKeyName    string            `json:"api_key_name,omitempty"`
 	Actor         string            `json:"actor,omitempty"`
 	SessionID     string            `json:"session_id,omitempty"`
 	AgentID       string            `json:"agent_id,omitempty"`
@@ -52,6 +54,11 @@ type serverEvent struct {
 func (s *Service) recordLifecycle(ctx context.Context, meta WorkspaceMeta, kind, op string, extra map[string]string) error {
 	a, _ := ctx.Value(fileVersionAttributionKey{}).(FileVersionAttribution)
 	e := serverEvent{WorkspaceID: workspaceStorageID(meta), WorkspaceName: meta.Name, CreatedAt: serverTime(time.Now()), Kind: kind, Op: op, Source: "afs", Actor: defaultString(a.User, "afs"), User: a.User, SessionID: a.SessionID, AgentID: a.AgentID, Extras: extra}
+	identity := requestIdentity(ctx)
+	e.APIKeyID, e.APIKeyName = identity.KeyID, identity.Name
+	if identity.KeyID == "" {
+		e.APIKeyName = ""
+	}
 	if extra != nil {
 		e.CheckpointID = extra["checkpoint_id"]
 	}

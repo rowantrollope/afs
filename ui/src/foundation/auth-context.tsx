@@ -89,13 +89,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
           ) : (
             <FormGrid onSubmit={signIn}>
               <NoticeBody>
-                Enter the bearer token configured for this control plane. It is
+                Enter an API key or the team token for this control plane. It is
                 saved for this browser tab.
               </NoticeBody>
               <Field>
-                Bearer token
+                API key or team token
                 <TextInput
-                  aria-label="Bearer token"
+                  aria-label="API key or team token"
                   type="password"
                   autoComplete="off"
                   value={token}

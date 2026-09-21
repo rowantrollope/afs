@@ -5,6 +5,7 @@ import {
   DatabaseIcon,
   FoldersIcon,
   HomeIcon,
+  KeyIcon,
   PieChartIcon,
 } from "../components/lucide-icons";
 
@@ -47,6 +48,7 @@ export const navigationItems: ReadonlyArray<NavigationRouteItem> = [
   { kind: "route", label: "History", path: "/activity", icon: BellIcon },
 ];
 export const bottomNavigationItems: ReadonlyArray<NavigationRouteItem> = [
+  { kind: "route", label: "API Keys", path: "/api-keys", icon: KeyIcon },
   { kind: "route", label: "Docs", path: "/docs", icon: BookOpenIcon },
 ];
 
@@ -86,6 +88,12 @@ export function resolveNavigationTitleParts(
     };
   if (pathname.startsWith("/settings"))
     return { page: "Settings", subtitle: "Customize the console appearance." };
+  if (pathname.startsWith("/api-keys"))
+    return {
+      page: "API Keys",
+      subtitle:
+        "Manage trusted access for developers, agents, and integrations.",
+    };
   if (pathname.startsWith("/docs")) return { page: "Documentation" };
   if (pathname.startsWith("/monitor"))
     return {

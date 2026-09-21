@@ -14,6 +14,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MonitorRouteImport } from './routes/monitor'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DatabasesRouteImport } from './routes/databases'
+import { Route as ApiKeysRouteImport } from './routes/api-keys'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspacesWorkspaceIdRouteImport } from './routes/workspaces.$workspaceId'
@@ -43,6 +44,11 @@ const DatabasesRoute = DatabasesRouteImport.update({
   path: '/databases',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiKeysRoute = ApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ActivityRoute = ActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
@@ -62,6 +68,7 @@ const WorkspacesWorkspaceIdRoute = WorkspacesWorkspaceIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/api-keys': typeof ApiKeysRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
@@ -72,6 +79,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/api-keys': typeof ApiKeysRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
@@ -83,6 +91,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/api-keys': typeof ApiKeysRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
@@ -95,6 +104,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/activity'
+    | '/api-keys'
     | '/databases'
     | '/docs'
     | '/monitor'
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/activity'
+    | '/api-keys'
     | '/databases'
     | '/docs'
     | '/monitor'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/activity'
+    | '/api-keys'
     | '/databases'
     | '/docs'
     | '/monitor'
@@ -126,6 +138,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActivityRoute: typeof ActivityRoute
+  ApiKeysRoute: typeof ApiKeysRoute
   DatabasesRoute: typeof DatabasesRoute
   DocsRoute: typeof DocsRoute
   MonitorRoute: typeof MonitorRoute
@@ -170,6 +183,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DatabasesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api-keys': {
+      id: '/api-keys'
+      path: '/api-keys'
+      fullPath: '/api-keys'
+      preLoaderRoute: typeof ApiKeysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/activity': {
       id: '/activity'
       path: '/activity'
@@ -209,6 +229,7 @@ const WorkspacesRouteWithChildren = WorkspacesRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivityRoute: ActivityRoute,
+  ApiKeysRoute: ApiKeysRoute,
   DatabasesRoute: DatabasesRoute,
   DocsRoute: DocsRoute,
   MonitorRoute: MonitorRoute,

@@ -71,6 +71,8 @@ For managed operation, run `afs auth login` (defaults to the local server at
 `http://127.0.0.1:8091`) or supply `--url` as shown above; no client-side Redis
 settings are needed. If the server requires a token, set
 `AFS_CONTROL_PLANE_TOKEN` before login or pipe it to `afs auth login --token-stdin`.
+Named administrator keys can be created with `afs auth keys create <name>`
+or the UI’s API Keys page; see [key management](docs/control-plane.md#named-api-keys).
 Login verifies access before saving the connection. Use `afs auth status` to see
 the effective settings and `afs auth logout` to clear the saved connection.
 Managed commands ignore local Redis settings and environment overrides.

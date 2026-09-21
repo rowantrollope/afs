@@ -2,8 +2,6 @@ package controlplane
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +37,8 @@ type serverHandler struct {
 	options  HandlerOptions
 	history  http.Handler
 	registry *DatabaseHandler
+	// Authentication remains pinned to the startup Redis, including after database edits.
+	authStore *Store
 }
 
 func NewHandler(service *Service, options HandlerOptions) http.Handler {
@@ -48,19 +48,7 @@ func NewHandler(service *Service, options HandlerOptions) http.Handler {
 	if options.DatabaseName == "" {
 		options.DatabaseName = "Redis"
 	}
-	return &serverHandler{service: service, options: options, history: NewFileHistoryHandler(service, FileHistoryHTTPOptions{DatabaseID: options.DatabaseID, AllowedOrigins: options.AllowedOrigins})}
-}
-
-func (h *serverHandler) authenticated(r *http.Request) bool {
-	if h.options.AuthToken == "" {
-		return true
-	}
-	supplied := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if supplied == r.Header.Get("Authorization") {
-		return false
-	}
-	expectedHash, suppliedHash := sha256.Sum256([]byte(h.options.AuthToken)), sha256.Sum256([]byte(supplied))
-	return subtle.ConstantTimeCompare(expectedHash[:], suppliedHash[:]) == 1
+	return &serverHandler{service: service, authStore: service.store, options: options, history: NewFileHistoryHandler(service, FileHistoryHTTPOptions{DatabaseID: options.DatabaseID, AllowedOrigins: options.AllowedOrigins})}
 }
 
 func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +97,7 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
-	authenticated := h.authenticated(r)
+	identity, authenticated, authErr := h.authenticate(r)
 	if r.URL.Path == "/v1/auth/config" {
 		if r.Method != http.MethodGet {
 			serverMethod(w, "GET")
@@ -121,7 +109,7 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		result := map[string]any{"mode": mode, "provider": provider, "enabled": h.options.AuthToken != "", "sign_in_required": !authenticated, "authenticated": authenticated, "product_mode": "self-hosted"}
 		if authenticated {
-			result["user"] = map[string]any{"subject": "operator", "name": "Operator", "is_admin": true}
+			result["user"] = map[string]any{"subject": identity.Subject, "name": identity.Name, "is_admin": true}
 		}
 		serverJSON(w, 200, result)
 		return
@@ -159,12 +147,17 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		serverJSON(w, 200, map[string]bool{"ok": true})
 		return
 	}
+	if authErr != nil {
+		apiKeyStorageError(w)
+		return
+	}
 	if !authenticated {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		serverJSON(w, 401, map[string]string{"error": "authentication required"})
 		return
 	}
-	ctx := WithFileVersionAttribution(r.Context(), FileVersionAttribution{User: "operator"})
+	ctx := context.WithValue(r.Context(), authenticatedIdentityContextKey{}, identity)
+	ctx = WithFileVersionAttribution(ctx, FileVersionAttribution{User: identity.Subject})
 	r = r.WithContext(ctx)
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
 	if strings.HasPrefix(path, "/databases/") {
@@ -191,6 +184,10 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			path = "/" + parts[1]
 		}
+	}
+	if path == "/api-keys" || strings.HasPrefix(path, "/api-keys/") {
+		h.apiKeysRoute(w, r, strings.TrimPrefix(strings.TrimPrefix(path, "/api-keys"), "/"))
+		return
 	}
 	// Root collection views aggregate databases. Everything else without an
 	// explicit database targets the current default's immutable handler snapshot.
@@ -414,7 +411,7 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
-		cp, err := h.service.SaveCheckpointFromLiveWithOptions(ctx, id, input.CheckpointID, CheckpointOptions{Description: input.Description, Source: "web", Author: "operator", AllowUnchanged: input.AllowUnchanged})
+		cp, err := h.service.SaveCheckpointFromLiveWithOptions(ctx, id, input.CheckpointID, CheckpointOptions{Description: input.Description, Source: "web", Author: identity.Subject, AllowUnchanged: input.AllowUnchanged})
 		serverResult(w, map[string]any{"saved": cp.ID != "", "checkpoint_id": cp.ID}, err)
 	case ":restore":
 		if r.Method != http.MethodPost {
@@ -525,7 +522,7 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		copy.Header.Del("Origin")
 		copy.Header.Del("X-AFS-Session-ID")
 		copy.Header.Del("X-AFS-Agent-ID")
-		copy.Header.Set("X-AFS-User", "operator")
+		copy.Header.Set("X-AFS-User", identity.Subject)
 		h.history.ServeHTTP(w, copy)
 	}
 }

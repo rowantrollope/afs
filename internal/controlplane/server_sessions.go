@@ -42,6 +42,9 @@ type SessionInput struct {
 }
 type ManagedSession struct {
 	SessionInput
+	AuthSubject              string `json:"auth_subject,omitempty"`
+	APIKeyID                 string `json:"api_key_id,omitempty"`
+	APIKeyName               string `json:"api_key_name,omitempty"`
 	Workspace                string `json:"workspace"`
 	WorkspaceID              string `json:"workspace_id"`
 	WorkspaceName            string `json:"workspace_name"`
@@ -67,7 +70,7 @@ func randomManagementToken() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 func sessionEvent(session ManagedSession, op string) serverEvent {
-	return serverEvent{WorkspaceID: session.WorkspaceID, WorkspaceName: session.WorkspaceName, Kind: "session", Op: op, Source: "server", Actor: defaultString(session.User, defaultString(session.AgentName, "afs")), SessionID: session.SessionID, AgentID: session.AgentID, User: session.User, Label: session.Label, AgentVersion: session.AFSVersion, Hostname: session.Hostname, CreatedAt: serverTime(time.Now())}
+	return serverEvent{WorkspaceID: session.WorkspaceID, WorkspaceName: session.WorkspaceName, Kind: "session", Op: op, Source: "server", Actor: defaultString(session.AuthSubject, defaultString(session.User, defaultString(session.AgentName, "afs"))), APIKeyID: session.APIKeyID, APIKeyName: session.APIKeyName, SessionID: session.SessionID, AgentID: session.AgentID, User: session.User, Label: session.Label, AgentVersion: session.AFSVersion, Hostname: session.Hostname, CreatedAt: serverTime(time.Now())}
 }
 func enqueueSessionEvent(ctx context.Context, p redis.Pipeliner, session ManagedSession, op string) error {
 	body, err := json.Marshal(sessionEvent(session, op))
@@ -135,6 +138,7 @@ func (h *serverHandler) registerSession(w http.ResponseWriter, r *http.Request, 
 	}
 	now := time.Now().UTC()
 	session := ManagedSession{SessionInput: input, Workspace: meta.Name, WorkspaceID: id, WorkspaceName: meta.Name, DatabaseID: h.options.DatabaseID, DatabaseName: h.options.DatabaseName, State: "starting", StartedAt: serverTime(now), LastSeenAt: serverTime(now), LeaseExpiresAt: serverTime(now.Add(managementLease)), HeartbeatIntervalSeconds: int(managementHeartbeat / time.Second), RedisKey: id, HeadCheckpointID: meta.HeadSavepoint}
+	setSessionIdentity(&session, requestIdentity(ctx))
 	key := managementSessionKey(input.SessionID)
 	err = h.service.store.rdb.Watch(ctx, func(tx *redis.Tx) error {
 		previous, err := getJSON[ManagedSession](ctx, tx, key)
@@ -232,6 +236,7 @@ func (h *serverHandler) sessionRoute(w http.ResponseWriter, r *http.Request, res
 			if err != nil {
 				return err
 			}
+			setSessionIdentity(&session, requestIdentity(ctx))
 			event := ""
 			now := time.Now().UTC()
 			if r.Method == http.MethodDelete {
@@ -406,4 +411,12 @@ func (h *serverHandler) sessionDisplay(ctx context.Context, session ManagedSessi
 	}
 	session.Workspace, session.WorkspaceName = meta.Name, meta.Name
 	return session, nil
+}
+
+func setSessionIdentity(session *ManagedSession, identity authenticatedIdentity) {
+	session.AuthSubject, session.APIKeyID = identity.Subject, identity.KeyID
+	session.APIKeyName = ""
+	if identity.KeyID != "" {
+		session.APIKeyName = identity.Name
+	}
 }

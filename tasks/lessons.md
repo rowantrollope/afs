@@ -285,3 +285,12 @@ User required implementation to continue until the concurrent tests pass.
 ## 2026-09-21 — Home text must be comfortably readable
 
 - User correction: enlarge all Home text, including labels, metadata, controls and the agent prompt. Do not retain tiny 8–11px editorial text; use 12px minimum for small labels, 16px body copy and larger headings, with responsive wrapping.
+
+## API-key scope correction — 2026-09-21
+
+The user approved bringing named administrator API keys into the derivative,
+superseding the earlier omission of API-key issuance/UI. Keep the migration
+focused: creation/list/revoke, expiry, last use, hashed secrets and key attribution.
+All keys are trusted administrators; workspace isolation and revoking existing
+Redis access require separate storage authorization work. Retain the shared
+team token for bootstrap/recovery and keep the original checkout read-only.

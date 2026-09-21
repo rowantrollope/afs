@@ -192,7 +192,9 @@ func (h *DatabaseHandler) newHandler(p databaseProfile, rdb *redis.Client, conne
 	options.AdditionalDatabase, options.RedisURL = p.ID != h.root.options.DatabaseID, connection
 	options.DatabaseRevision = p.Revision
 	options.UI = nil
-	return NewHandler(NewService(NewStore(rdb)), options).(*serverHandler)
+	handler := NewHandler(NewService(NewStore(rdb)), options).(*serverHandler)
+	handler.authStore = h.root.authStore
+	return handler
 }
 
 func (h *DatabaseHandler) lookup(id string) *serverHandler {

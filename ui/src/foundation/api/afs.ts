@@ -670,7 +670,10 @@ function bytesLabelForValue(value: number) {
   return `${Math.max(1, Math.round(value / 1024))} KB`;
 }
 
-async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
+export async function requestJSON<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
   const url = `${HTTP_BASE_URL}${requestPath(path)}`;
   const controller = new AbortController();
   const timeout = window.setTimeout(

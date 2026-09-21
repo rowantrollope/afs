@@ -8,7 +8,8 @@ Standalone CLI use remains available without a control plane.
 
 The UI retains its existing Monitor/topology, workspace browser, checkpoints,
 History and versioning settings. Its scope is smaller: no Cloud accounts,
-search, hosted MCP, templates or API-key product.
+search, hosted MCP or templates. Named API keys provide administrator access
+for trusted people, agents and automation.
 See the [capability inventory](control-plane-capabilities.md) for the original
 features and the migration decisions.
 
@@ -36,15 +37,77 @@ configuration or connect to any catalog database.
 The default listener is `127.0.0.1:8091`. Set `AFS_CONTROL_PLANE_LISTEN` or pass
 `--listen` to change it. Set `AFS_CONTROL_PLANE_TOKEN` to require bearer
 authentication. A token is mandatory for a listener outside loopback. The
-browser asks for that token and retains it for its browser session. All holders
-of this shared token have the same administrative access; it is not per-user or
-per-workspace authorization. Use HTTPS at the deployment boundary for remote
+browser accepts that token or a named API key and retains it for its browser
+session. Both grant the same administrative access across configured Redis
+connections; neither provides per-workspace authorization. Use HTTPS at the deployment boundary for remote
 access, and Redis TLS as appropriate for the Redis connection.
 
 For UI development, run the API on port 8091 and `make web-dev` separately.
 The Vite development proxy keeps browser requests on the UI origin. Production
 assets use their serving origin. `--allow-origin` can be repeated when an
 explicit cross-origin development setup is needed.
+
+## Named API keys
+
+Configure `AFS_CONTROL_PLANE_TOKEN` on the server first. It remains the bootstrap
+and recovery administrator credential. Named keys require this authenticated
+mode; an unauthenticated local server shows key management as disabled.
+
+Open **API Keys** in the sidebar to create a key, review usage and expiration,
+or revoke one. The secret appears only after creation. The server stores its
+hash, and list/revoke responses contain metadata only. Browser-created secrets
+stay in the creation dialog until dismissed; they are not saved in browser
+storage or query caches.
+
+The same actions are available to a logged-in CLI:
+
+```sh
+afs auth keys create 'build agent' --expires 30d
+afs auth keys list
+afs auth keys revoke <key-id>
+```
+
+Creation defaults to 30 days. `--expires` accepts a positive duration such as
+`12h` or `30d`, a future RFC3339 timestamp, or `never`. `--json` creation output
+contains `key` metadata and the one-time `token`; keep it out of logs. To replace
+a key, create a new one, update the client, verify access, then revoke the old
+key. Key management does not replace the administrator's saved login.
+
+Use a key through `AFS_CONTROL_PLANE_TOKEN`, or pipe it from a secret manager
+to `afs auth login --url <server-url> --token-stdin`. The existing private CLI
+configuration and endpoint/token precedence rules apply. Browser sign-in also
+accepts named keys. Every key is a trusted administrator: it can manage keys,
+manage every configured database and obtain that database's Redis credentials.
+There are no workspace scopes or read-only key permissions.
+
+Expiration and revocation reject subsequent authenticated HTTP requests and
+credential bootstrap. They do not cancel an already authorized request, stop
+existing mounts, or invalidate Redis credentials already delivered to a client.
+File access still goes directly to Redis. Complete storage revocation requires
+separate Redis credential changes and connection termination. Creating a
+replacement key does not invalidate the old one automatically.
+
+The key registry is stored in the **startup Redis connection**, selected by
+`--redis` / `AFS_REDIS_URL`, with its effective password. Adding databases or
+editing the default database in the UI does not relocate this registry. Keep
+that startup connection available and persist its Redis data across restarts.
+Changing it selects a different key registry; key records are not automatically
+migrated. If it is unavailable, named-key authentication fails closed; the team
+token remains usable for recovery operations that do not need that registry.
+Restore of old Redis backups can restore old key state, including revocation
+state; reconcile credentials when restoring the registry.
+
+API lifecycle activity records the key's stable ID and name. Session records
+keep authenticated key identity separate from caller-supplied user/agent labels.
+These records are operational attribution for trusted administrators, not a
+human identity service or a tamper-proof audit trail. Direct Redis writes can
+bypass the control-plane activity records.
+
+The HTTP contract is `GET /v1/api-keys`, `POST /v1/api-keys` with `name` and
+optional `expires_at`, and `DELETE /v1/api-keys/<key-id>`. Omitted expiration
+means 30 days; an empty string means no expiration. Lists accept `limit`
+(default 100, maximum 1000) and `cursor`, returning `next_cursor` when another
+page exists. Database-scoped endpoints use the same server-wide key registry.
 
 ## Add a Redis database
 
@@ -122,7 +185,7 @@ its password override, then connect directly to Redis. That address must be
 reachable from the client. Redis credentials stay in memory and private daemon
 bootstrap files; they are not saved into the client's user configuration.
 
-The configured team token authorizes both administration and credential delivery
+The configured team token or a named API key authorizes both administration and credential delivery
 for the server's configured Redis connections. The returned credentials have the same
 Redis permissions as the server; this does not provision per-client Redis ACLs.
 Only the authenticated connection endpoint returns them, with caching disabled.
@@ -130,7 +193,7 @@ Only the authenticated connection endpoint returns them, with caching disabled.
 Saved Redis settings and `AFS_REDIS_URL`/`AFS_REDIS_PASSWORD` are ignored in managed
 operation. An explicit `afs --redis <url> ...` selects standalone operation for
 that command. To restore standalone defaults, run `afs auth logout` and unset
-`AFS_CONTROL_PLANE_URL` if present. Logout clears the saved URL and team token;
+`AFS_CONTROL_PLANE_URL` if present. Logout clears the saved URL and token;
 it preserves Redis settings and does not stop existing mounts or revoke tokens.
 There is no automatic Redis fallback when the management API fails.
 

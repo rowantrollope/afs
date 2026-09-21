@@ -23,6 +23,7 @@ Commands:
   login    Connect to a self-managed control plane
   status   Show effective connection settings without contacting the server
   logout   Clear the saved control-plane connection
+  keys     Create, list, and revoke trusted administrator API keys
 
 Run 'afs auth help <command>' for details.
 `
@@ -30,7 +31,7 @@ Run 'afs auth help <command>' for details.
 var authSubcommandUsage = map[string]string{
 	"login": `Usage: afs auth login [--url <URL>] [--token-stdin] [--self-hosted]
 
-Verify the control-plane connection, then save its URL and optional team token.
+Verify the control-plane connection, then save its URL and optional team token or API key.
 The default is the configured or environment URL, or http://127.0.0.1:8091.
 --control-plane-url is an alias for --url; --self-hosted is accepted for compatibility.
 Use --token-stdin to read one token line from stdin (maximum 16384 bytes).
@@ -47,6 +48,7 @@ overrides. This is an offline check; it does not verify server connectivity.
 Clear the saved control-plane URL and token. Redis and other settings remain.
 Environment overrides and existing mounts are unaffected. No server is contacted.
 `,
+	"keys": authKeysCommandUsage,
 }
 
 func authCommand(opts cliOptions, args []string) error {
@@ -63,7 +65,10 @@ func authCommand(opts cliOptions, args []string) error {
 			fmt.Print(usage)
 			return nil
 		}
-		return errors.New("usage: afs auth help [login|status|logout]")
+		return errors.New("usage: afs auth help [login|status|logout|keys]")
+	}
+	if args[0] == "keys" {
+		return authKeysCommand(opts, args[1:])
 	}
 	usage, ok := authSubcommandUsage[args[0]]
 	if !ok {
@@ -166,7 +171,7 @@ func authLogin(opts cliOptions, args []string) error {
 	flags.StringVar(&endpoint, "url", "", "control-plane URL")
 	flags.StringVar(&endpoint, "control-plane-url", "", "control-plane URL")
 	flags.Bool("self-hosted", false, "self-managed compatibility flag")
-	tokenStdin := flags.Bool("token-stdin", false, "read team token from stdin")
+	tokenStdin := flags.Bool("token-stdin", false, "read team token or API key from stdin")
 	pos, err := parseCommandFlags(flags, args)
 	if err != nil {
 		return err
