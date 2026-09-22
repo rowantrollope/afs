@@ -1,5 +1,20 @@
 # AFS extraction
 
+## Complete the downloadable agent skill — 2026-09-22
+
+- [x] Review the skill against the CLI and anticipated agent workflows; prepare and validate a replacement.
+- [x] Publish the approved guidance for database selection, mount reuse, collaboration, verification, history, recovery, and troubleshooting.
+- [x] Validate the build, CLI checks, and live skill download; commit and push on main.
+
+Review: the self-contained skill corrects named-key authentication, native mount
+semantics, recovery export destinations, and startup-only ignore rules. Command
+examples match installed CLI help, the skill format validator passes, and eight
+independent scenario walkthroughs pass. All 154 UI tests, lint, `make control-plane`,
+Go build/vet/unit/race, and a fresh isolated Redis managed lifecycle test pass.
+The active browser remains on Vite port 5173. Both port 5173 and the restarted
+embedded server on port 8091 serve the exact approved skill; existing Redis/auth
+settings are preserved. Logs: `/private/tmp/afs-skill-publish-*.log`.
+
 ## Agent help skill download — 2026-09-22
 
 - [x] Add a visible SKILL.md download link in the fixed header of every Agent help panel.
