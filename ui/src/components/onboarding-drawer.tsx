@@ -1,4 +1,4 @@
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import styled from "styled-components";
 import type { CommandsDrawerConfig } from "../foundation/drawer-context";
@@ -43,6 +43,26 @@ const DrawerSubline = styled.p`
   color: var(--afs-muted);
   font-size: 13.5px;
   line-height: 1.5;
+`;
+
+const AgentSkillLink = styled.a`
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--afs-accent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:focus-visible {
+    outline: 2px solid var(--afs-accent);
+    outline-offset: 4px;
+    border-radius: 2px;
+  }
 `;
 
 const CloseButton = styled.button`
@@ -150,6 +170,12 @@ export function CommandsDrawer({
               </DrawerEyebrow>
               <DrawerTitle>{title}</DrawerTitle>
               {subline ? <DrawerSubline>{subline}</DrawerSubline> : null}
+              {prompts ? (
+                <AgentSkillLink href="/afs-skill.md" download="SKILL.md">
+                  <Download size={16} aria-hidden="true" />
+                  Download agent skill (SKILL.md)
+                </AgentSkillLink>
+              ) : null}
             </DrawerTitleStack>
             <CloseButton
               type="button"

@@ -1,5 +1,17 @@
 # AFS extraction
 
+## Agent help skill download — 2026-09-22
+
+- [x] Add a visible SKILL.md download link in the fixed header of every Agent help panel.
+- [x] Verify the live link, served skill bytes, UI/build, and required Go checks; commit and push main.
+
+Review: the header link targets `/afs-skill.md` with download filename `SKILL.md`.
+Both port 5173 and embedded port 8091 serve the exact source file with HTTP 200.
+Browser inspection confirms placement above prompts. All 154 UI tests, lint,
+`make control-plane`, Go build/vet/unit/race and fresh isolated Redis managed
+lifecycle pass. Restarted the main-checkout embedded server with existing
+Redis/auth settings preserved. Logs: `/private/tmp/afs-skill-link-*.log`.
+
 ## Agents header button — 2026-09-22
 
 - [x] Show `agents >` followed by the existing blinking cursor in the header help button.
