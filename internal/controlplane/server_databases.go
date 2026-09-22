@@ -39,6 +39,7 @@ type DatabaseHandler struct {
 	profiles  []databaseProfile
 	metadata  *MetadataStore
 	defaultID string
+	revision  int64
 	closed    bool
 	leases    map[*serverHandler]*databaseLease
 }
@@ -51,7 +52,7 @@ func NewMetadataDatabaseHandler(metadata *MetadataStore, options HandlerOptions,
 		return nil, errors.New("metadata storage is required")
 	}
 	ctx := context.Background()
-	profiles, defaultID, initialized, err := metadata.LoadProfiles(ctx)
+	profiles, defaultID, initialized, revision, err := metadata.LoadProfilesSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -60,45 +61,42 @@ func NewMetadataDatabaseHandler(metadata *MetadataStore, options HandlerOptions,
 		if err != nil {
 			return nil, err
 		}
+		for i := range profiles {
+			if profiles[i].Revision == "" {
+				profiles[i].Revision, err = randomManagementToken()
+				if err != nil {
+					return nil, errors.New("cannot generate database revision")
+				}
+			}
+		}
 	}
 	root := NewHandler(nil, options).(*serverHandler)
 	root.authStore = metadata
-	h := &DatabaseHandler{root: root, metadata: metadata, defaultID: defaultID, handlers: map[string]*serverHandler{}, leases: map[*serverHandler]*databaseLease{}}
+	h := &DatabaseHandler{root: root, metadata: metadata, handlers: map[string]*serverHandler{}, leases: map[*serverHandler]*databaseLease{}}
 	root.registry = h
 	fail := func(err error) (*DatabaseHandler, error) { _ = h.Close(); return nil, err }
-	seen := map[string]bool{}
-	for i, profile := range profiles {
-		if !validDatabaseID(profile.ID) || seen[profile.ID] {
-			return fail(errors.New("invalid or duplicate database ID in configuration"))
-		}
-		seen[profile.ID] = true
-		if profile.Revision == "" {
-			profile.Revision, err = randomManagementToken()
-			if err != nil {
-				return fail(errors.New("cannot generate database revision"))
-			}
-		}
-		client, connection, err := profile.client()
-		if err != nil {
-			return fail(errors.New("invalid database connection in configuration"))
-		}
-		if h.duplicate(profile, client.Options()) {
-			_ = client.Close()
-			return fail(errors.New("duplicate database connection or name in configuration"))
-		}
-		profile.RedisURL = connection
-		profiles[i] = profile
-		h.swapHandlerLocked(profile.ID, h.newHandler(profile, client, connection))
-	}
-	if defaultID != "" && !seen[defaultID] || defaultID == "" && len(profiles) != 0 {
-		return fail(errors.New("invalid default database configuration"))
+	if err := h.installSnapshotLocked(profiles, defaultID, revision); err != nil {
+		return fail(err)
 	}
 	if !initialized {
-		if err := metadata.SaveProfiles(ctx, profiles, defaultID); err != nil {
-			return fail(errors.New("cannot import database configuration"))
+		nextRevision, err := metadata.SaveProfilesRevision(ctx, h.profiles, defaultID, revision)
+		if errors.Is(err, ErrMetadataConflict) {
+			// Another instance initialized the catalog first. Its complete snapshot
+			// wins; never overwrite it with this instance's startup configuration.
+			profiles, defaultID, initialized, revision, err = metadata.LoadProfilesSnapshot(ctx)
+			if err == nil && !initialized {
+				err = errors.New("metadata initialization did not complete")
+			}
+			if err == nil {
+				err = h.installSnapshotLocked(profiles, defaultID, revision)
+			}
+		} else if err == nil {
+			h.revision = nextRevision
+		}
+		if err != nil {
+			return fail(err)
 		}
 	}
-	h.profiles = profiles
 	return h, nil
 }
 
@@ -216,10 +214,10 @@ func (p databaseProfile) client() (*redis.Client, string, error) {
 	return redis.NewClient(options), u.String(), nil
 }
 
-func (h *DatabaseHandler) newHandler(p databaseProfile, rdb *redis.Client, connection string) *serverHandler {
+func (h *DatabaseHandler) newHandler(p databaseProfile, rdb *redis.Client, connection, defaultID string) *serverHandler {
 	options := h.root.options
 	options.DatabaseID, options.DatabaseName, options.DatabaseDescription = p.ID, p.Name, p.Description
-	options.AdditionalDatabase, options.RedisURL = p.ID != h.defaultDatabaseID(), connection
+	options.AdditionalDatabase, options.RedisURL = p.ID != defaultID, connection
 	options.DatabaseRevision = p.Revision
 	options.UI = nil
 	handler := NewHandler(NewService(NewStore(rdb)), options).(*serverHandler)
@@ -287,8 +285,20 @@ func (h *DatabaseHandler) duplicate(p databaseProfile, options *redis.Options) b
 	return false
 }
 
-func (h *DatabaseHandler) save(profiles []databaseProfile) error {
-	return h.metadata.SaveProfiles(context.Background(), profiles, h.defaultID)
+func (h *DatabaseHandler) saveProfilesLocked(ctx context.Context, profiles []databaseProfile, defaultID string) error {
+	revision, err := h.metadata.SaveProfilesRevision(ctx, profiles, defaultID, h.revision)
+	if err == nil {
+		h.revision = revision
+	}
+	return err
+}
+
+func databaseSaveError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrMetadataConflict) {
+		serverJSON(w, http.StatusConflict, map[string]string{"error": "Database connections changed; reload and try again", "code": "stale_database_registry"})
+		return
+	}
+	serverError(w, errors.New("cannot save database configuration"))
 }
 
 func (h *DatabaseHandler) databasesRoute(w http.ResponseWriter, r *http.Request) {
@@ -358,7 +368,7 @@ func (h *DatabaseHandler) databasesRoute(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		p.RedisURL = connection
-		handler := h.newHandler(p, client, connection)
+		handler := h.newHandler(p, client, connection, h.defaultDatabaseID())
 		h.mu.Lock()
 		if h.closed {
 			h.mu.Unlock()
@@ -375,9 +385,9 @@ func (h *DatabaseHandler) databasesRoute(w http.ResponseWriter, r *http.Request)
 		if defaultID == "" {
 			defaultID = p.ID
 		}
-		if err := h.metadata.SaveProfiles(r.Context(), next, defaultID); err != nil {
+		if err := h.saveProfilesLocked(r.Context(), next, defaultID); err != nil {
 			h.mu.Unlock()
-			serverError(w, errors.New("cannot save database configuration; check server file permissions"))
+			databaseSaveError(w, err)
 			return
 		}
 		h.profiles, h.defaultID, retained = next, defaultID, true

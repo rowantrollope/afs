@@ -37,8 +37,9 @@ in `~/.config/afs-lite/control-plane.sqlite`. Use `--metadata-file` or
 `AFS_METADATA_FILE` to choose another path. The file contains Redis credentials
 and API-key hashes, is restricted to its owner (`0600`), and is locked to one
 running control-plane process. SQLite metadata is independent of the managed
-Redis databases. Postgres is not supported in this version. To back up the
-metadata with a normal file copy, stop the server first and copy the database
+Redis databases. Set `AFS_METADATA_URL` to use shared Postgres instead;
+see the [Vercel deployment guide](control-plane-vercel.md) for hosted setup.
+To back up local SQLite metadata with a normal file copy, stop the server first and copy the database
 and any accompanying `-wal`/`-shm` files together.
 
 For an optional initial Redis connection, pass `--redis` or set `AFS_REDIS_URL`
@@ -47,7 +48,7 @@ an explicitly empty value. This seeds a fresh metadata database; later restarts
 use the saved connections and default. An unavailable Redis connection does not
 prevent startup. No implicit `localhost:6379` connection is created.
 
-On the first launch with a new metadata database, the server also imports
+On the first local SQLite launch with a new metadata database, the server also imports
 `~/.config/afs-lite/databases.json` if it exists. `--databases-file` or
 `AFS_DATABASES_FILE` selects another legacy JSON import source. Saved connection
 IDs, settings and credentials are retained; a saved `local` connection remains
@@ -56,7 +57,7 @@ connection with the smallest ID becomes default. The source JSON is unchanged an
 initialization. Removing every connection intentionally leaves an empty catalog
 across restarts; the import and initial seed do not run again.
 
-`GET /healthz` reports whether the control plane's SQLite metadata is available.
+`GET /healthz` reports whether the control plane's metadata database is available.
 Redis connectivity is reported separately on the Databases page and database
 API records. A healthy control plane can have zero databases or offline Redis
 connections, allowing an administrator to repair their settings.
@@ -124,7 +125,7 @@ File access still goes directly to Redis. Complete storage revocation requires
 separate Redis credential changes and connection termination. Creating a
 replacement key does not invalidate the old one automatically.
 
-The key registry is stored in the private SQLite metadata database. Adding,
+The key registry is stored in the metadata database (local SQLite or shared Postgres). Adding,
 editing or removing Redis connections, changing the default, and Redis outages
 do not change administrator authentication. The team token remains the bootstrap
 and recovery credential. Restoring an old metadata backup can restore old key
@@ -166,8 +167,8 @@ New workspace creation includes a database selector, and Monitor, workspaces
 and History combine the configured connections. Unavailable connections remain
 listed with their connection status.
 
-Connections and the selected default are saved transactionally in the private
-SQLite metadata database on the control-plane host. Ordinary database API
+Connections and the selected default are saved transactionally in the metadata
+database. Ordinary database API
 responses exclude credentials. Click a database row or its name to review and
 edit its display name,
 description, endpoint, username, database index and TLS setting. This includes

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["iad1"],
+  "services": {
+    "control-plane": {
+      "root": ".",
+      "framework": "go",
+      "entrypoint": "cmd/afs-control-plane/main.go",
+      "buildCommand": "sh scripts/vercel-build.sh",
+      "functions": {
+        "cmd/afs-control-plane/main.go": {
+          "maxDuration": 300
+        }
+      }
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": { "service": "control-plane" } }
+  ]
+}

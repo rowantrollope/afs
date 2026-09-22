@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
 	"github.com/redis/go-redis/v9/logging"
 	"github.com/rowantrollope/afs/internal/controlplane"
@@ -34,7 +35,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(version.String())
 		return nil
 	}
-	metadata, err := controlplane.OpenMetadataStore(options.metadataFile)
+	metadata, err := openMetadata(ctx, options)
 	if err != nil {
 		return err
 	}
@@ -55,9 +56,13 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 	assets := uistatic.Assets()
+	var streamDuration time.Duration
+	if options.hosted {
+		streamDuration = 240 * time.Second
+	}
 	databaseHandler, err := controlplane.NewMetadataDatabaseHandler(metadata, controlplane.HandlerOptions{
-		AuthToken: options.token,
-		Version:   version.Short(), UI: assets, AllowedOrigins: options.origins,
+		AuthToken: options.token, StreamDuration: streamDuration,
+		Version: version.Short(), UI: assets, AllowedOrigins: options.origins,
 	}, options.databasesFile, connectionURL)
 	if err != nil {
 		return err
@@ -108,6 +113,24 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 }
+
+func openMetadata(ctx context.Context, options serverOptions) (*controlplane.MetadataStore, error) {
+	if options.metadataURL != "" {
+		startup, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		metadata, err := controlplane.OpenPostgresMetadataStore(startup, options.metadataURL)
+		if err != nil {
+			// Driver errors can include DSN credentials. Keep them out of logs.
+			return nil, errors.New("cannot open PostgreSQL metadata; check AFS_METADATA_URL and database connectivity")
+		}
+		return metadata, nil
+	}
+	if options.hosted {
+		return nil, errors.New("AFS_METADATA_URL is required in hosted mode; local SQLite is not supported")
+	}
+	return controlplane.OpenMetadataStore(options.metadataFile)
+}
+
 func main() {
 	log.SetFlags(0)
 	logging.Disable()

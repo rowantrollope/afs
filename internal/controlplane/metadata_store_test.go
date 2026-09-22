@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -134,5 +135,65 @@ func TestMetadataRejectsSymlinksAndCorruptProfiles(t *testing.T) {
 	}
 	if _, _, _, err := store.LoadProfiles(context.Background()); err == nil || strings.Contains(err.Error(), "private-credential") {
 		t.Fatalf("corrupt profile accepted or exposed: %v", err)
+	}
+}
+
+func TestMetadataRevisionRejectsStaleWritesAndRollsBackFailedClaim(t *testing.T) {
+	store := metadataTestStore(t)
+	ctx := context.Background()
+	if store.IsShared() {
+		t.Fatal("SQLite unexpectedly reported shared ownership")
+	}
+	profiles, _, initialized, revision, err := store.LoadProfilesSnapshot(ctx)
+	if err != nil || initialized || revision != 0 || len(profiles) != 0 {
+		t.Fatalf("initial revision: %d initialized=%v err=%v", revision, initialized, err)
+	}
+	original := []databaseProfile{{ID: "first", Name: "First", RedisAddr: "localhost:6379"}}
+	revision, err = store.SaveProfilesRevision(ctx, original, "first", revision)
+	if err != nil || revision != 1 {
+		t.Fatalf("initial save: revision=%d err=%v", revision, err)
+	}
+	if _, err := store.SaveProfilesRevision(ctx, nil, "", 0); !errors.Is(err, ErrMetadataConflict) {
+		t.Fatalf("stale save accepted: %v", err)
+	}
+	duplicate := []databaseProfile{{ID: "second"}, {ID: "second"}}
+	if _, err := store.SaveProfilesRevision(ctx, duplicate, "second", revision); err == nil {
+		t.Fatal("invalid save unexpectedly succeeded")
+	}
+	profiles, defaultID, _, afterRevision, err := store.LoadProfilesSnapshot(ctx)
+	if err != nil || !reflect.DeepEqual(profiles, original) || defaultID != "first" || afterRevision != revision {
+		t.Fatalf("failed write changed snapshot/revision: %+v %q %d %v", profiles, defaultID, afterRevision, err)
+	}
+	if next, err := store.SaveProfilesRevision(ctx, nil, "", revision); err != nil || next != 2 {
+		t.Fatalf("failed claim consumed revision: %d %v", next, err)
+	}
+}
+
+func TestMetadataAddsRevisionToExistingSQLiteCatalog(t *testing.T) {
+	ctx := context.Background()
+	filename := filepath.Join(t.TempDir(), "legacy.sqlite")
+	store, err := OpenMetadataStore(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := []databaseProfile{{ID: "original", Name: "Original", RedisAddr: "localhost:6379"}}
+	if err := store.SaveProfiles(ctx, original, "original"); err != nil {
+		t.Fatal(err)
+	}
+	// Catalogs created before shared-store support have no revision setting.
+	if _, err := store.db.Exec("DELETE FROM metadata_settings WHERE name = 'registry_revision'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenMetadataStore(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	profiles, defaultID, initialized, revision, err := store.LoadProfilesSnapshot(ctx)
+	if err != nil || !reflect.DeepEqual(profiles, original) || defaultID != "original" || !initialized || revision != 0 {
+		t.Fatalf("legacy catalog changed: %+v %q %v %d %v", profiles, defaultID, initialized, revision, err)
 	}
 }

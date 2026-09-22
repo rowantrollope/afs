@@ -8,6 +8,22 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: afs_test
+          POSTGRES_PASSWORD: isolated-test-password
+          POSTGRES_DB: afs_metadata_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U afs_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AFS_TEST_POSTGRES_URL: postgres://afs_test:isolated-test-password@127.0.0.1:5432/afs_metadata_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

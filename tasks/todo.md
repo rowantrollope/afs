@@ -1,5 +1,51 @@
 # AFS extraction
 
+## Authenticated Vercel deployment — 2026-09-22
+
+- [x] Add hosted Postgres metadata with atomic registry revisions; retain local SQLite.
+- [x] Refresh database routing across server instances; reject stale writes.
+- [x] Add Vercel entrypoint/build configuration; require server-side token and shared metadata in hosted mode.
+- [x] Validate local and hosted behavior, unauthenticated rejection, and durable metadata across instances.
+- [x] Link the correct Vercel account/project, configure private secrets, deploy and verify browser/CLI access and preview protection.
+- [x] Commit/push main and document deployment, limitations and operational commands.
+
+Design: reuse the same Go server and embedded UI. No anonymous hosted mode;
+bootstrap token and named trusted-administrator keys protect management/data
+requests. Postgres contains only connection profiles/default/admin keys. Files
+and managed sessions stay in Redis. Compare-and-swap revisions prevent lost
+registry updates; every hosted request refreshes routing from shared metadata.
+Start with a preview in the user's Vercel account, preserving existing apps and
+data. Do not copy local Redis credentials or migrate local metadata implicitly.
+
+Review: Vercel sign-in complete. Created separate bookjournal/afs project and
+free Neon afs-metadata database; configured sensitive bootstrap-token and
+Postgres variables for preview and production. Existing app and local profiles
+remain untouched. Full Go build/vet/unit/race, 164 UI tests/lint and all 14
+control-plane/managed/auth/API-key isolated Redis process checks pass. Shared
+Postgres tests cover concurrent startup, snapshot consistency, conflicting
+writes, routing refresh, key expiry/revocation and client leases. Disposable
+Postgres container removed after validation.
+
+Hosted Go build succeeds in iad1 with a 300-second function limit. Actual CLI
+checks against the initial deployment reject anonymous/invalid authentication
+and accept the existing bootstrap token. Browser acceptance verifies the login
+and empty Redis registry. Vercel forced the new project's initial deployment
+into production despite an explicit preview target; removed that deployment
+after obtaining a correctly classified preview. Preview browser auth works;
+Vercel's separate preview login blocks direct CLI access. Production publication
+awaits the user's environment choice. No AFS authentication was disabled.
+
+Automatic approval review rejected creating a temporary hosted administrator
+key. No such key was created; live acceptance uses read-only existing-token
+login, with issuance/revocation covered by isolated SQLite/Postgres/Redis tests.
+Targeted lockfile patch updates remove all critical/high dependency audit
+findings; six moderate/low build/test-tool entries remain. The patched graph
+passes a clean npm install, all 164 UI tests, lint and production build. Final
+preview: https://afs-mgynnh1ll-bookjournal.vercel.app (READY, preview target).
+The main-checkout embedded binary is rebuilt; no local service was restarted.
+Deployment guide: `docs/control-plane-vercel.md`.
+Logs: `/private/tmp/afs-vercel-*.log`.
+
 ## Independent control-plane metadata — 2026-09-22
 
 - [x] Add a small private SQLite store for connection profiles, default selection and administrator keys.

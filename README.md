@@ -38,6 +38,9 @@ and changing the default; removing a connection leaves its Redis data intact.
 See the [control-plane guide](docs/control-plane.md) for
 authentication, daemon registration and the [capability inventory](docs/control-plane-capabilities.md).
 The ordinary CLI build and direct Redis operation remain independent.
+For Vercel, use the [hosted deployment guide](docs/control-plane-vercel.md).
+Hosted mode requires token authentication and shared Postgres metadata; local
+SQLite remains the default for a persistent server.
 
 ## Install
 

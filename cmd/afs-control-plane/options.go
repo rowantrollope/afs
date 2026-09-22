@@ -20,9 +20,11 @@ type serverOptions struct {
 	listen, redisURL, token string
 	databasesFile           string
 	metadataFile            string
+	metadataURL             string
 	migrateAPIKeysFrom      string
 	origins                 stringList
 	showVersion             bool
+	hosted                  bool
 }
 type stringList []string
 
@@ -39,19 +41,9 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	}
 	options.databasesFile = getenv("AFS_DATABASES_FILE")
 	options.metadataFile = getenv("AFS_METADATA_FILE")
+	options.metadataURL = strings.TrimSpace(getenv("AFS_METADATA_URL"))
 	options.migrateAPIKeysFrom = getenv("AFS_MIGRATE_API_KEYS_FROM")
-	if options.databasesFile == "" || options.metadataFile == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return options, errors.New("cannot locate control-plane configuration; set AFS_METADATA_FILE and AFS_DATABASES_FILE")
-		}
-		if options.databasesFile == "" {
-			options.databasesFile = filepath.Join(home, ".config", "afs-lite", "databases.json")
-		}
-		if options.metadataFile == "" {
-			options.metadataFile = filepath.Join(home, ".config", "afs-lite", "control-plane.sqlite")
-		}
-	}
+	vercel := getenv("VERCEL") == "1"
 	flags := flag.NewFlagSet("afs-control-plane", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&options.listen, "listen", options.listen, "HTTP listen address (AFS_CONTROL_PLANE_LISTEN)")
@@ -64,8 +56,9 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags.Lookup("migrate-api-keys-from").DefValue = ""
 	flags.Var(&options.origins, "allow-origin", "Allowed browser origin; repeat for multiple origins")
 	flags.BoolVar(&options.showVersion, "version", false, "Print version")
+	flags.BoolVar(&options.hosted, "hosted", vercel, "Require token, PostgreSQL AFS_METADATA_URL and PORT (automatic on Vercel)")
 	flags.Usage = func() {
-		fmt.Fprintln(output, "Usage: afs-control-plane [options]\n\nOptional AFS management API and UI. Files continue to flow directly to Redis.\nSet AFS_CONTROL_PLANE_TOKEN to require a bearer token; required off loopback.")
+		fmt.Fprintln(output, "Usage: afs-control-plane [options]\n\nOptional AFS management API and UI. Files continue to flow directly to Redis.\nSet AFS_CONTROL_PLANE_TOKEN to require a bearer token; required off loopback.\nSet AFS_METADATA_URL for PostgreSQL instead of local SQLite. Hosted mode requires both.")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -76,6 +69,39 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	}
 	if options.showVersion {
 		return options, nil
+	}
+	// An explicit --hosted=false cannot bypass Vercel's required protections.
+	options.hosted = options.hosted || vercel
+	if options.hosted {
+		if options.token == "" {
+			return options, errors.New("AFS_CONTROL_PLANE_TOKEN is required in hosted mode")
+		}
+		if options.metadataURL == "" {
+			return options, errors.New("AFS_METADATA_URL must specify PostgreSQL in hosted mode; local SQLite is not supported")
+		}
+		port := getenv("PORT")
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 || strings.Trim(port, "0123456789") != "" {
+			return options, errors.New("PORT must be an integer between 1 and 65535 in hosted mode")
+		}
+		options.listen = net.JoinHostPort("0.0.0.0", strconv.Itoa(number))
+	}
+	if options.metadataURL != "" {
+		address, err := url.Parse(options.metadataURL)
+		if err != nil || address.Hostname() == "" || (address.Scheme != "postgres" && address.Scheme != "postgresql") {
+			return options, errors.New("AFS_METADATA_URL must be a valid PostgreSQL URL")
+		}
+	} else if options.databasesFile == "" || options.metadataFile == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return options, errors.New("cannot locate control-plane configuration; set AFS_METADATA_FILE and AFS_DATABASES_FILE")
+		}
+		if options.databasesFile == "" {
+			options.databasesFile = filepath.Join(home, ".config", "afs-lite", "databases.json")
+		}
+		if options.metadataFile == "" {
+			options.metadataFile = filepath.Join(home, ".config", "afs-lite", "control-plane.sqlite")
+		}
 	}
 	host, _, err := net.SplitHostPort(options.listen)
 	if err != nil {

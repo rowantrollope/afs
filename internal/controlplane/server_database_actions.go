@@ -1,7 +1,6 @@
 package controlplane
 
 import (
-	"errors"
 	"net/http"
 	"os"
 )
@@ -31,9 +30,9 @@ func (h *DatabaseHandler) removeDatabaseRoute(w http.ResponseWriter, r *http.Req
 			}
 		}
 	}
-	if err := h.metadata.SaveProfiles(r.Context(), next, defaultID); err != nil {
+	if err := h.saveProfilesLocked(r.Context(), next, defaultID); err != nil {
 		h.mu.Unlock()
-		serverError(w, errors.New("cannot save database configuration"))
+		databaseSaveError(w, err)
 		return
 	}
 	h.profiles, h.defaultID = next, defaultID
@@ -57,9 +56,9 @@ func (h *DatabaseHandler) setDefaultDatabaseRoute(w http.ResponseWriter, r *http
 		serverError(w, os.ErrNotExist)
 		return
 	}
-	if err := h.metadata.SaveProfiles(r.Context(), h.profiles, id); err != nil {
+	if err := h.saveProfilesLocked(r.Context(), h.profiles, id); err != nil {
 		h.mu.Unlock()
-		serverError(w, errors.New("cannot save default database"))
+		databaseSaveError(w, err)
 		return
 	}
 	h.defaultID = id

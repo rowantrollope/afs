@@ -360,6 +360,11 @@ func (h *serverHandler) collectEvents(ctx context.Context, workspace, route stri
 }
 
 func (h *serverHandler) monitor(w http.ResponseWriter, r *http.Request) {
+	if h.options.StreamDuration > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), h.options.StreamDuration)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		serverError(w, fmt.Errorf("streaming is unavailable"))
@@ -444,6 +449,9 @@ func (h *serverHandler) monitorSignature(ctx context.Context) (string, error) {
 	if h.registry == nil {
 		return h.databaseMonitorSignature(ctx)
 	}
+	if err := h.registry.refresh(ctx); err != nil {
+		return "", err
+	}
 	handlers, release := h.acquireDatabaseHandlers()
 	defer release()
 	results := runDatabaseQueries(ctx, handlers, func(ctx context.Context, handler *serverHandler) (string, error) {
@@ -452,7 +460,7 @@ func (h *serverHandler) monitorSignature(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	parts := []string{}
+	parts := []string{h.registry.defaultDatabaseID()}
 	for index, result := range results {
 		parts = append(parts, handlers[index].options.DatabaseID)
 		if result.Err != nil {

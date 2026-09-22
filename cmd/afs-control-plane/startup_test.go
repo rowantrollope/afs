@@ -36,12 +36,47 @@ func TestControlPlaneHelperProcess(t *testing.T) {
 func controlPlaneProcess(args ...string) *exec.Cmd {
 	command := exec.Command(os.Args[0], append([]string{"-test.run=^TestControlPlaneHelperProcess$", "--"}, args...)...)
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "AFS_") {
+		if !strings.HasPrefix(value, "AFS_") && !strings.HasPrefix(value, "VERCEL=") && !strings.HasPrefix(value, "PORT=") {
 			command.Env = append(command.Env, value)
 		}
 	}
 	command.Env = append(command.Env, "AFS_TEST_CONTROL_PLANE_PROCESS=1")
 	return command
+}
+
+func TestHostedStartupFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		token       string
+		metadataURL string
+		port        string
+		want        string
+	}{
+		{"missing-token", "", "postgres://user:private-password@metadata.invalid/afs", "3000", "AFS_CONTROL_PLANE_TOKEN is required"},
+		{"missing-postgres", "test-token", "", "3000", "AFS_METADATA_URL must specify PostgreSQL"},
+		{"invalid-postgres", "test-token", "postgres://user:private-password@[invalid", "3000", "AFS_METADATA_URL must be a valid PostgreSQL URL"},
+		{"sqlite-url", "test-token", "sqlite:///private-password.sqlite", "3000", "AFS_METADATA_URL must be a valid PostgreSQL URL"},
+		{"invalid-port", "test-token", "postgres://user:private-password@metadata.invalid/afs", "private-invalid-port", "PORT must be an integer"},
+		{"driver-error", "test-token", "postgres://user:private-password@metadata.invalid/afs?sslmode=private-driver-error", "3000", "cannot open PostgreSQL metadata"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "must-not-create.sqlite")
+			command := controlPlaneProcess("--hosted=false", "--listen", "127.0.0.1:0", "--metadata-file", path)
+			command.Env = append(command.Env, "VERCEL=1", "PORT="+test.port, "AFS_CONTROL_PLANE_TOKEN="+test.token, "AFS_METADATA_URL="+test.metadataURL)
+			output, err := command.CombinedOutput()
+			if err == nil || !bytes.Contains(output, []byte(test.want)) {
+				t.Fatalf("unexpected hosted startup result: %v\n%s", err, output)
+			}
+			for _, secret := range []string{"private-password", "private-invalid-port", "private-driver-error"} {
+				if bytes.Contains(output, []byte(secret)) {
+					t.Fatal("hosted startup failure disclosed private configuration")
+				}
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatal("hosted startup must never initialize fallback SQLite")
+			}
+		})
+	}
 }
 
 func unusedLoopbackAddress(t *testing.T) string {

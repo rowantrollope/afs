@@ -63,19 +63,81 @@ func TestHelpDoesNotPrintRedisCredentials(t *testing.T) {
 		if key == "AFS_CONTROL_PLANE_TOKEN" {
 			return "private-team-token"
 		}
+		if key == "AFS_METADATA_URL" {
+			return "postgresql://private-user:private-metadata-password@metadata.example/afs"
+		}
 		return ""
 	}, &output)
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("help: %v", err)
 	}
-	for _, secret := range []string{"private-password", "private-migration-password", "private-team-token"} {
+	for _, secret := range []string{"private-password", "private-migration-password", "private-team-token", "private-metadata-password", "private-user"} {
 		if strings.Contains(output.String(), secret) {
 			t.Fatal("help disclosed environment credentials")
 		}
 	}
-	for _, option := range []string{"-metadata-file", "-databases-file", "-migrate-api-keys-from"} {
+	for _, option := range []string{"-metadata-file", "-databases-file", "-migrate-api-keys-from", "-hosted", "AFS_METADATA_URL"} {
 		if !strings.Contains(output.String(), option) {
 			t.Fatalf("help omitted %s", option)
+		}
+	}
+}
+
+func TestHostedOptionsRequireAuthAndSharedMetadata(t *testing.T) {
+	for _, args := range [][]string{{"--hosted"}, {"--hosted=false"}} {
+		for _, missing := range []string{"AFS_CONTROL_PLANE_TOKEN", "AFS_METADATA_URL"} {
+			environment := map[string]string{
+				"VERCEL": "1", "PORT": "3000",
+				"AFS_CONTROL_PLANE_TOKEN": "private-team-token",
+				"AFS_METADATA_URL":        "postgresql://user:password@metadata.example/afs",
+			}
+			delete(environment, missing)
+			_, err := parseOptions(args, func(key string) string { return environment[key] }, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), missing) {
+				t.Fatalf("hosted mode accepted missing %s with args %v: %v", missing, args, err)
+			}
+		}
+	}
+}
+
+func TestHostedPortAndExplicitMode(t *testing.T) {
+	for _, port := range []string{"", "0", "-1", "65536", "+3000", " 3000", "private-invalid-port", "3000", "65535"} {
+		environment := map[string]string{
+			"PORT": port, "AFS_CONTROL_PLANE_TOKEN": "test-token",
+			"AFS_METADATA_URL": "postgres://user:password@metadata.example/afs",
+		}
+		options, err := parseOptions([]string{"--hosted", "--listen", "127.0.0.1:8091"}, func(key string) string { return environment[key] }, io.Discard)
+		if port == "3000" || port == "65535" {
+			if err != nil || !options.hosted || options.listen != "0.0.0.0:"+port || options.metadataFile != "" || options.databasesFile != "" {
+				t.Fatalf("hosted port %q did not override local listener or selected local files: %v", port, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), "PORT must") || strings.Contains(err.Error(), "private-invalid-port") {
+			t.Fatalf("invalid hosted port should return a fixed error: %v", err)
+		}
+	}
+}
+
+func TestPostgresMetadataSelectionAndRedaction(t *testing.T) {
+	for _, metadataURL := range []string{
+		"postgresql://user:private-password@metadata.example/afs",
+		"postgres://user:private-password@metadata.example/afs",
+		"sqlite:///private-password.sqlite",
+		"postgresql://user:private-password@[invalid",
+		"private-password",
+	} {
+		options, err := parseOptions(nil, func(key string) string {
+			if key == "AFS_METADATA_URL" {
+				return metadataURL
+			}
+			return ""
+		}, io.Discard)
+		valid := strings.Contains(metadataURL, "@metadata.example/")
+		if valid {
+			if err != nil || options.metadataURL != metadataURL || options.metadataFile != "" || options.databasesFile != "" {
+				t.Fatalf("PostgreSQL selection failed or implicitly selected local files: %v", err)
+			}
+		} else if err == nil || strings.Contains(err.Error(), "private-password") {
+			t.Fatal("invalid metadata URL did not return a redacted error")
 		}
 	}
 }

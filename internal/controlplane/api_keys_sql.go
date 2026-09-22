@@ -55,9 +55,9 @@ func (s *MetadataStore) createAPIKey(ctx context.Context, key APIKey) (APIKey, s
 	if err != nil {
 		return APIKey{}, "", err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO api_keys
+	_, err = s.db.ExecContext(ctx, s.querySQL(`INSERT INTO api_keys
  (id, name, created_at, last_used_at, expires_at, expires_ms, revoked_at, hash)
- VALUES (?, ?, ?, '', ?, ?, '', ?)`, key.ID, key.Name, key.CreatedAt, key.ExpiresAt, expiresMillis, apiKeyHash(token))
+ VALUES (?, ?, ?, '', ?, ?, '', ?)`), key.ID, key.Name, key.CreatedAt, key.ExpiresAt, expiresMillis, apiKeyHash(token))
 	if err != nil {
 		return APIKey{}, "", errors.New("cannot create API key")
 	}
@@ -87,9 +87,9 @@ func (s *MetadataStore) authenticateAPIKey(ctx context.Context, token string, no
 	if err != nil || len(decoded) != 32 {
 		return APIKey{}, false, nil
 	}
-	key, err := scanSQLAPIKey(s.db.QueryRowContext(ctx, `UPDATE api_keys SET last_used_at = ?
+	key, err := scanSQLAPIKey(s.db.QueryRowContext(ctx, s.querySQL(`UPDATE api_keys SET last_used_at = ?
  WHERE id = ? AND hash = ? AND revoked_at = '' AND (expires_ms = 0 OR expires_ms > ?)
- RETURNING `+sqlAPIKeyColumns, serverTime(now), id, apiKeyHash(token), now.UnixMilli()), now)
+ RETURNING `+sqlAPIKeyColumns), serverTime(now), id, apiKeyHash(token), now.UnixMilli()), now)
 	if errors.Is(err, os.ErrNotExist) {
 		return APIKey{}, false, nil
 	}
@@ -100,16 +100,16 @@ func (s *MetadataStore) authenticateAPIKey(ctx context.Context, token string, no
 }
 
 func (s *MetadataStore) revokeAPIKey(ctx context.Context, id string, now time.Time) (APIKey, error) {
-	return scanSQLAPIKey(s.db.QueryRowContext(ctx, `UPDATE api_keys
+	return scanSQLAPIKey(s.db.QueryRowContext(ctx, s.querySQL(`UPDATE api_keys
  SET revoked_at = CASE WHEN revoked_at = '' THEN ? ELSE revoked_at END
- WHERE id = ? RETURNING `+sqlAPIKeyColumns, serverTime(now), id), now)
+ WHERE id = ? RETURNING `+sqlAPIKeyColumns), serverTime(now), id), now)
 }
 
 func (s *MetadataStore) listAPIKeys(ctx context.Context, cursor string, limit int, now time.Time) ([]APIKey, string, error) {
 	if limit < 1 || limit > 1000 {
 		return nil, "", errors.New("API key page size must be between 1 and 1000")
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT "+sqlAPIKeyColumns+" FROM api_keys WHERE id > ? ORDER BY id LIMIT ?", cursor, limit+1)
+	rows, err := s.db.QueryContext(ctx, s.querySQL("SELECT "+sqlAPIKeyColumns+" FROM api_keys WHERE id > ? ORDER BY id LIMIT ?"), cursor, limit+1)
 	if err != nil {
 		return nil, "", errors.New("cannot list API keys")
 	}
@@ -171,13 +171,13 @@ func (s *MetadataStore) ImportAPIKeys(ctx context.Context, records []LegacyAPIKe
 			return err
 		}
 		var existingHash string
-		err = tx.QueryRowContext(ctx, "SELECT hash FROM api_keys WHERE id = ?", key.ID).Scan(&existingHash)
+		err = tx.QueryRowContext(ctx, s.querySQL("SELECT hash FROM api_keys WHERE id = ?"), key.ID).Scan(&existingHash)
 		if err == nil {
 			if existingHash != record.Hash {
 				return errors.New("legacy API key conflicts with an existing key")
 			}
 			if key.RevokedAt != "" {
-				if _, err := tx.ExecContext(ctx, "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at = ''", key.RevokedAt, key.ID); err != nil {
+				if _, err := tx.ExecContext(ctx, s.querySQL("UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at = ''"), key.RevokedAt, key.ID); err != nil {
 					return errors.New("cannot import API key revocation")
 				}
 			}
@@ -186,9 +186,9 @@ func (s *MetadataStore) ImportAPIKeys(ctx context.Context, records []LegacyAPIKe
 		if !errors.Is(err, sql.ErrNoRows) {
 			return errors.New("cannot check existing API key")
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO api_keys
+		_, err = tx.ExecContext(ctx, s.querySQL(`INSERT INTO api_keys
  (id, name, created_at, last_used_at, expires_at, expires_ms, revoked_at, hash)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, key.ID, key.Name, key.CreatedAt, key.LastUsedAt, key.ExpiresAt, expiresMillis, key.RevokedAt, record.Hash)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`), key.ID, key.Name, key.CreatedAt, key.LastUsedAt, key.ExpiresAt, expiresMillis, key.RevokedAt, record.Hash)
 		if err != nil {
 			return errors.New("cannot import API key")
 		}

@@ -13,3 +13,13 @@ __pycache__/
 /ui/.tanstack/
 /internal/uistatic/dist/*
 !/internal/uistatic/dist/.keep
+.vercel
+.env*
+
+# Local control-plane metadata can contain Redis credentials.
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+/databases.json
+/config.json

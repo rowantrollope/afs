@@ -98,7 +98,7 @@ func (h *DatabaseHandler) updateDatabaseRoute(w http.ResponseWriter, r *http.Req
 		return
 	}
 	profile.RedisURL = connection
-	replacement := h.newHandler(profile, candidate, connection)
+	replacement := h.newHandler(profile, candidate, connection, h.defaultDatabaseID())
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -127,9 +127,9 @@ func (h *DatabaseHandler) updateDatabaseRoute(w http.ResponseWriter, r *http.Req
 	if !found {
 		next = append(next, profile)
 	}
-	if err := h.save(next); err != nil {
+	if err := h.saveProfilesLocked(r.Context(), next, h.defaultID); err != nil {
 		h.mu.Unlock()
-		serverError(w, errors.New("cannot save database configuration; check server file permissions"))
+		databaseSaveError(w, err)
 		return
 	}
 	h.profiles, retained = next, true

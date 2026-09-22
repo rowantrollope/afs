@@ -30,6 +30,7 @@ type HandlerOptions struct {
 	Version             string
 	UI                  fs.FS
 	AllowedOrigins      []string
+	StreamDuration      time.Duration // Zero keeps local monitor streams unbounded.
 }
 
 type serverHandler struct {
@@ -161,6 +162,26 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = WithFileVersionAttribution(ctx, FileVersionAttribution{User: identity.Subject})
 	r = r.WithContext(ctx)
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
+	// Account administration remains available even if the connection registry
+	// cannot be refreshed. Scoped data operations must never use stale profiles.
+	if path == "/api-keys" || strings.HasPrefix(path, "/api-keys/") {
+		h.apiKeysRoute(w, r, strings.TrimPrefix(strings.TrimPrefix(path, "/api-keys"), "/"))
+		return
+	}
+	if path == "/auth/verify" {
+		if r.Method != http.MethodGet {
+			serverMethod(w, "GET")
+			return
+		}
+		serverJSON(w, 200, map[string]bool{"authenticated": true})
+		return
+	}
+	if h.registry != nil {
+		if err := h.registry.refresh(r.Context()); err != nil {
+			serverJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Database configuration is unavailable; retry shortly"})
+			return
+		}
+	}
 	if strings.HasPrefix(path, "/databases/") {
 		parts := strings.SplitN(strings.TrimPrefix(path, "/databases/"), "/", 2)
 		if h.registry != nil {

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 )
@@ -17,10 +18,18 @@ import (
 // register the sqlite database/sql driver; the CLI does not need that driver.
 type MetadataStore struct {
 	db        *sql.DB
+	postgres  bool
 	lock      *os.File
 	closeOnce sync.Once
 	closeErr  error
 }
+
+// ErrMetadataConflict means another process committed a registry change after
+// the caller loaded its snapshot. Callers must reload before retrying a change.
+var ErrMetadataConflict = errors.New("database configuration changed; reload and try again")
+
+// IsShared reports whether independent server instances share this catalog.
+func (s *MetadataStore) IsShared() bool { return s.postgres }
 
 // OpenMetadataStore opens a private SQLite database. A single control plane owns
 // the catalog because its active Redis clients are an in-memory registry.
@@ -99,6 +108,8 @@ CREATE TABLE IF NOT EXISTS metadata_settings (
  name TEXT PRIMARY KEY NOT NULL,
  value TEXT NOT NULL
 );
+INSERT INTO metadata_settings (name, value) VALUES ('registry_revision', '0')
+ON CONFLICT(name) DO NOTHING;
 CREATE TABLE IF NOT EXISTS database_profiles (
  id TEXT PRIMARY KEY NOT NULL,
  position INTEGER NOT NULL,
@@ -169,20 +180,40 @@ func (s *MetadataStore) Ping(ctx context.Context) error {
 
 // LoadProfiles distinguishes a fresh catalog from an intentionally empty one.
 func (s *MetadataStore) LoadProfiles(ctx context.Context) ([]databaseProfile, string, bool, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	profiles, defaultID, initialized, _, err := s.LoadProfilesSnapshot(ctx)
+	return profiles, defaultID, initialized, err
+}
+
+// LoadProfilesSnapshot reads the registry and its revision from one consistent
+// snapshot. PostgreSQL's default READ COMMITTED would allow its separate reads
+// to observe different concurrent commits.
+func (s *MetadataStore) LoadProfilesSnapshot(ctx context.Context) ([]databaseProfile, string, bool, int64, error) {
+	options := &sql.TxOptions{ReadOnly: true}
+	if s.postgres {
+		options.Isolation = sql.LevelRepeatableRead
+	}
+	tx, err := s.db.BeginTx(ctx, options)
 	if err != nil {
-		return nil, "", false, errors.New("cannot read metadata database")
+		return nil, "", false, 0, errors.New("cannot read metadata database")
 	}
 	defer tx.Rollback()
+	var rawRevision string
+	if err := tx.QueryRowContext(ctx, s.querySQL("SELECT value FROM metadata_settings WHERE name = 'registry_revision'")).Scan(&rawRevision); err != nil {
+		return nil, "", false, 0, errors.New("cannot read database configuration revision")
+	}
+	revision, err := strconv.ParseInt(rawRevision, 10, 64)
+	if err != nil || revision < 0 {
+		return nil, "", false, 0, errors.New("invalid database configuration revision")
+	}
 	var defaultID string
-	err = tx.QueryRowContext(ctx, "SELECT value FROM metadata_settings WHERE name = 'default_database_id'").Scan(&defaultID)
+	err = tx.QueryRowContext(ctx, s.querySQL("SELECT value FROM metadata_settings WHERE name = 'default_database_id'")).Scan(&defaultID)
 	initialized := !errors.Is(err, sql.ErrNoRows)
 	if err != nil && initialized {
-		return nil, "", false, errors.New("cannot read default database setting")
+		return nil, "", false, 0, errors.New("cannot read default database setting")
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT id, profile FROM database_profiles ORDER BY position, id")
+	rows, err := tx.QueryContext(ctx, s.querySQL("SELECT id, profile FROM database_profiles ORDER BY position, id"))
 	if err != nil {
-		return nil, "", false, errors.New("cannot read database profiles")
+		return nil, "", false, 0, errors.New("cannot read database profiles")
 	}
 	defer rows.Close()
 	profiles := make([]databaseProfile, 0)
@@ -190,26 +221,26 @@ func (s *MetadataStore) LoadProfiles(ctx context.Context) ([]databaseProfile, st
 		var id, raw string
 		var profile databaseProfile
 		if err := rows.Scan(&id, &raw); err != nil {
-			return nil, "", false, errors.New("cannot read database profile")
+			return nil, "", false, 0, errors.New("cannot read database profile")
 		}
 		if err := json.Unmarshal([]byte(raw), &profile); err != nil || profile.ID != id || !validDatabaseID(id) {
-			return nil, "", false, errors.New("invalid database profile in metadata database")
+			return nil, "", false, 0, errors.New("invalid database profile in metadata database")
 		}
 		profiles = append(profiles, profile)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", false, errors.New("cannot read database profiles")
+		return nil, "", false, 0, errors.New("cannot read database profiles")
 	}
 	if err := rows.Close(); err != nil {
-		return nil, "", false, errors.New("cannot read database profiles")
+		return nil, "", false, 0, errors.New("cannot read database profiles")
 	}
 	if !initialized && len(profiles) != 0 || !validProfileDefault(profiles, defaultID) {
-		return nil, "", false, errors.New("invalid default database setting")
+		return nil, "", false, 0, errors.New("invalid default database setting")
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, "", false, errors.New("cannot finish reading metadata database")
+		return nil, "", false, 0, errors.New("cannot finish reading metadata database")
 	}
-	return profiles, defaultID, initialized, nil
+	return profiles, defaultID, initialized, revision, nil
 }
 
 func validProfileDefault(profiles []databaseProfile, defaultID string) bool {
@@ -227,34 +258,65 @@ func validProfileDefault(profiles []databaseProfile, defaultID string) bool {
 // SaveProfiles commits the registry and its default together. No partially
 // updated connection list is visible if a write or transaction commit fails.
 func (s *MetadataStore) SaveProfiles(ctx context.Context, profiles []databaseProfile, defaultID string) error {
+	if s.postgres {
+		return errors.New("shared metadata requires a revision-checked save")
+	}
+	_, _, _, revision, err := s.LoadProfilesSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.SaveProfilesRevision(ctx, profiles, defaultID, revision)
+	return err
+}
+
+// SaveProfilesRevision replaces a registry only when its persisted revision
+// still matches the caller's snapshot. The revision claim and replacement are
+// atomic, preventing independently cached servers from losing one another's
+// changes. A failed transaction never consumes the revision.
+func (s *MetadataStore) SaveProfilesRevision(ctx context.Context, profiles []databaseProfile, defaultID string, expectedRevision int64) (int64, error) {
 	if !validProfileDefault(profiles, defaultID) {
-		return errors.New("default database must refer to a saved connection")
+		return 0, errors.New("default database must refer to a saved connection")
+	}
+	if expectedRevision < 0 || expectedRevision == int64(^uint64(0)>>1) {
+		return 0, errors.New("invalid database configuration revision")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return errors.New("cannot save database profiles")
+		return 0, errors.New("cannot save database profiles")
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "DELETE FROM database_profiles"); err != nil {
-		return errors.New("cannot save database profiles")
+	nextRevision := expectedRevision + 1
+	claim, err := tx.ExecContext(ctx, s.querySQL("UPDATE metadata_settings SET value = ? WHERE name = 'registry_revision' AND value = ?"), strconv.FormatInt(nextRevision, 10), strconv.FormatInt(expectedRevision, 10))
+	if err != nil {
+		return 0, errors.New("cannot save database configuration revision")
+	}
+	changed, err := claim.RowsAffected()
+	if err != nil {
+		return 0, errors.New("cannot verify database configuration revision")
+	}
+	if changed != 1 {
+		return 0, ErrMetadataConflict
+	}
+	if _, err := tx.ExecContext(ctx, s.querySQL("DELETE FROM database_profiles")); err != nil {
+		return 0, errors.New("cannot save database profiles")
 	}
 	for i, profile := range profiles {
 		if !validDatabaseID(profile.ID) {
-			return errors.New("invalid database ID in configuration")
+			return 0, errors.New("invalid database ID in configuration")
 		}
 		raw, err := json.Marshal(profile)
 		if err != nil {
-			return errors.New("invalid database profile")
+			return 0, errors.New("invalid database profile")
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO database_profiles (id, position, profile) VALUES (?, ?, ?)", profile.ID, i, string(raw)); err != nil {
-			return errors.New("cannot save database profiles")
+		if _, err := tx.ExecContext(ctx, s.querySQL("INSERT INTO database_profiles (id, position, profile) VALUES (?, ?, ?)"), profile.ID, i, string(raw)); err != nil {
+			return 0, errors.New("cannot save database profiles")
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO metadata_settings (name, value) VALUES ('default_database_id', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", defaultID); err != nil {
-		return errors.New("cannot save default database setting")
+	if _, err := tx.ExecContext(ctx, s.querySQL("INSERT INTO metadata_settings (name, value) VALUES ('default_database_id', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value"), defaultID); err != nil {
+		return 0, errors.New("cannot save default database setting")
 	}
 	if err := tx.Commit(); err != nil {
-		return errors.New("cannot commit database profiles")
+		return 0, errors.New("cannot commit database profiles")
 	}
-	return nil
+	return nextRevision, nil
 }

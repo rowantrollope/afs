@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-22 — Require authentication before hosting the control plane
+
+- The user requires authentication before internet deployment. Verify the server rejects unauthenticated data and management requests; a login screen alone is not proof.
+- Hosted mode must fail startup without an administrator token, even when the platform supplies an internal loopback listener. Keep administrator secrets out of source uploads and browser build variables.
+
 ## 2026-09-22 — Distinguish bootstrap storage from managed Redis databases
 
 - Moving the database connection registry from JSON into Redis still requires a bootstrap Redis endpoint and credentials. Do not present it as removing the control plane's initial storage dependency.
