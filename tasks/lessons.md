@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-22 — Unmount accepts workspace identity
+
+- The user expects `afs unmount` to accept a workspace name when it identifies one local mount; require the directory only when the selector is ambiguous.
+- Root and command help must advertise both workspace names and local directories. Resolve names and paths together so collisions never select the wrong mount, and preserve the normal flush and force-detach behavior.
+
 ## 2026-09-22 — Configurable mount identity
 
 - The control-plane UI should display the informational metadata supplied to `afs mount`, including session labels, agent IDs, users, labels and versions, rather than only a generated session ID.

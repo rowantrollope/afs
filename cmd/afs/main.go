@@ -28,7 +28,7 @@ Usage:
 
 Commands:
   mount <workspace> <directory>  Connect a workspace using sync, FUSE, or NFS
-  unmount <directory>            Flush pending changes and disconnect
+  unmount <workspace|directory>  Flush pending changes and disconnect
   status [directory]             Show connection, sync progress, and errors
   sync                           Inspect sync activity or wait for verification
   create <workspace>             Create a workspace or import a directory
@@ -131,7 +131,10 @@ start a mount. Established mounts keep direct Redis access during management
 outages. Tokens travel in private bootstrap files, never helper arguments.
 Check afs status for management availability. --redis selects standalone mode.
 `,
-	"unmount": `Usage: afs unmount <directory> [--force]
+	"unmount": `Usage: afs unmount <workspace|directory> [--force]
+
+Use a workspace name or local directory. A workspace name must identify exactly
+one locally registered mount; if ambiguous, specify the local directory.
 
 Flush pending changes and stop synchronization; local files remain intact.
 A failed flush leaves synchronization running and returns an error.

@@ -7,24 +7,24 @@ import (
 	"testing"
 )
 
-func TestSyncCommandResolution(t *testing.T) {
+func TestCommandMountResolution(t *testing.T) {
 	root := t.TempDir()
 	first := mountRecord{Workspace: "one", WorkspaceID: "id-one", LocalPath: filepath.Join(root, "one")}
 	reg := mountRegistry{Mounts: []mountRecord{first}}
 	for _, target := range []string{"one", "id-one", first.LocalPath} {
-		got, err := resolveSyncCommandMount(reg, target)
+		got, err := resolveCommandMount(reg, target)
 		if err != nil || got.LocalPath != first.LocalPath {
 			t.Fatalf("%s: %+v %v", target, got, err)
 		}
 	}
-	if _, err := resolveSyncCommandMount(reg, filepath.Join(first.LocalPath, "child")); err == nil {
+	if _, err := resolveCommandMount(reg, filepath.Join(first.LocalPath, "child")); err == nil {
 		t.Fatal("accepted nested path")
 	}
 	reg.Mounts = append(reg.Mounts, mountRecord{Workspace: "one", WorkspaceID: "id-one", LocalPath: filepath.Join(root, "other")})
-	if _, err := resolveSyncCommandMount(reg, "one"); err == nil {
+	if _, err := resolveCommandMount(reg, "one"); err == nil {
 		t.Fatal("accepted ambiguous workspace")
 	}
-	if _, err := resolveSyncCommandMount(reg, first.LocalPath); err != nil {
+	if _, err := resolveCommandMount(reg, first.LocalPath); err != nil {
 		t.Fatal(err)
 	}
 }

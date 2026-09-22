@@ -476,10 +476,6 @@ func (a *app) unmount(args []string) error {
 	if len(pos) != 1 {
 		return errors.New(commandUsage["unmount"])
 	}
-	root, err := expandPath(pos[0])
-	if err != nil {
-		return err
-	}
 	release, err := lockRegistry()
 	if err != nil {
 		return err
@@ -489,16 +485,11 @@ func (a *app) unmount(args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := mountByPath(reg, root); !ok {
-		root, err = normalizeMountPath(pos[0])
-		if err != nil {
-			return err
-		}
+	rec, err := resolveCommandMount(reg, pos[0])
+	if err != nil {
+		return err
 	}
-	rec, ok := mountByPath(reg, root)
-	if !ok {
-		return errors.New("directory is not registered as mounted")
-	}
+	root := rec.LocalPath
 	if err := a.redisHeader("REDIS", rec.Redis); err != nil {
 		return err
 	}

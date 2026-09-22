@@ -199,9 +199,13 @@ supervisors or debugging. An unrelated populated directory is rejected.
 ```sh
 afs status
 afs status ~/agent-a
-afs unmount ~/agent-a
+afs unmount shared
+# If shared has multiple local mounts, select one by directory:
+# afs unmount ~/agent-a
 ```
 
+Unmount accepts a workspace name or local directory. A workspace name must
+identify exactly one locally registered mount; if ambiguous, use its directory.
 Unmount joins pending work, verifies published bytes, and stops synchronization.
 It leaves local files intact. A failed flush returns an error and keeps the daemon
 running. `unmount --force` detaches without a flush; pending content may exist only

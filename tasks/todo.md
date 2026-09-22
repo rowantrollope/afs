@@ -1,5 +1,23 @@
 # AFS extraction
 
+## Unmount by workspace name or directory — 2026-09-22
+
+- [x] Reuse shared local mount resolution for unmount, rejecting ambiguous names before lifecycle actions.
+- [x] Document workspace-name and directory forms in root help, command help and README.
+- [x] Cover unique names, path/name collisions, multiple databases, directory aliases, native routing and failed-unmount preservation.
+- [x] Validate build, vet, unit/race and isolated real-Redis process tests; rebuild the CLI and restart the control plane.
+- [x] Commit and push main.
+
+Review: `go build ./...`, `make build`, `go vet ./...`, `go test ./...` and
+`go test -race ./...` pass. Focused race tests also pass with caching disabled.
+Fresh-binary process tests verify name-based flush/local preservation, ambiguity
+with and without force, directory disambiguation, existing sync verification and
+read-only unmount. All process tests use disposable Redis and client state.
+`bin/afs unmount --help` advertises `<workspace|directory>` and ambiguity guidance.
+`make control-plane` passed; replacement API PID 7418 runs from main with the
+previous Redis/auth settings preserved. Health and both UI endpoints pass; the
+browser's active AFS URL is `http://127.0.0.1:5173/`. Concurrent UI work is preserved.
+
 ## Configurable mount metadata in Live Topology — 2026-09-22
 
 - [x] Trace mount flags through managed sessions and retain the missing user field in the UI.

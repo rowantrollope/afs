@@ -112,6 +112,27 @@ func mountByPath(reg mountRegistry, p string) (mountRecord, bool) {
 	}
 	return mountRecord{}, false
 }
+
+// Resolve all identities together: a name colliding with another mount's path
+// must not silently select the wrong tree. No Redis connection is required.
+func resolveCommandMount(reg mountRegistry, target string) (mountRecord, error) {
+	path, _ := expandPath(target)
+	canonical, _ := normalizeMountPath(target)
+	matches := []mountRecord{}
+	for _, rec := range reg.Mounts {
+		if target == rec.Workspace || target == rec.WorkspaceID || filepath.Clean(rec.LocalPath) == path || (canonical != "" && filepath.Clean(rec.LocalPath) == canonical) {
+			matches = append(matches, rec)
+		}
+	}
+	if len(matches) == 0 {
+		return mountRecord{}, fmt.Errorf("no registered mount matches %q", target)
+	}
+	if len(matches) > 1 {
+		return mountRecord{}, fmt.Errorf("%q matches multiple registered mounts; specify an exact directory", target)
+	}
+	return matches[0], nil
+}
+
 func removeMountByPath(reg *mountRegistry, p string) (mountRecord, bool) {
 	for i, r := range reg.Mounts {
 		if filepath.Clean(r.LocalPath) == filepath.Clean(p) {

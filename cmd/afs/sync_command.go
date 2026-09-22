@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"path/filepath"
 	"time"
 )
 
@@ -62,7 +61,7 @@ func (a *app) syncCommand(args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	rec, err := resolveSyncCommandMount(reg, pos[0])
+	rec, err := resolveCommandMount(reg, pos[0])
 	if err != nil {
 		return err
 	}
@@ -91,26 +90,6 @@ func (a *app) syncCommand(args []string) (err error) {
 	return a.output(out, fmt.Sprintf("Verified publication of %q in Redis; synchronization continues.\n", rec.LocalPath))
 }
 
-// Resolve all identities together: a name colliding with another mount's path
-// must not silently publish the wrong tree. No Redis connection is required.
-func resolveSyncCommandMount(reg mountRegistry, target string) (mountRecord, error) {
-	path, _ := expandPath(target)
-	canonical, _ := normalizeMountPath(target)
-	matches := []mountRecord{}
-	for _, rec := range reg.Mounts {
-		if target == rec.Workspace || target == rec.WorkspaceID || filepath.Clean(rec.LocalPath) == path || (canonical != "" && filepath.Clean(rec.LocalPath) == canonical) {
-			matches = append(matches, rec)
-		}
-	}
-	if len(matches) == 0 {
-		return mountRecord{}, fmt.Errorf("no registered mount matches %q", target)
-	}
-	if len(matches) > 1 {
-		return mountRecord{}, fmt.Errorf("%q matches multiple registered mounts; specify an exact directory", target)
-	}
-	return matches[0], nil
-}
-
 func (a *app) syncCommandStatus(args []string) error {
 	f := flag.NewFlagSet("sync status", flag.ContinueOnError)
 	pos, err := parseCommandFlags(f, args)
@@ -125,7 +104,7 @@ func (a *app) syncCommandStatus(args []string) error {
 		return err
 	}
 	if len(pos) == 1 {
-		rec, e := resolveSyncCommandMount(reg, pos[0])
+		rec, e := resolveCommandMount(reg, pos[0])
 		if e != nil {
 			return e
 		}

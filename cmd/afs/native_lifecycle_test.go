@@ -157,15 +157,19 @@ func TestNativeUnmountFailurePreservesRegistration(t *testing.T) {
 	t.Setenv("AFS_STATE_DIR", t.TempDir())
 	rec := testNativeRecord(t)
 	nativeControlFixture(t, rec, func(req mountcontrol.Request, result *mountcontrol.Result) {
+		if req.Operation != "unmount" {
+			result.Success, result.Error = false, "unexpected operation: "+req.Operation
+			return
+		}
 		result.Success, result.Error = false, "filesystem busy"
 	})
 	reg := mountRegistry{Mounts: []mountRecord{rec}}
 	if err := saveMountRegistry(reg); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{}
-	if err := a.unmountNative(rec, &reg, false); err == nil {
-		t.Fatal("busy unmount accepted")
+	a := &app{options: cliOptions{json: true}}
+	if err := a.unmount([]string{rec.Workspace}); err == nil || !strings.Contains(err.Error(), "filesystem busy") {
+		t.Fatalf("workspace name did not reach native unmount: %v", err)
 	}
 	loaded, err := loadMountRegistry()
 	if err != nil || len(loaded.Mounts) != 1 || len(reg.Mounts) != 1 {
