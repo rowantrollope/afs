@@ -1,5 +1,18 @@
 # AFS extraction
 
+## Center topology detail labels and values — 2026-09-22
+
+- [x] Lay out details in two equal columns across the node, with right-aligned labels and left-aligned values.
+- [x] Keep long metadata wrapping, accessible descriptions and stable numeric spacing.
+- [x] Validate existing UI checks, required builds/tests and the active browser; commit and push main.
+
+Review: all 138 UI tests, TypeScript/lint, embedded build, Go build/vet/unit/
+race and the isolated real-Redis managed lifecycle test pass. Existing detail
+assertions now use row titles to support separate label/value spans. Safari at
+`http://127.0.0.1:5173/monitor` confirms mount-path and uptime rows align around
+the same node midpoint; prior selected fields were restored after the preview.
+Vite hot-updated from main. Logs: `/private/tmp/afs-topology-alignment-*.log`.
+
 ## Unmount by workspace name or directory — 2026-09-22
 
 - [x] Reuse shared local mount resolution for unmount, rejecting ambiguous names before lifecycle actions.

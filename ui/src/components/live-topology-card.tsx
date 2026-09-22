@@ -215,8 +215,9 @@ const AgentNode = styled.button<{
   $highlighted?: boolean;
 }>`
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   width: fit-content;
   min-width: var(--topology-node-min);
   max-width: var(--topology-node-max);
@@ -323,13 +324,44 @@ const AgentText = styled.div`
   max-width: 100%;
 `;
 
-const AgentPath = styled.span`
-  display: block;
-  max-width: 100%;
+const AgentHeading = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+`;
+
+const AgentDetails = styled.div`
+  width: 100%;
+  min-width: 0;
+`;
+
+const AgentDetailRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 6px;
+  width: 100%;
   color: currentColor;
   font-family: var(--afs-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 10px;
+  line-height: 1.5;
   opacity: 0.68;
+`;
+
+const AgentDetailLabel = styled.span`
+  display: block;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  white-space: normal;
+`;
+
+const AgentDetailValue = styled.span`
+  display: block;
+  min-width: 0;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   white-space: normal;
 `;
@@ -1214,19 +1246,26 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                           agentRefs.current[i] = el;
                         }}
                       >
-                        <NodeIconBox $active={active} title={methodLabel}>
-                          <BotIcon customSize="18px" />
-                        </NodeIconBox>
-                        <AgentText>
-                          <AgentLabel title={agentName}>{agentName}</AgentLabel>
-                          <span id={`${configId}-agent-${i}`}>
+                        <AgentHeading>
+                          <NodeIconBox $active={active} title={methodLabel}>
+                            <BotIcon customSize="18px" />
+                          </NodeIconBox>
+                          <AgentText>
+                            <AgentLabel title={agentName}>{agentName}</AgentLabel>
+                          </AgentText>
+                        </AgentHeading>
+                        {details.length ? (
+                          <AgentDetails id={`${configId}-agent-${i}`}>
                             {details.map(({ key, label, value }) => (
-                              <AgentPath key={key} title={`${label}: ${value}`}>
-                                {key === "localPath" ? displayLocalPath(value) : `${label}: ${value}`}
-                              </AgentPath>
+                              <AgentDetailRow key={key} title={`${label}: ${value}`}>
+                                <AgentDetailLabel>{label}:{" "}</AgentDetailLabel>
+                                <AgentDetailValue>
+                                  {key === "localPath" ? displayLocalPath(value) : value}
+                                </AgentDetailValue>
+                              </AgentDetailRow>
                             ))}
-                          </span>
-                        </AgentText>
+                          </AgentDetails>
+                        ) : null}
                       </AgentNode>
                     );
                   })}
