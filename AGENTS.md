@@ -20,5 +20,6 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 - Everything stays on `main` unless the user explicitly directs otherwise: edits, commits, builds and running services. Do not create or use worktrees or feature branches.
 - Run the control plane and development servers from `/Users/rowantrollope/git/afs`, never from a Codex worktree or its build artifacts.
+- Keep the user's browser current after development changes: use the Vite UI on port 5173 for automatic UI updates, or run `make control-plane` and restart the embedded server. Go/backend changes always require rebuild/restart with the existing Redis/auth settings. Verify the active URL before reporting completion.
 - Commit completed work and push it to `origin/main`; do not leave finished changes only in a local branch or worktree.
 - Preserve existing work when integrating changes. Use normal pushes; never force-push `main`.

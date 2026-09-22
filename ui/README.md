@@ -18,8 +18,19 @@ make control-plane
 AFS_REDIS_URL=redis://localhost:6379/0 ./bin/afs-control-plane
 ```
 
-For UI development, run the API on port 8091 and `npm run dev` from this directory.
-Vite proxies `/v1` to that local API. `npm run build` checks TypeScript and builds
-production assets in `dist`; `npm test` runs the retained UI regression suite.
+For UI development, keep the already configured API running on port 8091 and run
+this command from the repository root:
+
+```sh
+npm --prefix ui run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Open `http://127.0.0.1:5173`. Vite proxies `/v1` to the local API and hot reloads UI
+edits. Go/backend changes require `make control-plane` and a server restart with
+the existing Redis and authentication settings. The embedded UI on port 8091
+also requires a rebuild and restart to show UI changes.
+
+`npm run build` from this directory checks TypeScript and builds production
+assets in `dist`; `npm test` runs the retained UI regression suite.
 
 See [the CLI guide](../README.md) and [control-plane setup](../docs/control-plane.md).

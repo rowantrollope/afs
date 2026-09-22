@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-09-22 — Keep development changes visible
+
+- The user reaffirmed that no worktrees should be used: edits, commits, builds and running services all belong on `main` in `/Users/rowantrollope/git/afs`.
+- The user accepts either `npm run dev` for live UI updates or rebuilding/restarting the control plane after development changes. Use Vite on `http://127.0.0.1:5173` from the main checkout for UI work; port 8091 serves embedded assets and does not hot reload.
+- Verify the actual Vite process cwd as well as the API process: an old worktree's dev server can keep serving stale code even when the backend runs from main.
+- After Go/backend changes, run `make control-plane` and restart the active server with its existing Redis/auth settings. Do the same for UI changes when using the embedded UI, then refresh and verify the active browser URL.
+
 ## 2026-09-21 — Home recipes need complete linked content
 
 - Migrate the actual upstream templates into usable recipe guides; generic command drawers do not replace the requested content. Verify every card, direct URL, starter-file preview and setup prompt end to end.

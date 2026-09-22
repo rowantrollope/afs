@@ -1,5 +1,24 @@
 # AFS extraction
 
+## Run the live development UI from main — 2026-09-22
+
+- [x] Identify the API and Vite listeners and verify their source checkout.
+- [x] Replace the stale worktree Vite process with `npm run dev` from main.
+- [x] Verify the browser, API proxy and a real hot update without page refresh.
+- [x] Document the live URL, rebuild/restart requirement and main-only workflow.
+
+Review: API PID 78921 remains healthy on port 8091 from the main checkout.
+Replaced the old worktree's Vite/npm processes with npm PID 95386 and Vite
+PID 95407, serving `http://127.0.0.1:5173` from `/Users/rowantrollope/git/afs/ui`.
+Command: `npm --prefix ui run dev -- --host 127.0.0.1 --port 5173 --strictPort`.
+The Home page renders, `/v1/workspaces` returns 200 through the proxy, and
+touching `ui/src/index.css` produces a browser-confirmed Vite hot update without
+changing its contents. Browser console has no errors or warnings. Log and npm
+PID: `/private/tmp/afs-ui-main-dev.log` and `/private/tmp/afs-ui-main-dev.pid`.
+Only workflow documentation changed; no backend or Redis data changes. UI
+changes now update live; backend changes still require `make control-plane`
+and restart with the existing settings. No new branches or worktrees were used.
+
 ## Migrate upstream templates into Home recipes — 2026-09-21
 
 - [x] Read current templates from the user-specified redis/agent-filesystem upstream.
