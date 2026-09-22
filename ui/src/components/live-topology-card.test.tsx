@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { AFSAgentSession, AFSWorkspaceSummary } from "../foundation/types/afs";
 import { LiveTopologyCard } from "./live-topology-card";
@@ -20,6 +20,7 @@ vi.mock("../foundation/tables/agents-table", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   localStorage.clear();
   navigate.mockClear();
 });
@@ -129,9 +130,28 @@ test.each(["closed", "stale"])("removes a mount and its connections when it beco
   expect(container.querySelectorAll("polyline")).toHaveLength(2);
 });
 
-test("shows supplied mount tags by default without repeating the session name or showing the generated session ID", () => {
+test("defaults to the agent name with only the mount path shown", () => {
   render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
 
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(node.getByText("Codex")).toBeInTheDocument();
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
+  expect(node.queryByText("Session name: Review payments")).not.toBeInTheDocument();
+  expect(node.queryByText("User: maya")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("agentName");
+  expect(screen.getByRole("checkbox", { name: "Mount path" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Uptime" })).not.toBeChecked();
+  expect(screen.getAllByRole("checkbox").filter((checkbox) => (checkbox as HTMLInputElement).checked)).toHaveLength(1);
+});
+
+test("shows selected mount tags without repeating the primary name", () => {
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Node label" }), { target: { value: "auto" } });
+  for (const label of ["Session name", "Agent name", "Label", "Agent ID", "User", "Agent / AFS version", "Session ID"]) {
+    fireEvent.click(screen.getByRole("checkbox", { name: label }));
+  }
   const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
   expect(node.getByText("Review payments")).toBeInTheDocument();
   for (const detail of [
@@ -140,12 +160,12 @@ test("shows supplied mount tags by default without repeating the session name or
     "Agent ID: agent-456",
     "User: maya",
     "Agent / AFS version: custom-agent-v2",
+    "Session ID: session-123",
   ]) {
     expect(node.getByText(detail)).toBeInTheDocument();
   }
   expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
   expect(node.queryByText("Session name: Review payments")).not.toBeInTheDocument();
-  expect(node.queryByText("Session ID: session-123")).not.toBeInTheDocument();
 });
 
 test.each<[string, Partial<AFSAgentSession>, string]>([
@@ -176,13 +196,15 @@ test("Config changes the visible node label and falls back when that field is mi
   expect(configButton).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByRole("region", { name: "Live Topology configuration" })).toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Node label" }), { target: { value: "agentId" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Session name" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Agent ID" }));
 
   const namedNode = screen.getByRole("button", { name: "Open details for agent-456" });
   expect(namedNode).toHaveTextContent("agent-456");
   expect(within(namedNode).queryByText("Agent ID: agent-456")).not.toBeInTheDocument();
   expect(namedNode).toHaveAccessibleDescription(/Session name: Review payments/);
   expect(screen.getByRole("button", { name: "Open details for Docs cleanup" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Open details for Review payments" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Open details for Codex" })).not.toBeInTheDocument();
   fireEvent.click(configButton);
   expect(screen.queryByRole("region", { name: "Live Topology configuration" })).not.toBeInTheDocument();
 });
@@ -190,29 +212,29 @@ test("Config changes the visible node label and falls back when that field is mi
 test("Config checkboxes hide and restore user, version, session ID, and mount path details", () => {
   render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
   fireEvent.click(screen.getByRole("button", { name: "Config" }));
-  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
 
   for (const [label, title] of [
     ["User", "User: maya"],
     ["Agent / AFS version", "Agent / AFS version: custom-agent-v2"],
-    ["Mount path", "Mount path: /work/payments"],
+    ["Session ID", "Session ID: session-123"],
   ]) {
     const checkbox = screen.getByRole("checkbox", { name: label });
-    expect(checkbox).toBeChecked();
-    expect(node.getByTitle(title)).toBeInTheDocument();
-    fireEvent.click(checkbox);
     expect(checkbox).not.toBeChecked();
     expect(node.queryByTitle(title)).not.toBeInTheDocument();
     fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
     expect(node.getByTitle(title)).toBeInTheDocument();
+    fireEvent.click(checkbox);
+    expect(node.queryByTitle(title)).not.toBeInTheDocument();
   }
 
-  const sessionId = screen.getByRole("checkbox", { name: "Session ID" });
-  expect(sessionId).not.toBeChecked();
-  fireEvent.click(sessionId);
-  expect(node.getByText("Session ID: session-123")).toBeInTheDocument();
-  fireEvent.click(sessionId);
-  expect(node.queryByText("Session ID: session-123")).not.toBeInTheDocument();
+  const mountPath = screen.getByRole("checkbox", { name: "Mount path" });
+  expect(mountPath).toBeChecked();
+  fireEvent.click(mountPath);
+  expect(node.queryByTitle("Mount path: /work/payments")).not.toBeInTheDocument();
+  fireEvent.click(mountPath);
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
 });
 
 test("persists Config choices across remounts and restores defaults", () => {
@@ -226,19 +248,20 @@ test("persists Config choices across remounts and restores defaults", () => {
 
   render(<LiveTopologyCard {...props} />);
   const node = within(screen.getByRole("button", { name: "Open details for agent-456" }));
-  expect(node.queryByText("User: maya")).not.toBeInTheDocument();
+  expect(node.getByText("User: maya")).toBeInTheDocument();
   expect(node.getByText("Session ID: session-123")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Config" }));
   expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("agentId");
-  expect(screen.getByRole("checkbox", { name: "User" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "User" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Session ID" })).toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "Reset defaults" }));
 
-  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("auto");
-  expect(screen.getByRole("checkbox", { name: "User" })).toBeChecked();
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("agentName");
+  expect(screen.getByRole("checkbox", { name: "User" })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Session ID" })).not.toBeChecked();
-  const resetNode = within(screen.getByRole("button", { name: "Open details for Review payments" }));
-  expect(resetNode.getByText("User: maya")).toBeInTheDocument();
+  const resetNode = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(resetNode.queryByText("User: maya")).not.toBeInTheDocument();
+  expect(resetNode.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
   expect(resetNode.queryByText("Session ID: session-123")).not.toBeInTheDocument();
 });
 
@@ -249,9 +272,101 @@ test.each([
   localStorage.setItem("afs.topology.display.v1", saved);
   render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
 
-  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
-  expect(node.getByText("User: maya")).toBeInTheDocument();
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(node.queryByText("User: maya")).not.toBeInTheDocument();
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
   expect(node.queryByText("Session ID: session-123")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("agentName");
+});
+
+test("migrates the previous default Config to agent name and mount path", () => {
+  localStorage.setItem("afs.topology.display.v1", JSON.stringify({
+    name: "auto",
+    details: ["sessionName", "agentName", "label", "agentId", "user", "afsVersion", "localPath"],
+  }));
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
+  expect(node.queryByText("User: maya")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("agentName");
+  expect(screen.getAllByRole("checkbox").filter((checkbox) => (checkbox as HTMLInputElement).checked)).toHaveLength(1);
+});
+
+test("preserves custom saved Config when defaults change", () => {
+  localStorage.setItem("afs.topology.display.v1", JSON.stringify({
+    name: "auto",
+    details: ["user", "localPath"],
+  }));
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+
+  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+  expect(node.getByText("User: maya")).toBeInTheDocument();
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
   expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("auto");
+  expect(screen.getByRole("checkbox", { name: "User" })).toBeChecked();
+});
+
+test("preserves current Config that deliberately selects the former defaults", () => {
+  localStorage.setItem("afs.topology.display.v1", JSON.stringify({
+    defaultsVersion: 2,
+    name: "auto",
+    details: ["sessionName", "agentName", "label", "agentId", "user", "afsVersion", "localPath"],
+  }));
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+
+  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+  expect(node.getByText("Agent name: Codex")).toBeInTheDocument();
+  expect(node.getByText("User: maya")).toBeInTheDocument();
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("auto");
+  expect(screen.getByRole("checkbox", { name: "User" })).toBeChecked();
+});
+
+test("updates selected uptime every second from the mount start time", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-22T10:01:05Z"));
+  render(<LiveTopologyCard agents={[{
+    ...taggedSession(),
+    startedAt: "2026-09-22T10:00:00Z",
+  }]} workspaces={[workspace("primary")]} />);
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(node.queryByText(/^Uptime:/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  const checkbox = screen.getByRole("checkbox", { name: "Uptime" });
+  expect(checkbox).not.toBeChecked();
+  fireEvent.click(checkbox);
+  expect(node.getByText("Uptime: 1m 05s")).toBeInTheDocument();
+
+  act(() => vi.advanceTimersByTime(1000));
+  expect(node.getByText("Uptime: 1m 06s")).toBeInTheDocument();
+  fireEvent.click(checkbox);
+  expect(node.queryByText(/^Uptime:/)).not.toBeInTheDocument();
+});
+
+test.each(["", "invalid timestamp"])("omits uptime when the mount start time is unavailable: %s", (startedAt) => {
+  render(<LiveTopologyCard agents={[{ ...taggedSession(), startedAt }]} workspaces={[workspace("primary")]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Uptime" }));
+
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(node.queryByText(/^Uptime:/)).not.toBeInTheDocument();
+});
+
+test("clamps uptime to zero when the mount start time is in the future", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-22T10:00:00Z"));
+  render(<LiveTopologyCard agents={[{
+    ...taggedSession(),
+    startedAt: "2026-09-22T10:01:00Z",
+  }]} workspaces={[workspace("primary")]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Uptime" }));
+
+  const node = within(screen.getByRole("button", { name: "Open details for Codex" }));
+  expect(node.getByText("Uptime: 0s")).toBeInTheDocument();
 });

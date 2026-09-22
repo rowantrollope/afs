@@ -20,7 +20,7 @@ import type {
 } from "../foundation/types/afs";
 import { displayWorkspaceName } from "../foundation/workspace-display";
 import { BotIcon, FoldersIcon, LaptopIcon } from "./lucide-icons";
-import { LiveTopologyConfig, TopologyConfigButton, topologyNodeDetails, topologyNodeName, useTopologyDisplay } from "./live-topology-config";
+import { LiveTopologyConfig, TopologyConfigButton, topologyNodeDetails, topologyNodeName, useTopologyDisplay, useTopologyUptime } from "./live-topology-config";
 
 /* ------------------------------------------------------------------ */
 /*  Live topology: agents <-> Redis hub <-> workspaces                    */
@@ -841,6 +841,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
     () => sortAgentsForTopology(agents.filter(isConnectedAgentSession)),
     [agents],
   );
+  useTopologyUptime(display.details.includes("uptime") && sortedAgents.length > 0);
   const sortedWorkspaces = useMemo(
     () => buildTopologyTargets(sortedAgents, workspaces),
     [sortedAgents, workspaces],

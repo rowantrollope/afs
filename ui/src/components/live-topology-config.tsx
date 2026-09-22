@@ -12,6 +12,7 @@ const fields = [
   { key: "afsVersion", label: "Agent / AFS version" },
   { key: "sessionId", label: "Session ID" },
   { key: "localPath", label: "Mount path" },
+  { key: "uptime", label: "Uptime" },
   { key: "clientKind", label: "Client kind" },
   { key: "operatingSystem", label: "Operating system" },
   { key: "readonly", label: "Access mode" },
@@ -26,15 +27,23 @@ type TopologyDisplay = {
 };
 const storageKey = "afs.topology.display.v1";
 const defaults: TopologyDisplay = {
-  name: "auto",
-  details: ["sessionName", "agentName", "label", "agentId", "user", "afsVersion", "localPath"],
+  name: "agentName",
+  details: ["localPath"],
 };
+const previousDefaultDetails = ["sessionName", "agentName", "label", "agentId", "user", "afsVersion", "localPath"];
 
 function readDisplay(): TopologyDisplay {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "null");
     if (!stored || typeof stored !== "object") return defaults;
-    const { name, details } = stored as Record<string, unknown>;
+    const { name, details, defaultsVersion } = stored as Record<string, unknown>;
+    // Earlier versions saved defaults on first render, even without a choice.
+    // Upgrade that default while retaining every customized configuration.
+    if (defaultsVersion !== 2 && name === "auto" && Array.isArray(details) &&
+      details.length === previousDefaultDetails.length &&
+      previousDefaultDetails.every((field) => details.includes(field))) {
+      return defaults;
+    }
     return {
       name: name === "auto" || nameFields.some((field) => field === name)
         ? name as TopologyDisplay["name"] : defaults.name,
@@ -51,7 +60,7 @@ export function useTopologyDisplay() {
   const [display, setDisplay] = useState(readDisplay);
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(display));
+      localStorage.setItem(storageKey, JSON.stringify({ ...display, defaultsVersion: 2 }));
     } catch {
       // The controls still work if browser storage is unavailable.
     }
@@ -63,12 +72,32 @@ export function topologyNodeName(agent: AFSAgentSession, display: TopologyDispla
   return (display.name !== "auto" && agent[display.name]?.trim()) || displayAgentPrimaryName(agent);
 }
 
+export function useTopologyUptime(enabled: boolean) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+}
+
+function uptimeText(startedAt: string): string {
+  const started = Date.parse(startedAt);
+  if (!Number.isFinite(started)) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}m`;
+  return `${Math.floor(seconds / 86400)}d ${String(Math.floor(seconds / 3600) % 24).padStart(2, "0")}h`;
+}
+
 export function topologyNodeDetails(agent: AFSAgentSession, display: TopologyDisplay) {
   const seenNames = new Set([topologyNodeName(agent, display), agent.hostname.trim()]);
   return fields.flatMap(({ key, label }) => {
     if (!display.details.includes(key)) return [];
     const value = key === "readonly"
       ? agent.readonly ? "Read-only" : "Read / Write"
+      : key === "uptime" ? uptimeText(agent.startedAt)
       : agent[key]?.trim();
     if (!value) return [];
     if (nameFields.some((name) => name === key)) {

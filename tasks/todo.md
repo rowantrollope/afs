@@ -18,6 +18,21 @@ read-only unmount. All process tests use disposable Redis and client state.
 previous Redis/auth settings preserved. Health and both UI endpoints pass; the
 browser's active AFS URL is `http://127.0.0.1:5173/`. Concurrent UI work is preserved.
 
+## Minimal topology defaults and optional uptime — 2026-09-22
+
+- [x] Default the node label to Agent name and details to Mount path only.
+- [x] Migrate the prior saved default while retaining customized settings.
+- [x] Add optional Uptime from the session start time with a live counter.
+- [x] Validate UI/build and the active browser, then commit and push main.
+
+Review: all 138 UI tests, TypeScript, lint, embedded build, Go build/vet/unit/
+race and a fresh isolated Redis lifecycle test pass. Uptime tests cover live
+updates, unavailable/invalid timestamps and future-clock clamping. Configuration
+tests cover the new defaults, one-time migration and retained custom layouts.
+Safari at `http://127.0.0.1:5173/monitor` shows Agent name and Mount path only;
+enabling Uptime visibly advances the counter. Uptime is off by default and
+available in Config. Vite remains live from main. Logs: `/private/tmp/afs-topology-uptime-*.log`.
+
 ## Configurable mount metadata in Live Topology — 2026-09-22
 
 - [x] Trace mount flags through managed sessions and retain the missing user field in the UI.
