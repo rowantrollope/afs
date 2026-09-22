@@ -1,4 +1,5 @@
 import { Button, Select } from "@redis-ui/components";
+import { Link } from "@tanstack/react-router";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import {
@@ -108,10 +109,18 @@ function CreateWorkspaceForm({ onClose }: { onClose: () => void }) {
             </DialogError>
           )}
           {!isLoading && eligibleDatabases.length === 0 && (
-            <DialogError role="alert">
-              Connect an available Redis database in the Databases tab before
-              creating a workspace.
-            </DialogError>
+            <>
+              <DialogError role="alert">
+                {databases.length === 0
+                  ? "Add a Redis database before creating a workspace."
+                  : "No Redis database is available. Review your connections before creating a workspace."}
+              </DialogError>
+              <Link to="/databases" onClick={onClose}>
+                {databases.length === 0
+                  ? "Add database"
+                  : "Review database connections"}
+              </Link>
+            </>
           )}
           <Field>
             Workspace name

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rowantrollope/afs/internal/controlplane"
 	"github.com/rowantrollope/afs/internal/managedclient"
 )
@@ -31,12 +30,13 @@ Run 'afs auth help <command>' for details.
 var authSubcommandUsage = map[string]string{
 	"login": `Usage: afs auth login [--url <URL>] [--token-stdin] [--self-hosted]
 
-Verify the control-plane connection, then save its URL and optional team token or API key.
+Verify control-plane authentication, then save its URL and optional team token or API key.
 The default is the configured or environment URL, or http://127.0.0.1:8091.
 --control-plane-url is an alias for --url; --self-hosted is accepted for compatibility.
 Use --token-stdin to read one token line from stdin (maximum 16384 bytes).
 Environment tokens are used at runtime and are not saved implicitly.
 Redis credentials stay with the server and are obtained when mounting.
+Login works before a Redis database is configured or while Redis is unavailable.
 `,
 	"status": `Usage: afs auth status
 
@@ -234,12 +234,8 @@ func authLogin(opts cliOptions, args []string) error {
 	defer remote.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	connection, err := remote.Connection(ctx)
-	if err != nil {
+	if err := remote.VerifyAuthentication(ctx); err != nil {
 		return err
-	}
-	if _, err := redis.ParseURL(connection.RedisURL); err != nil {
-		return errors.New("control plane returned an invalid Redis connection")
 	}
 	if err := saveAuthSettings(file, managedclient.Settings{URL: settings.URL, Token: savedToken}); err != nil {
 		return err

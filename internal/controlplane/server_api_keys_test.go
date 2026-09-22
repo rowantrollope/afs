@@ -237,7 +237,7 @@ func TestAPIKeyIdentityCannotBeSpoofedBySessionLabels(t *testing.T) {
 	}
 }
 
-func TestAPIKeyRootStoreIsolationAcrossDatabaseEditsAndRestart(t *testing.T) {
+func TestAPIKeyMetadataIsolationAcrossDatabaseEditsAndRestart(t *testing.T) {
 	s, rootRedis := serviceFixture(t)
 	filename := filepath.Join(t.TempDir(), "databases.json")
 	h, err := NewDatabaseHandler(s, HandlerOptions{AuthToken: "test-secret"}, filename)
@@ -267,10 +267,14 @@ func TestAPIKeyRootStoreIsolationAcrossDatabaseEditsAndRestart(t *testing.T) {
 			t.Fatalf("foreign key accepted %s: %d", path, r.Code)
 		}
 	}
-	// Key creation using a scoped URL still persists into the startup auth Redis.
+	// Key creation using a scoped URL still persists into independent metadata.
 	scoped := serverTestJSON(t, apiKeyTestCall(t, h, rootKey.Token, "POST", "/databases/"+id+"/v1/api-keys", map[string]string{"name": "scoped"}))
 	scopedID := scoped["key"].(map[string]any)["id"].(string)
-	if rootRedis.Exists(context.Background(), apiKeyRecord(scopedID)).Val() != 1 || secondary.Exists(apiKeyRecord(scopedID)) {
+	var sqlCount int
+	if err := h.metadata.db.QueryRow("SELECT COUNT(*) FROM api_keys WHERE id = ?", scopedID).Scan(&sqlCount); err != nil {
+		t.Fatal(err)
+	}
+	if sqlCount != 1 || rootRedis.Exists(context.Background(), apiKeyRecord(scopedID)).Val() != 0 || secondary.Exists(apiKeyRecord(scopedID)) {
 		t.Fatal("scoped creation used wrong auth store")
 	}
 	// Editing the default connection must neither orphan nor replace auth records.

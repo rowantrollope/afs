@@ -115,7 +115,11 @@ func (h *serverHandler) workspace(ctx context.Context, meta WorkspaceMeta, detai
 }
 func (h *serverHandler) databaseSummary() map[string]any {
 	opts := h.service.store.rdb.Options()
-	return map[string]any{"id": h.options.DatabaseID, "name": h.options.DatabaseName, "description": defaultString(h.options.DatabaseDescription, "Configured Redis backend"), "management_type": "self-managed", "purpose": "workspace", "can_edit": h.options.DatabaseRevision != "", "config_revision": h.options.DatabaseRevision, "has_password": opts.Password != "", "redis_username": opts.Username, "can_delete": false, "can_create_workspaces": true, "redis_addr": opts.Addr, "redis_db": opts.DB, "redis_tls": opts.TLSConfig != nil, "is_default": !h.options.AdditionalDatabase, "workspace_count": 0, "active_session_count": 0, "afs_total_bytes": 0, "afs_file_count": 0, "supports_search": false}
+	isDefault := !h.options.AdditionalDatabase
+	if h.databaseRegistry != nil {
+		isDefault = h.databaseRegistry.defaultDatabaseID() == h.options.DatabaseID
+	}
+	return map[string]any{"id": h.options.DatabaseID, "name": h.options.DatabaseName, "description": defaultString(h.options.DatabaseDescription, "Configured Redis backend"), "management_type": "self-managed", "purpose": "workspace", "can_edit": h.options.DatabaseRevision != "", "config_revision": h.options.DatabaseRevision, "has_password": opts.Password != "", "redis_username": opts.Username, "can_delete": h.databaseRegistry != nil, "can_create_workspaces": true, "redis_addr": opts.Addr, "redis_db": opts.DB, "redis_tls": opts.TLSConfig != nil, "is_default": isDefault, "workspace_count": 0, "active_session_count": 0, "afs_total_bytes": 0, "afs_file_count": 0, "supports_search": false}
 }
 func (h *serverHandler) database(ctx context.Context) (map[string]any, error) {
 	result := h.databaseSummary()

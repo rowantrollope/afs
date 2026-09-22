@@ -10,12 +10,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -35,62 +33,41 @@ type databaseProfile struct {
 }
 
 type DatabaseHandler struct {
-	root     *serverHandler
-	mu       sync.RWMutex
-	handlers map[string]*serverHandler
-	profiles []databaseProfile
-	filename string
-	lock     *os.File
-	closed   bool
-	leases   map[*serverHandler]*databaseLease
+	root      *serverHandler
+	mu        sync.RWMutex
+	handlers  map[string]*serverHandler
+	profiles  []databaseProfile
+	metadata  *MetadataStore
+	defaultID string
+	closed    bool
+	leases    map[*serverHandler]*databaseLease
 }
 
-// NewDatabaseHandler loads a private connection file. The startup connection
-// remains the default; saved connections never change standalone CLI settings.
-// One server owns a file at a time, preventing lost updates between processes.
-func NewDatabaseHandler(service *Service, options HandlerOptions, filename string) (*DatabaseHandler, error) {
-	if filename == "" {
-		return nil, errors.New("database configuration file is required")
+// NewMetadataDatabaseHandler keeps control-plane identity and configuration
+// independent of its managed Redis connections. Redis availability is not a
+// prerequisite for startup or for repairing a saved connection.
+func NewMetadataDatabaseHandler(metadata *MetadataStore, options HandlerOptions, legacyJSONFile, initialRedisURL string) (*DatabaseHandler, error) {
+	if metadata == nil {
+		return nil, errors.New("metadata storage is required")
 	}
-	revision, err := randomManagementToken()
+	ctx := context.Background()
+	profiles, defaultID, initialized, err := metadata.LoadProfiles(ctx)
 	if err != nil {
-		return nil, errors.New("cannot generate database revision")
+		return nil, err
 	}
-	options.DatabaseRevision = revision
-	root := NewHandler(service, options).(*serverHandler)
-	primary := *root
-	h := &DatabaseHandler{root: root, filename: filename, handlers: map[string]*serverHandler{root.options.DatabaseID: &primary}}
-	h.leases = map[*serverHandler]*databaseLease{&primary: {}}
+	if !initialized {
+		profiles, defaultID, err = initialDatabaseProfiles(legacyJSONFile, initialRedisURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	root := NewHandler(nil, options).(*serverHandler)
+	root.authStore = metadata
+	h := &DatabaseHandler{root: root, metadata: metadata, defaultID: defaultID, handlers: map[string]*serverHandler{}, leases: map[*serverHandler]*databaseLease{}}
 	root.registry = h
-	if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
-		return nil, errors.New("cannot create database configuration directory")
-	}
-	lock, err := os.OpenFile(filename+".lock", os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, errors.New("cannot open database configuration lock")
-	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		lock.Close()
-		return nil, errors.New("database configuration is already in use by another control plane")
-	}
-	h.lock = lock
-	fail := func(err error) (*DatabaseHandler, error) { h.Close(); return nil, err }
-	raw, err := os.ReadFile(filename)
-	if errors.Is(err, os.ErrNotExist) {
-		return h, nil
-	}
-	if err != nil {
-		return fail(errors.New("cannot read database configuration"))
-	}
-	if err := json.Unmarshal(raw, &h.profiles); err != nil {
-		return fail(errors.New("invalid database configuration"))
-	}
-	// Load a saved default override before validating additional connections.
-	sort.SliceStable(h.profiles, func(i, j int) bool {
-		return h.profiles[i].ID == root.options.DatabaseID && h.profiles[j].ID != root.options.DatabaseID
-	})
+	fail := func(err error) (*DatabaseHandler, error) { _ = h.Close(); return nil, err }
 	seen := map[string]bool{}
-	for i, profile := range h.profiles {
+	for i, profile := range profiles {
 		if !validDatabaseID(profile.ID) || seen[profile.ID] {
 			return fail(errors.New("invalid or duplicate database ID in configuration"))
 		}
@@ -106,14 +83,67 @@ func NewDatabaseHandler(service *Service, options HandlerOptions, filename strin
 			return fail(errors.New("invalid database connection in configuration"))
 		}
 		if h.duplicate(profile, client.Options()) {
-			client.Close()
+			_ = client.Close()
 			return fail(errors.New("duplicate database connection or name in configuration"))
 		}
 		profile.RedisURL = connection
-		h.profiles[i] = profile
+		profiles[i] = profile
 		h.swapHandlerLocked(profile.ID, h.newHandler(profile, client, connection))
 	}
+	if defaultID != "" && !seen[defaultID] || defaultID == "" && len(profiles) != 0 {
+		return fail(errors.New("invalid default database configuration"))
+	}
+	if !initialized {
+		if err := metadata.SaveProfiles(ctx, profiles, defaultID); err != nil {
+			return fail(errors.New("cannot import database configuration"))
+		}
+	}
+	h.profiles = profiles
 	return h, nil
+}
+
+func initialDatabaseProfiles(filename, initialRedisURL string) ([]databaseProfile, string, error) {
+	profiles := []databaseProfile{}
+	if filename != "" {
+		raw, err := os.ReadFile(filename)
+		if err == nil {
+			if json.Unmarshal(raw, &profiles) != nil {
+				return nil, "", errors.New("invalid legacy database configuration")
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, "", errors.New("cannot read legacy database configuration")
+		}
+	}
+	defaultID := ""
+	for _, p := range profiles {
+		if p.ID == "local" {
+			defaultID = p.ID
+		}
+	}
+	// A saved edit of the old default wins over the old startup connection.
+	if defaultID == "" && initialRedisURL != "" {
+		opts, err := redis.ParseURL(initialRedisURL)
+		if err != nil {
+			return nil, "", errors.New("invalid initial Redis connection")
+		}
+		profiles = append([]databaseProfile{{ID: "local", Name: "Redis", RedisURL: initialRedisURL, RedisAddr: opts.Addr, RedisUsername: opts.Username, RedisPassword: opts.Password, RedisDB: opts.DB, RedisTLS: opts.TLSConfig != nil}}, profiles...)
+		defaultID = "local"
+	}
+	if defaultID == "" && len(profiles) > 0 {
+		defaultID = profiles[0].ID
+		for _, p := range profiles {
+			if p.ID < defaultID {
+				defaultID = p.ID
+			}
+		}
+	}
+	return profiles, defaultID, nil
+}
+
+func (h *DatabaseHandler) defaultDatabaseID() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.defaultID
 }
 
 func validDatabaseID(id string) bool {
@@ -189,11 +219,12 @@ func (p databaseProfile) client() (*redis.Client, string, error) {
 func (h *DatabaseHandler) newHandler(p databaseProfile, rdb *redis.Client, connection string) *serverHandler {
 	options := h.root.options
 	options.DatabaseID, options.DatabaseName, options.DatabaseDescription = p.ID, p.Name, p.Description
-	options.AdditionalDatabase, options.RedisURL = p.ID != h.root.options.DatabaseID, connection
+	options.AdditionalDatabase, options.RedisURL = p.ID != h.defaultDatabaseID(), connection
 	options.DatabaseRevision = p.Revision
 	options.UI = nil
 	handler := NewHandler(NewService(NewStore(rdb)), options).(*serverHandler)
 	handler.authStore = h.root.authStore
+	handler.databaseRegistry = h
 	return handler
 }
 
@@ -216,10 +247,10 @@ func (h *serverHandler) databaseHandlers() []*serverHandler {
 		if result[i].options.DatabaseID == result[j].options.DatabaseID {
 			return false
 		}
-		if result[i].options.DatabaseID == h.options.DatabaseID {
+		if result[i].options.DatabaseID == h.registry.defaultID {
 			return true
 		}
-		if result[j].options.DatabaseID == h.options.DatabaseID {
+		if result[j].options.DatabaseID == h.registry.defaultID {
 			return false
 		}
 		return result[i].options.DatabaseID < result[j].options.DatabaseID
@@ -257,26 +288,7 @@ func (h *DatabaseHandler) duplicate(p databaseProfile, options *redis.Options) b
 }
 
 func (h *DatabaseHandler) save(profiles []databaseProfile) error {
-	raw, err := json.MarshalIndent(profiles, "", "  ")
-	if err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(filepath.Dir(h.filename), ".afs-databases-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if _, err = file.Write(append(raw, '\n')); err != nil {
-		return err
-	}
-	if err = file.Sync(); err != nil {
-		return err
-	}
-	if err = file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), h.filename)
+	return h.metadata.SaveProfiles(context.Background(), profiles, h.defaultID)
 }
 
 func (h *DatabaseHandler) databasesRoute(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +303,7 @@ func (h *DatabaseHandler) databasesRoute(w http.ResponseWriter, r *http.Request)
 		for _, result := range results {
 			items = append(items, result.Value)
 		}
-		serverJSON(w, 200, map[string]any{"items": items, "default_database_id": h.root.options.DatabaseID})
+		serverJSON(w, 200, map[string]any{"items": items, "default_database_id": h.defaultDatabaseID()})
 	case http.MethodPost:
 		// IDs are generated by the server; unknown fields and malformed input use
 		// a fixed error so JSON parser diagnostics cannot expose pasted credentials.
@@ -359,12 +371,16 @@ func (h *DatabaseHandler) databasesRoute(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		next := append(append([]databaseProfile(nil), h.profiles...), p)
-		if err := h.save(next); err != nil {
+		defaultID := h.defaultID
+		if defaultID == "" {
+			defaultID = p.ID
+		}
+		if err := h.metadata.SaveProfiles(r.Context(), next, defaultID); err != nil {
 			h.mu.Unlock()
 			serverError(w, errors.New("cannot save database configuration; check server file permissions"))
 			return
 		}
-		h.profiles, retained = next, true
+		h.profiles, h.defaultID, retained = next, defaultID, true
 		h.swapHandlerLocked(p.ID, handler)
 		h.mu.Unlock()
 		serverJSON(w, http.StatusCreated, handler.databaseSummary())

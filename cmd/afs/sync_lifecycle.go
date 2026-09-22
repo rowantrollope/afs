@@ -607,13 +607,14 @@ func (a *app) status(args []string) error {
 	return a.output(out, formatMountStatus(out, len(args) == 1))
 }
 func (a *app) localWorkspaceMounts(ctx context.Context, workspace string) ([]mountRecord, error) {
-	meta, err := a.service.GetWorkspace(ctx, workspace)
-	if err != nil {
+	// Resolve the backend without dialing it so guards also include standalone
+	// mounts and mounts reached through another URL for the same server. Pin the
+	// management route before lookup in case the default changes during setup.
+	if err := a.resolveManagedRedis(ctx); err != nil {
 		return nil, err
 	}
-	// Resolve the backend without dialing it so guards also include standalone
-	// mounts and mounts reached through another URL for the same server.
-	if err := a.resolveManagedRedis(ctx); err != nil {
+	meta, err := a.service.GetWorkspace(ctx, workspace)
+	if err != nil {
 		return nil, err
 	}
 	reg, err := loadMountRegistry()

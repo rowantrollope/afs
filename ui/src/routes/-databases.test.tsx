@@ -92,9 +92,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount() {
+function mount(rows = [database]) {
   useDatabaseScope.mockReturnValue({
-    databases: [database],
+    databases: rows,
     isLoading: false,
     errorMessage: null,
   });
@@ -107,6 +107,23 @@ function mount() {
     </ThemeProvider>,
   );
 }
+
+test("an empty registry offers Add database", () => {
+  mount([]);
+  expect(screen.getByText(/No Redis databases are connected/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Add database" }));
+  expect(screen.getByRole("dialog", { name: "Add database" })).toBeVisible();
+});
+
+test("offline database settings remain editable and identify the default", () => {
+  mount([
+    { ...database, isHealthy: false, connectionError: "Connection refused" },
+  ]);
+  expect(screen.getByText("Default")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Team Redis" }));
+  expect(screen.getByLabelText("Redis address")).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+});
 
 test("opens populated settings from a database row and its accessible name button", () => {
   mount();

@@ -17,7 +17,9 @@ import {
 import { useState } from "react";
 import styled from "styled-components";
 import { SurfaceCard } from "../components/card-shell";
+import { AddDatabaseDialog } from "../components/add-database-dialog";
 import { controlPlaneEndpoint } from "../foundation/api/afs";
+import { useDatabaseScope } from "../foundation/database-scope";
 import { useDrawer } from "../foundation/drawer-context";
 import {
   agentSetupPrompt,
@@ -41,6 +43,9 @@ const featuredRecipes = recipes.filter((recipe) => recipe.id !== "blank");
 
 function HomePage() {
   const { open } = useDrawer();
+  const { databases, isLoading, errorMessage } = useDatabaseScope();
+  const [addDatabaseOpen, setAddDatabaseOpen] = useState(false);
+  const needsDatabase = !isLoading && !errorMessage && databases.length === 0;
   const [mode, setMode] = useState<"agent" | "cli">("agent");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
@@ -83,6 +88,32 @@ function HomePage() {
 
   return (
     <div className="afs-home">
+      {needsDatabase && (
+        <HomeCard
+          as="section"
+          className="home-workspace-callout"
+          aria-label="Connect your first database"
+        >
+          <div>
+            <h3>Connect your first Redis database.</h3>
+            <p>
+              Add a database before creating a workspace. You can manage API
+              keys now.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="home-button home-button-dark"
+            onClick={() => setAddDatabaseOpen(true)}
+          >
+            Add database <ArrowRight size={16} />
+          </button>
+        </HomeCard>
+      )}
+      <AddDatabaseDialog
+        open={addDatabaseOpen}
+        onClose={() => setAddDatabaseOpen(false)}
+      />
       <HomeCard as="section" className="home-hero" aria-labelledby="home-title">
         <div className="home-hero-copy">
           <span className="home-eyebrow">

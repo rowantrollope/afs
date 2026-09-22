@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { AFSDatabaseScopeRecord } from "../foundation/database-scope";
 import {
   useCreateDatabaseMutation,
+  useDeleteDatabaseMutation,
+  useSetDefaultDatabaseMutation,
   useUpdateDatabaseMutation,
 } from "../foundation/hooks/use-afs";
 import {
@@ -45,14 +47,18 @@ function DatabaseForm({
   const [database] = useState(initialDatabase);
   const create = useCreateDatabaseMutation();
   const update = useUpdateDatabaseMutation();
+  const remove = useDeleteDatabaseMutation();
+  const setDefault = useSetDefaultDatabaseMutation();
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const mutation = database ? update : create;
   const readOnly = database ? !database.canEdit : false;
   const revisionConflict =
     update.error != null &&
     "code" in update.error &&
     update.error.code === "stale_database_settings";
-  const isPending = mutation.isPending;
-  const fieldsDisabled = isPending || readOnly;
+  const isPending =
+    mutation.isPending || remove.isPending || setDefault.isPending;
+  const fieldsDisabled = isPending || readOnly || confirmRemoval;
   const titleId = useId();
   const descriptionId = useId();
   const formRef = useRef<HTMLFormElement>(null);
@@ -122,7 +128,8 @@ function DatabaseForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submittingRef.current || readOnly || revisionConflict) return;
+    if (submittingRef.current || readOnly || revisionConflict || confirmRemoval)
+      return;
     if (!name.trim() || !address.trim()) {
       setFormError("Enter a display name and Redis address.");
       return;
@@ -171,6 +178,23 @@ function DatabaseForm({
     }
   }
 
+  async function changeConnection(action: "remove" | "default") {
+    if (!database || submittingRef.current) return;
+    submittingRef.current = true;
+    setFormError(null);
+    remove.reset();
+    setDefault.reset();
+    try {
+      if (action === "remove") await remove.mutateAsync(database.id);
+      else await setDefault.mutateAsync(database.id);
+      onClose();
+    } catch {
+      // Keep the dialog available for retry if the control plane rejects the action.
+    } finally {
+      submittingRef.current = false;
+    }
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.stopPropagation();
@@ -193,7 +217,10 @@ function DatabaseForm({
 
   const errorMessage = revisionConflict
     ? "These settings changed since you opened them. Close and reopen the database to review the latest settings before saving."
-    : formError || mutation.error?.message;
+    : formError ||
+      remove.error?.message ||
+      setDefault.error?.message ||
+      mutation.error?.message;
   return (
     <DialogOverlay
       onKeyDown={handleKeyDown}
@@ -234,6 +261,74 @@ function DatabaseForm({
               Connection changes apply to the control plane and new mounts.
               Existing mounts keep their current connection until remounted.
             </DialogBody>
+          )}
+          {database && (
+            <>
+              <DialogBody>
+                {database.isDefault
+                  ? "This is the default database for new workspaces."
+                  : "Set this database as the default for new workspaces."}
+              </DialogBody>
+              {confirmRemoval ? (
+                <div role="group" aria-label="Confirm connection removal">
+                  <DialogBody>
+                    Remove {database.displayName} from this control plane? Its
+                    workspaces and files remain in Redis. You can add the
+                    connection again later.
+                  </DialogBody>
+                  {database.isDefault && (
+                    <DialogBody>
+                      Another saved database will become the default, if one is
+                      available.
+                    </DialogBody>
+                  )}
+                  <DialogActions>
+                    <Button
+                      type="button"
+                      variant="secondary-fill"
+                      disabled={isPending}
+                      onClick={() => setConfirmRemoval(false)}
+                    >
+                      Keep connection
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => void changeConnection("remove")}
+                    >
+                      {remove.isPending
+                        ? "Removing connection…"
+                        : "Confirm removal"}
+                    </Button>
+                  </DialogActions>
+                </div>
+              ) : (
+                <DialogActions>
+                  {!database.isDefault && (
+                    <Button
+                      type="button"
+                      variant="secondary-fill"
+                      disabled={isPending}
+                      onClick={() => void changeConnection("default")}
+                    >
+                      {setDefault.isPending
+                        ? "Setting default…"
+                        : "Make default"}
+                    </Button>
+                  )}
+                  {database.canDelete && (
+                    <Button
+                      type="button"
+                      variant="secondary-fill"
+                      disabled={isPending}
+                      onClick={() => setConfirmRemoval(true)}
+                    >
+                      Remove connection
+                    </Button>
+                  )}
+                </DialogActions>
+              )}
+            </>
           )}
           <Field>
             Display name
@@ -358,16 +453,17 @@ function DatabaseForm({
                 type="submit"
                 disabled={
                   isPending ||
+                  confirmRemoval ||
                   revisionConflict ||
                   !name.trim() ||
                   !address.trim()
                 }
               >
                 {database
-                  ? isPending
+                  ? update.isPending
                     ? "Saving changes…"
                     : "Save changes"
-                  : isPending
+                  : create.isPending
                     ? "Adding database…"
                     : "Add database"}
               </Button>

@@ -14,7 +14,7 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 - The optional control plane is `cmd/afs-control-plane`; do not add HTTP server commands to `afs`. Build embedded UI with `make control-plane`, not plain Go build.
 - New implementation belongs here; the original `agent-filesystem` checkout is read-only reference. Keep one storage engine and direct Redis mounted I/O.
-- Control-plane scope is self-managed Redis connections, a bootstrap team token, and named trusted-administrator API keys. Keys support expiry, usage tracking and API revocation; they do not enforce workspace isolation or revoke previously issued Redis credentials. The Databases tab can add and edit connections saved in a private local file; reuse the same storage engine per connection. No Cloud, search, hosted MCP, templates, or SQL catalog.
+- Control-plane scope is self-managed Redis connections, a bootstrap team token, and named trusted-administrator API keys. Keys support expiry, usage tracking and API revocation; they do not enforce workspace isolation or revoke previously issued Redis credentials. The Databases tab can add and edit connections saved in a private SQLite metadata database, alongside administrator keys and default selection; reuse the same Redis storage engine per connection. The control plane starts without Redis and keeps metadata/auth independent of managed Redis availability. Postgres is deferred. No Cloud, search, hosted MCP, templates, or duplicated workspace catalog.
 
 ## Git workflow
 

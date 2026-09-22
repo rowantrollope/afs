@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/redis/go-redis/v9"
+	_ "modernc.org/sqlite"
 )
 
 type observedDatabaseSettings struct {
@@ -61,16 +63,66 @@ func (settings observedDatabaseSettings) update() map[string]any {
 
 func readDatabaseSettingsFile(t *testing.T, p *managementProcess) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(p.databasesFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(p.databasesFile)
+	filename := p.databasesFile + ".sqlite"
+	info, err := os.Stat(filename)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("database credentials file permissions: %o, want 600", info.Mode().Perm())
+		t.Fatalf("metadata database permissions: %o, want 600", info.Mode().Perm())
+	}
+	// Query active rows through SQLite, including committed WAL contents. Raw
+	// file bytes may retain superseded credentials in freed pages after an edit.
+	dsn := &url.URL{Scheme: "file", Path: filename}
+	query := url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(5000)"}}
+	dsn.RawQuery = query.Encode()
+	db, err := sql.Open("sqlite", dsn.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var snapshot struct {
+		DefaultDatabaseID string            `json:"default_database_id"`
+		Profiles          []json.RawMessage `json:"profiles"`
+	}
+	if err := tx.QueryRow("SELECT value FROM metadata_settings WHERE name = 'default_database_id'").Scan(&snapshot.DefaultDatabaseID); err != nil {
+		t.Fatalf("read persisted default/initialization marker: %v", err)
+	}
+	rows, err := tx.Query("SELECT id, profile FROM database_profiles ORDER BY position, id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	snapshot.Profiles = []json.RawMessage{}
+	defaultFound := false
+	for rows.Next() {
+		var id, profile string
+		if err := rows.Scan(&id, &profile); err != nil {
+			t.Fatal(err)
+		}
+		snapshot.Profiles = append(snapshot.Profiles, json.RawMessage(profile))
+		defaultFound = defaultFound || id == snapshot.DefaultDatabaseID
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Profiles) == 0 && snapshot.DefaultDatabaseID != "" || len(snapshot.Profiles) != 0 && !defaultFound {
+		t.Fatal("persisted default does not match the active connection registry")
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return raw
 }
@@ -218,7 +270,7 @@ func TestControlPlaneEditDatabaseRejectsWithoutChangingActiveOrSavedSettings(t *
 				t.Fatalf("rejected edit changed live settings: got %+v, want %+v", got, added)
 			}
 			if after := readDatabaseSettingsFile(t, p); !bytes.Equal(before, after) {
-				t.Fatal("rejected edit changed the saved database file")
+				t.Fatal("rejected edit changed the saved database registry")
 			}
 		})
 	}

@@ -87,7 +87,7 @@ func (p *managementProcess) start() {
 	if endpoint == "" {
 		endpoint = p.redis.url()
 	}
-	p.cmd = exec.Command(controlPlaneBinary(p.t), "--listen", p.addr, "--redis", endpoint, "--databases-file", p.databasesFile)
+	p.cmd = exec.Command(controlPlaneBinary(p.t), "--listen", p.addr, "--redis", endpoint, "--databases-file", p.databasesFile, "--metadata-file", p.databasesFile+".sqlite")
 	for _, entry := range os.Environ() {
 		if !strings.HasPrefix(entry, "AFS_") {
 			p.cmd.Env = append(p.cmd.Env, entry)

@@ -137,6 +137,62 @@ describe("one-tree HTTP workspace contract", () => {
     expect(controlPlaneEndpoint("local")).toBe("https://test.afs.invalid");
   });
 
+  test("lists a control plane with no Redis connections", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ items: [], default_database_id: "" })),
+        ),
+    );
+    const { afsApi } = await import("./afs");
+    expect(await afsApi.listDatabases()).toEqual([]);
+  });
+
+  test("removes a saved connection through its encoded database route", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, default_database_id: "" })),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const { afsApi } = await import("./afs");
+    await afsApi.deleteDatabase("db/team");
+    expect(fetch).toHaveBeenCalledWith(
+      "https://test.afs.invalid/v1/databases/db%2Fteam",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  test("sets the default connection and maps its updated record", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "db/team",
+            name: "Team",
+            redis_addr: "localhost:6379",
+            redis_db: 0,
+            redis_tls: false,
+            is_default: true,
+            workspace_count: 0,
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const { afsApi } = await import("./afs");
+    expect(await afsApi.setDefaultDatabase("db/team")).toMatchObject({
+      id: "db/team",
+      isDefault: true,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://test.afs.invalid/v1/databases/db%2Fteam/default",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   test.each([undefined, "", " replacement secret "])(
     "updates settings with password semantics %s and a concurrency revision",
     async (password) => {

@@ -22,17 +22,44 @@ and Go 1.22.2 or newer:
 ```sh
 make web-install
 make control-plane
-AFS_REDIS_URL='redis://localhost:6379/0' ./bin/afs-control-plane
+./bin/afs-control-plane
 ```
 
 Open `http://127.0.0.1:8091`. The server embeds `ui/dist` at build time. A plain
 `go build ./cmd/afs-control-plane` without generated assets produces an API-only
-server and reports that at startup. No starter workspace is created implicitly.
+server and reports that at startup. A new installation opens with an empty
+database list: add a Redis connection through **Databases** when ready. Redis is
+not required to start, log in, or manage API keys. No starter workspace is created
+implicitly.
 
-The server uses `AFS_REDIS_URL`, defaulting to `redis://localhost:6379/0`;
-`--redis` overrides the URL. `AFS_REDIS_PASSWORD` overrides its password,
-including an explicitly empty value. It does not read the original project's
-configuration or connect to any catalog database.
+The control plane keeps its connection profiles, selected default and API keys
+in `~/.config/afs-lite/control-plane.sqlite`. Use `--metadata-file` or
+`AFS_METADATA_FILE` to choose another path. The file contains Redis credentials
+and API-key hashes, is restricted to its owner (`0600`), and is locked to one
+running control-plane process. SQLite metadata is independent of the managed
+Redis databases. Postgres is not supported in this version. To back up the
+metadata with a normal file copy, stop the server first and copy the database
+and any accompanying `-wal`/`-shm` files together.
+
+For an optional initial Redis connection, pass `--redis` or set `AFS_REDIS_URL`
+on the first launch. `AFS_REDIS_PASSWORD` overrides that URL's password, including
+an explicitly empty value. This seeds a fresh metadata database; later restarts
+use the saved connections and default. An unavailable Redis connection does not
+prevent startup. No implicit `localhost:6379` connection is created.
+
+On the first launch with a new metadata database, the server also imports
+`~/.config/afs-lite/databases.json` if it exists. `--databases-file` or
+`AFS_DATABASES_FILE` selects another legacy JSON import source. Saved connection
+IDs, settings and credentials are retained; a saved `local` connection remains
+the default, otherwise the explicit initial Redis connection or imported
+connection with the smallest ID becomes default. The source JSON is unchanged and is not used after
+initialization. Removing every connection intentionally leaves an empty catalog
+across restarts; the import and initial seed do not run again.
+
+`GET /healthz` reports whether the control plane's SQLite metadata is available.
+Redis connectivity is reported separately on the Databases page and database
+API records. A healthy control plane can have zero databases or offline Redis
+connections, allowing an administrator to repair their settings.
 
 The default listener is `127.0.0.1:8091`. Set `AFS_CONTROL_PLANE_LISTEN` or pass
 `--listen` to change it. Set `AFS_CONTROL_PLANE_TOKEN` to require bearer
@@ -97,15 +124,25 @@ File access still goes directly to Redis. Complete storage revocation requires
 separate Redis credential changes and connection termination. Creating a
 replacement key does not invalidate the old one automatically.
 
-The key registry is stored in the **startup Redis connection**, selected by
-`--redis` / `AFS_REDIS_URL`, with its effective password. Adding databases or
-editing the default database in the UI does not relocate this registry. Keep
-that startup connection available and persist its Redis data across restarts.
-Changing it selects a different key registry; key records are not automatically
-migrated. If it is unavailable, named-key authentication fails closed; the team
-token remains usable for recovery operations that do not need that registry.
-Restore of old Redis backups can restore old key state, including revocation
-state; reconcile credentials when restoring the registry.
+The key registry is stored in the private SQLite metadata database. Adding,
+editing or removing Redis connections, changing the default, and Redis outages
+do not change administrator authentication. The team token remains the bootstrap
+and recovery credential. Restoring an old metadata backup can restore old key
+state, including revocation state; reconcile credentials when restoring it.
+
+To retain keys created by an earlier AFS control plane, stop the old server and
+explicitly select its **startup Redis connection** for a one-time import:
+
+```sh
+AFS_MIGRATE_API_KEYS_FROM='redis://localhost:6379/0' ./bin/afs-control-plane
+```
+
+Use the legacy registry's actual URL, with `AFS_REDIS_PASSWORD` when needed, or
+pass `--migrate-api-keys-from`. This reads the source without changing it and
+preserves key IDs, secret hashes, expiration, usage and revocation state, so
+existing bearer tokens continue to work. It does not expose or recover secrets.
+A failed import prevents launch. Remove the migration setting after a successful
+launch; normal startup never searches managed Redis databases for old keys.
 
 API lifecycle activity records the key's stable ID and name. Session records
 keep authenticated key identity separate from caller-supplied user/agent labels.
@@ -119,7 +156,7 @@ means 30 days; an empty string means no expiration. Lists accept `limit`
 (default 100, maximum 1000) and `cursor`, returning `next_cursor` when another
 page exists. Database-scoped endpoints use the same server-wide key registry.
 
-## Add a Redis database
+## Manage Redis databases
 
 On the Databases tab, choose **Add database** and enter a name, Redis host and
 port, credentials, database index and TLS setting. You can paste a Redis URL
@@ -129,29 +166,37 @@ New workspace creation includes a database selector, and Monitor, workspaces
 and History combine the configured connections. Unavailable connections remain
 listed with their connection status.
 
-The startup `--redis` connection remains the default. Added connections are
-saved atomically with mode `0600` in `~/.config/afs-lite/databases.json`.
-Override that path with `--databases-file` or `AFS_DATABASES_FILE`, including
-for separate server instances. One server owns each file at a time. The file
-contains credentials and belongs to the control-plane host; ordinary database
-API responses exclude them. Profiles persist across restarts without a SQL
-catalog. Click a database row or its name to review and edit its display name,
+Connections and the selected default are saved transactionally in the private
+SQLite metadata database on the control-plane host. Ordinary database API
+responses exclude credentials. Click a database row or its name to review and
+edit its display name,
 description, endpoint, username, database index and TLS setting. This includes
 the default connection. The saved password is never displayed: leaving the
 password field blank preserves it; enter a replacement or explicitly select
-**Remove saved password**. Save checks Redis before atomically replacing the
-settings. A failed check leaves the previous connection intact. Concurrent
+**Remove saved password**. Save checks Redis before replacing the settings.
+A failed check leaves the previous connection intact. Concurrent
 changes require reopening the settings to avoid overwriting another edit.
 
-Database IDs and default status stay fixed when editing. Changing the endpoint
+Database IDs stay fixed when editing. Changing the endpoint
 or index points the connection at another existing Redis database; it does not
 move workspaces. New requests and mounts use the updated connection, while
 in-flight requests finish on their original client and existing mounts keep
-their startup credentials until remounted. Edited default settings are persisted
-in the same private file and take precedence over the startup Redis URL on
-restart. The startup URL supplies the initial default before it has been edited.
-Removing connections or selecting a different default database is not part of
-this flow.
+their startup credentials until remounted.
+
+Use **Set as default** to select the database used by unscoped CLI management and
+new mount setup. The selection persists across restarts. **Remove connection**
+removes its saved profile from the control plane; it does not delete workspaces,
+file data or checkpoints in Redis. When removing the current default while other
+connections remain, select a replacement default. Removing the last connection
+returns the control plane to its empty state. Existing mounts retain their
+direct Redis connections until stopped or remounted.
+
+New mounts pin their management URL to the database selected during bootstrap,
+so changing the default does not redirect their heartbeats or session shutdown.
+The user's saved login URL stays unchanged. Mounts already running from a
+version before this pinning was added retain their old unscoped management URL;
+remount those clients after upgrading and before switching the default. Their
+file I/O continues to use the original direct Redis connection.
 
 To use an added database from the CLI, copy the workspace's connection command,
 which uses a database-scoped server URL:
@@ -163,8 +208,8 @@ afs mount shared ~/shared
 ```
 
 That URL scopes management, credential bootstrap and daemon sessions to the
-selected Redis database. The unscoped server URL continues to use the startup
-connection. A failed or unknown database never falls back to the default.
+selected Redis database. The unscoped server URL uses the saved default
+connection. A failed or unknown database never falls back to another database.
 
 ## Connect the CLI
 
@@ -183,8 +228,10 @@ For the local server without a token, just run `afs auth login`. Without `--url`
 login uses the environment or saved endpoint, then defaults to
 `http://127.0.0.1:8091`. The original self-managed spelling,
 `afs auth login --self-hosted --control-plane-url <url>`, also works.
-Login verifies access to credential bootstrap before saving the connection;
-failed logins leave the configuration unchanged. `afs auth status` reports
+Login verifies control-plane authentication before saving the connection; it
+works with no configured databases and during Redis outages. Redis credentials
+are requested only when needed for mount setup. Failed logins leave the
+configuration unchanged. `afs auth status` reports
 effective settings offline, without testing server availability.
 
 Login saves `controlPlane.url`, selecting managed operation for workspace,

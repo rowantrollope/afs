@@ -54,6 +54,21 @@ func NewCLIClient(baseURL, token string) (*CLIClient, error) {
 // Close releases pooled connections without interrupting in-flight requests.
 func (c *CLIClient) Close() error { c.http.CloseIdleConnections(); return nil }
 
+// VerifyAuthentication checks the management identity without requesting Redis
+// credentials or requiring a configured, reachable workspace database.
+func (c *CLIClient) VerifyAuthentication(ctx context.Context) error {
+	var result struct {
+		Authenticated bool `json:"authenticated"`
+	}
+	if err := c.request(ctx, http.MethodGet, "/v1/auth/verify", "", nil, &result); err != nil {
+		return err
+	}
+	if !result.Authenticated {
+		return errors.New("control plane did not verify authentication")
+	}
+	return nil
+}
+
 func (c *CLIClient) Connection(ctx context.Context) (ConnectionInfo, error) {
 	var result ConnectionInfo
 	err := c.request(ctx, http.MethodGet, "/v1/connection", "", nil, &result)
@@ -62,6 +77,27 @@ func (c *CLIClient) Connection(ctx context.Context) (ConnectionInfo, error) {
 	}
 	return result, err
 }
+
+// DatabaseURL pins subsequent management to the database that supplied mount
+// credentials. An older server may omit the ID; preserve its existing URL.
+func (c *CLIClient) DatabaseURL(databaseID string) (string, error) {
+	if databaseID == "" {
+		return c.baseURL, nil
+	}
+	if !validDatabaseID(databaseID) {
+		return "", errors.New("control plane returned an invalid database identity")
+	}
+	u, _ := url.Parse(c.baseURL) // NewCLIClient already validated the URL.
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) >= 2 && parts[len(parts)-2] == "databases" {
+		if parts[len(parts)-1] != databaseID {
+			return "", errors.New("control plane returned a different database identity")
+		}
+		return c.baseURL, nil
+	}
+	return c.baseURL + "/databases/" + databaseID, nil
+}
+
 func (c *CLIClient) request(ctx context.Context, method, path, contentType string, body io.Reader, result any) error {
 	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {

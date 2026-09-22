@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,13 +57,63 @@ func TestHelpDoesNotPrintRedisCredentials(t *testing.T) {
 		if key == "AFS_REDIS_URL" {
 			return "redis://default:private-password@127.0.0.1:6379/0"
 		}
+		if key == "AFS_MIGRATE_API_KEYS_FROM" {
+			return "redis://default:private-migration-password@127.0.0.1:6379/0"
+		}
+		if key == "AFS_CONTROL_PLANE_TOKEN" {
+			return "private-team-token"
+		}
 		return ""
 	}, &output)
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("help: %v", err)
 	}
-	if strings.Contains(output.String(), "private-password") {
-		t.Fatal("help disclosed environment Redis password")
+	for _, secret := range []string{"private-password", "private-migration-password", "private-team-token"} {
+		if strings.Contains(output.String(), secret) {
+			t.Fatal("help disclosed environment credentials")
+		}
+	}
+	for _, option := range []string{"-metadata-file", "-databases-file", "-migrate-api-keys-from"} {
+		if !strings.Contains(output.String(), option) {
+			t.Fatalf("help omitted %s", option)
+		}
+	}
+}
+
+func TestMetadataOptionsDefaultWithoutRedis(t *testing.T) {
+	options, err := parseOptions(nil, func(string) string { return "" }, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.redisURL != "" || options.migrateAPIKeysFrom != "" {
+		t.Fatal("startup must not select or migrate a Redis connection implicitly")
+	}
+	if filepath.Base(options.metadataFile) != "control-plane.sqlite" || filepath.Base(options.databasesFile) != "databases.json" {
+		t.Fatalf("unexpected metadata/import paths: %+v", options)
+	}
+}
+
+func TestMetadataOptionsOverrides(t *testing.T) {
+	environment := map[string]string{
+		"AFS_METADATA_FILE":         "/tmp/environment.sqlite",
+		"AFS_DATABASES_FILE":        "/tmp/environment.json",
+		"AFS_MIGRATE_API_KEYS_FROM": "redis://127.0.0.1:6001/0",
+		"AFS_REDIS_URL":             "redis://127.0.0.1:6002/0",
+	}
+	getenv := func(key string) string { return environment[key] }
+	options, err := parseOptions(nil, getenv, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.metadataFile != environment["AFS_METADATA_FILE"] || options.databasesFile != environment["AFS_DATABASES_FILE"] || options.migrateAPIKeysFrom != environment["AFS_MIGRATE_API_KEYS_FROM"] || options.redisURL != environment["AFS_REDIS_URL"] {
+		t.Fatal("environment overrides were not honored")
+	}
+	options, err = parseOptions([]string{"--metadata-file", "/tmp/flag.sqlite", "--databases-file", "/tmp/flag.json", "--migrate-api-keys-from", "redis://127.0.0.1:6003/0", "--redis", ""}, getenv, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.metadataFile != "/tmp/flag.sqlite" || options.databasesFile != "/tmp/flag.json" || options.migrateAPIKeysFrom != "redis://127.0.0.1:6003/0" || options.redisURL != "" {
+		t.Fatal("explicit flags did not override the environment")
 	}
 }
 

@@ -39,6 +39,23 @@ func (a *app) resolveManagedRedis(ctx context.Context) error {
 	if _, err := redis.ParseURL(connection.RedisURL); err != nil {
 		return errors.New("control plane returned an invalid Redis connection")
 	}
+	endpoint, err := remote.DatabaseURL(connection.DatabaseID)
+	if err != nil {
+		return err
+	}
+	// connectMount creates its management service before credential bootstrap.
+	// Replace that client before workspace lookup, so a concurrent default change
+	// cannot pair one database's Redis connection with another's workspace.
+	if existing, ok := a.service.(*controlplane.CLIClient); ok && endpoint != settings.URL {
+		scoped, err := controlplane.NewCLIClient(endpoint, settings.Token)
+		if err != nil {
+			return err
+		}
+		_ = existing.Close()
+		a.service = scoped
+	}
+	settings.URL = endpoint
+	a.config.ControlPlane = &settings
 	a.config.Redis = connection.RedisURL
 	a.config.redisFromControlPlane = true
 	return nil

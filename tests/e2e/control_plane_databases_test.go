@@ -61,16 +61,9 @@ func TestControlPlaneAddDatabasePersistsAndIsolatesWorkspaces(t *testing.T) {
 		t.Fatalf("unexpected added database: %s", raw)
 	}
 	assertDatabaseRegistry(t, p, added.ID)
-	registry, err := os.ReadFile(p.databasesFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(p.databasesFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("database credentials file permissions: %o, want 600", info.Mode().Perm())
+	registry := readDatabaseSettingsFile(t, p)
+	if _, err := os.Stat(p.databasesFile); !os.IsNotExist(err) {
+		t.Fatalf("adding a database should not create legacy JSON configuration: %v", err)
 	}
 	if !bytes.Contains(registry, []byte(password)) {
 		t.Fatal("saved database credentials are missing; authenticated restart cannot work")

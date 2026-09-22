@@ -19,6 +19,7 @@ import (
 	"github.com/rowantrollope/afs/internal/controlplane"
 	"github.com/rowantrollope/afs/internal/uistatic"
 	"github.com/rowantrollope/afs/internal/version"
+	_ "modernc.org/sqlite"
 )
 
 func run(ctx context.Context, args []string) error {
@@ -33,30 +34,48 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(version.String())
 		return nil
 	}
-	redisConfig, err := redisOptions(options.redisURL, os.LookupEnv)
+	metadata, err := controlplane.OpenMetadataStore(options.metadataFile)
 	if err != nil {
 		return err
 	}
-	connectionURL, err := redisConnectionURL(options.redisURL, redisConfig)
+	defer metadata.Close()
+	var connectionURL string
+	_, _, initialized, err := metadata.LoadProfiles(ctx)
 	if err != nil {
 		return err
 	}
-	rdb := redis.NewClient(redisConfig)
-	defer rdb.Close()
+	if !initialized && options.redisURL != "" {
+		redisConfig, err := redisOptions(options.redisURL, os.LookupEnv)
+		if err != nil {
+			return err
+		}
+		connectionURL, err = redisConnectionURL(options.redisURL, redisConfig)
+		if err != nil {
+			return err
+		}
+	}
 	assets := uistatic.Assets()
-	databaseHandler, err := controlplane.NewDatabaseHandler(controlplane.NewService(controlplane.NewStore(rdb)), controlplane.HandlerOptions{
-		DatabaseID: "local", DatabaseName: "Redis", AuthToken: options.token, RedisURL: connectionURL,
-		Version: version.Short(), UI: assets, AllowedOrigins: options.origins,
-	}, options.databasesFile)
+	databaseHandler, err := controlplane.NewMetadataDatabaseHandler(metadata, controlplane.HandlerOptions{
+		AuthToken: options.token,
+		Version:   version.Short(), UI: assets, AllowedOrigins: options.origins,
+	}, options.databasesFile, connectionURL)
 	if err != nil {
 		return err
 	}
 	defer databaseHandler.Close()
-	ready, cancel := context.WithTimeout(ctx, 5*time.Second)
-	err = databaseHandler.CheckDefaultConnection(ready)
-	cancel()
-	if err != nil {
-		return errors.New("cannot connect to default Redis; check saved database settings or AFS_REDIS_URL and AFS_REDIS_PASSWORD")
+	if options.migrateAPIKeysFrom != "" {
+		legacyOptions, err := redisOptions(options.migrateAPIKeysFrom, os.LookupEnv)
+		if err != nil {
+			return errors.New("invalid legacy API-key Redis URL")
+		}
+		legacy := redis.NewClient(legacyOptions)
+		migration, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err = controlplane.MigrateLegacyAPIKeys(migration, metadata, legacy)
+		cancel()
+		_ = legacy.Close()
+		if err != nil {
+			return errors.New("cannot migrate legacy API keys; check the source Redis connection and AFS_REDIS_PASSWORD; the source has not been changed")
+		}
 	}
 	handler := guardUnauthenticatedLoopbackHost(databaseHandler, options.token)
 	server := &http.Server{Addr: options.listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,

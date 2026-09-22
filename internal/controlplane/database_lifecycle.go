@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sort"
-	"syscall"
 )
 
 // Requests lease immutable handler snapshots. A replaced client closes only
@@ -66,16 +65,17 @@ func (h *serverHandler) acquireDatabaseHandlers() ([]*serverHandler, func()) {
 			handlers = append(handlers, handler)
 		}
 	}
+	defaultID := registry.defaultID
 	registry.mu.Unlock()
 	sort.Slice(handlers, func(i, j int) bool {
 		a, b := handlers[i].options.DatabaseID, handlers[j].options.DatabaseID
 		if a == b {
 			return false
 		}
-		if a == h.options.DatabaseID {
+		if a == defaultID {
 			return true
 		}
-		if b == h.options.DatabaseID {
+		if b == defaultID {
 			return false
 		}
 		return a < b
@@ -87,7 +87,7 @@ func (h *serverHandler) acquireDatabaseHandlers() ([]*serverHandler, func()) {
 	}
 }
 func (h *DatabaseHandler) CheckDefaultConnection(ctx context.Context) error {
-	handler, release := h.acquire(h.root.options.DatabaseID)
+	handler, release := h.acquireDefault()
 	defer release()
 	if handler == nil {
 		return errors.New("default database is unavailable")
@@ -105,9 +105,16 @@ func (h *DatabaseHandler) Close() error {
 		lease.retired = true
 		h.closeRetiredLocked(handler, lease)
 	}
-	if h.lock != nil {
-		_ = syscall.Flock(int(h.lock.Fd()), syscall.LOCK_UN)
-		return h.lock.Close()
+	return h.metadata.Close()
+}
+
+func (h *DatabaseHandler) acquireDefault() (*serverHandler, func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	handler := h.handlers[h.defaultID]
+	if h.closed || handler == nil {
+		return nil, func() {}
 	}
-	return nil
+	h.leases[handler].refs++
+	return handler, func() { h.release(handler) }
 }

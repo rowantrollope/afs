@@ -223,6 +223,71 @@ describe("Add database", () => {
 });
 
 describe("Database settings", () => {
+  test("makes an offline saved connection the default without changing its settings", async () => {
+    const makeDefault = vi
+      .spyOn(afsApi, "setDefaultDatabase")
+      .mockResolvedValue({ ...database, isDefault: true });
+    const update = vi.spyOn(afsApi, "updateDatabase");
+    const onClose = renderDialog(vi.fn(), false, {
+      ...editableDatabase,
+      isHealthy: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Make default" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(makeDefault).toHaveBeenCalledWith("db-team");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("confirms removal, preserves Redis data, and refreshes the empty database list", async () => {
+    const list = vi
+      .spyOn(afsApi, "listDatabases")
+      .mockResolvedValueOnce([database])
+      .mockResolvedValue([]);
+    const remove = vi
+      .spyOn(afsApi, "deleteDatabase")
+      .mockResolvedValue(undefined);
+    const onClose = renderDialog(vi.fn(), true, {
+      ...editableDatabase,
+      canDelete: true,
+      isDefault: true,
+    });
+    await waitFor(() => expect(list).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Remove connection" }));
+    expect(
+      screen.getByText(/workspaces and files remain in Redis/),
+    ).toBeVisible();
+    expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep connection" }));
+    expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove connection" }));
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(remove).toHaveBeenCalledWith("db-team");
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Connected databases")).toBeEmptyDOMElement();
+  });
+
+  test("keeps a failed removal open and allows retry", async () => {
+    const remove = vi
+      .spyOn(afsApi, "deleteDatabase")
+      .mockRejectedValueOnce(new Error("Could not save connection list"))
+      .mockResolvedValueOnce(undefined);
+    const onClose = renderDialog(vi.fn(), false, {
+      ...editableDatabase,
+      canDelete: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Remove connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not save connection list",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
+
   test("prefills the default connection, preserves its password, and refreshes the list after saving", async () => {
     const list = vi
       .spyOn(afsApi, "listDatabases")

@@ -2,6 +2,7 @@ import type { ColumnDef } from "@redis-ui/table";
 import { Table } from "@redis-ui/table";
 import { useMemo, useState } from "react";
 import styled from "styled-components";
+import { Tag } from "../../components/afs-kit";
 import { SurfaceCard } from "../../components/card-shell";
 import { DatabaseIcon } from "../../components/lucide-icons";
 import { formatBytes } from "../api/afs";
@@ -226,6 +227,9 @@ export function DatabaseTable({
                   >
                     {nameLabel}
                   </NameButton>
+                  {row.original.isDefault && (
+                    <Tag title="Default for new workspaces">Default</Tag>
+                  )}
                 </StatusNameLine>
 
                 <IdRow>

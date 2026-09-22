@@ -68,10 +68,10 @@ func TestAuthHelpAndValidationStayOffline(t *testing.T) {
 func TestAuthLoginVerifiesAndAtomicallyPreservesConfig(t *testing.T) {
 	clearAuthEnvironment(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/connection" || r.Header.Get("Authorization") != "Bearer saved-team-token" {
+		if r.URL.Path != "/v1/auth/verify" || r.Header.Get("Authorization") != "Bearer saved-team-token" {
 			t.Errorf("unexpected login request %s", r.URL.Path)
 		}
-		_, _ = w.Write([]byte(`{"redis_url":"rediss://default:redis-bootstrap-secret@unreachable.invalid:6380/2"}`))
+		_, _ = w.Write([]byte(`{"authenticated":true}`))
 	}))
 	defer server.Close()
 	file := filepath.Join(t.TempDir(), "config.json")
@@ -106,13 +106,15 @@ func TestAuthLoginVerifiesAndAtomicallyPreservesConfig(t *testing.T) {
 }
 
 func TestAuthLoginFailuresLeaveSavedConfigUnchanged(t *testing.T) {
-	for _, mode := range []string{"unauthorized", "invalid-bootstrap"} {
+	for _, mode := range []string{"unauthorized", "unverified", "invalid-response"} {
 		t.Run(mode, func(t *testing.T) {
 			clearAuthEnvironment(t)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if mode == "unauthorized" {
 					w.WriteHeader(http.StatusUnauthorized)
 					_, _ = w.Write([]byte(`{"error":"saved-secret"}`))
+				} else if mode == "unverified" {
+					_, _ = w.Write([]byte(`{"authenticated":false}`))
 				} else {
 					_, _ = w.Write([]byte(`{"redis_url":"redis://user:bootstrap-secret@/invalid-db"}`))
 				}
@@ -142,7 +144,7 @@ func TestAuthLoginTokenEndpointBoundaries(t *testing.T) {
 			var authorization string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				authorization = r.Header.Get("Authorization")
-				_, _ = w.Write([]byte(`{"redis_url":"redis://127.0.0.1:1/0"}`))
+				_, _ = w.Write([]byte(`{"authenticated":true}`))
 			}))
 			defer server.Close()
 			storedURL := server.URL
@@ -245,7 +247,7 @@ func TestAuthTokenInputLimitAndOneLine(t *testing.T) {
 func TestAuthAcceptsNullOptionalControlPlane(t *testing.T) {
 	clearAuthEnvironment(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"redis_url":"redis://127.0.0.1:1/0"}`))
+		_, _ = w.Write([]byte(`{"authenticated":true}`))
 	}))
 	defer server.Close()
 	for _, action := range []string{"login", "logout"} {
@@ -263,5 +265,32 @@ func TestAuthAcceptsNullOptionalControlPlane(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestAuthLoginVerifiesScopedEndpointWithoutRedisBootstrap(t *testing.T) {
+	clearAuthEnvironment(t)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/databases/test-db/v1/auth/verify" {
+			t.Errorf("login requested storage credentials: %s", r.URL.Path)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"authenticated":true}`))
+	}))
+	defer server.Close()
+	file := filepath.Join(t.TempDir(), "config.json")
+	endpoint := server.URL + "/databases/test-db"
+	_, err := captureStdout(t, func() error {
+		return authCommand(cliOptions{configPath: file}, []string{"login", "--url", endpoint})
+	})
+	if err != nil || requests != 1 {
+		t.Fatalf("scoped authentication without Redis: requests=%d error=%v", requests, err)
+	}
+	settings, err := storedAuthSettings(file)
+	if err != nil || settings.URL != endpoint {
+		t.Fatal("scoped management URL was not saved")
 	}
 }

@@ -54,6 +54,8 @@ type AFSClient = {
   listDatabases: () => Promise<AFSDatabase[]>;
   createDatabase: (input: CreateDatabaseInput) => Promise<AFSDatabase>;
   updateDatabase: (input: UpdateDatabaseInput) => Promise<AFSDatabase>;
+  deleteDatabase: (databaseId: string) => Promise<void>;
+  setDefaultDatabase: (databaseId: string) => Promise<AFSDatabase>;
   listWorkspaceSummaries: (
     databaseId?: string,
   ) => Promise<AFSWorkspaceSummary[]>;
@@ -1399,6 +1401,21 @@ const httpAFSClient: AFSClient = {
             config_revision: input.configRevision,
           }),
         },
+      ),
+    );
+  },
+
+  async deleteDatabase(databaseId: string) {
+    await requestJSON(`/databases/${encodeURIComponent(databaseId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  async setDefaultDatabase(databaseId: string) {
+    return mapDatabase(
+      await requestJSON<HTTPDatabase>(
+        `/databases/${encodeURIComponent(databaseId)}/default`,
+        { method: "POST" },
       ),
     );
   },

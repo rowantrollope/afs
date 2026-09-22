@@ -34,7 +34,7 @@ func TestCLIBootstrapAuthenticationAndDisclosure(t *testing.T) {
 		t.Fatal("bootstrap response must not be cached")
 	}
 	var connection ConnectionInfo
-	if err := json.Unmarshal(response.Body.Bytes(), &connection); err != nil || connection.RedisURL != secret {
+	if err := json.Unmarshal(response.Body.Bytes(), &connection); err != nil || connection.RedisURL != secret || connection.DatabaseID != "" {
 		t.Fatalf("bootstrap mismatch: %v", err)
 	}
 	for _, path := range []string{"/v1/auth/config", "/v1/version", "/v1/databases", "/v1/workspaces", "/v1/agents"} {
@@ -52,6 +52,22 @@ func TestCLIBootstrapAuthenticationAndDisclosure(t *testing.T) {
 	response = historyHTTPCall(t, h, "GET", "/v1/connection", nil, map[string]string{"Authorization": "Bearer test-secret", "Origin": "https://other.example"})
 	if response.Code != http.StatusForbidden {
 		t.Fatal("bootstrap bypasses origin guard")
+	}
+}
+
+func TestCLIBootstrapAdvertisesSelectedDatabaseIdentity(t *testing.T) {
+	metadata := metadataTestStore(t)
+	handler, err := NewMetadataDatabaseHandler(metadata, HandlerOptions{AuthToken: "test-secret"}, "", "redis://127.0.0.1:1/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Close()
+	for _, path := range []string{"/v1/connection", "/databases/local/v1/connection"} {
+		response := serverTestCall(t, handler, http.MethodGet, path, nil)
+		var connection ConnectionInfo
+		if err := json.Unmarshal(response.Body.Bytes(), &connection); err != nil || response.Code != http.StatusOK || connection.DatabaseID != "local" {
+			t.Fatalf("bootstrap omitted database identity at %s: %d %s", path, response.Code, response.Body.String())
+		}
 	}
 }
 

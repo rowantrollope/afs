@@ -1,5 +1,35 @@
 # AFS extraction
 
+## Independent control-plane metadata — 2026-09-22
+
+- [x] Add a small private SQLite store for connection profiles, default selection and administrator keys.
+- [x] Start and authenticate without Redis; import existing JSON profiles without changing Redis data.
+- [x] Add connection removal/default selection and usable empty/offline UI states.
+- [x] Preserve API-key identities with an explicit, repeat-safe migration from the legacy startup Redis.
+- [x] Verify empty startup, CRUD/default persistence, offline authentication, concurrent changes and managed CLI behavior using disposable data.
+- [x] Run UI/build/vet/unit/race and isolated real-Redis checks; verify the built UI, then commit and push main.
+
+Scope: SQLite is the default metadata backend. Postgres remains deferred until a hosted deployment needs it. Keep files, checkpoints, history and sessions in their managed Redis databases. Keep the original checkout read-only. Use disposable instances for validation; do not restart or migrate the user's installation.
+
+Design: one SQLite owner per metadata file; transactional writes and stable profile IDs. New installations start with no Redis connection. Existing JSON profiles import once and remain untouched as a backup. Explicit startup Redis settings seed a connection only on first initialization. Auth stays available when all managed Redis databases are offline. Removing a profile never deletes its Redis contents; removing the default selects a deterministic replacement, or none when empty. API-key migration reads a specifically selected legacy Redis and preserves hashes, expiry and revocation without modifying the source.
+
+Review: all 164 UI tests, lint, embedded build, Go build/vet and full unit/race
+suites pass. Final CLI changes pass its full unit suite and focused race checks
+across all three affected packages. All 14 control-plane/managed CLI/auth/API-key
+real-Redis process tests pass. Browser acceptance on a disposable server verifies
+empty login, first connection, default switching, offline settings and API-key
+management. Built-binary smoke verifies team-token and named-key CLI login with
+zero Redis connections. Migration rejects malformed expiry/revocation records
+atomically, leaves sources untouched, and never reactivates revoked keys.
+
+Review caught and fixed mount routing across default changes: new mounts pin
+their management URL to the selected database without rewriting saved login
+settings. Existing pre-upgrade unscoped daemons need remounting before a default
+change; this is documented. The SQLite driver stays out of CLI dependencies.
+Postgres remains deferred. Test servers were stopped; the existing listener on
+8091 was left untouched. No user Redis data or local profiles were migrated.
+Validation logs: `/private/tmp/afs-metadata-*.log`.
+
 ## Compact CLI mount status — 2026-09-22
 
 - [x] Remove per-mount Redis URLs from overview rows, abbreviate home paths, and combine lifecycle/connection into STATUS.

@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ButtonHTMLAttributes } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 
@@ -76,6 +76,14 @@ vi.mock("@redis-ui/components", () => ({
 vi.mock("../../foundation/database-scope", () => ({
   useDatabaseScope: () => databaseState,
 }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props} />
+  ),
+}));
 vi.mock("../../foundation/hooks/use-afs", () => ({
   useCreateWorkspaceMutation: () => ({
     mutateAsync: createWorkspace,
@@ -126,8 +134,11 @@ describe("Create workspace database selection", () => {
         target: { value: "project" },
       });
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Connect an available Redis database",
+        "Add a Redis database",
       );
+      expect(
+        screen.getByRole("link", { name: "Add database" }),
+      ).toHaveAttribute("href", "/databases");
       expect(
         screen.getByRole("button", { name: "Create workspace" }),
       ).toBeDisabled();

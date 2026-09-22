@@ -16,7 +16,7 @@ type authenticatedIdentity struct {
 	Subject string
 	Name    string
 	KeyID   string
-	store   *Store
+	store   apiKeyStore
 }
 type authenticatedIdentityContextKey struct{}
 
@@ -27,7 +27,7 @@ func requestIdentity(ctx context.Context) authenticatedIdentity {
 func (h *serverHandler) authenticate(r *http.Request) (authenticatedIdentity, bool, error) {
 	// Internal database dispatch retains the root's decision, and never consults
 	// the selected database for authentication records.
-	if identity := requestIdentity(r.Context()); identity.store == h.authStore {
+	if identity := requestIdentity(r.Context()); identity.store != nil && identity.store == h.authStore {
 		return identity, true, nil
 	}
 	operator := authenticatedIdentity{Subject: "operator", Name: "Operator", store: h.authStore}

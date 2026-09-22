@@ -1,14 +1,12 @@
 package controlplane
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -184,16 +182,21 @@ func TestConcurrentDatabaseEditsRequireCurrentRevision(t *testing.T) {
 	if updated["config_revision"] == first["config_revision"] {
 		t.Fatal("successful edit reused its old configuration revision")
 	}
-	raw, err := os.ReadFile(h.filename)
+	profiles, _, _, err := h.metadata.LoadProfiles(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var profiles []databaseProfile
-	if err := json.Unmarshal(raw, &profiles); err != nil {
-		t.Fatal(err)
+	found := false
+	for _, profile := range profiles {
+		if profile.ID == id {
+			found = true
+			if profile.Name != updated["name"] {
+				t.Fatal("persisted profile disagrees with winning edit")
+			}
+		}
 	}
-	if len(profiles) != 1 || profiles[0].Name != updated["name"] {
-		t.Fatalf("persisted profile disagrees with winning edit: %s", raw)
+	if !found {
+		t.Fatal("edited profile missing")
 	}
 }
 
@@ -219,7 +222,7 @@ func TestDatabaseEditFailedSavePreservesConnectionAndCredentials(t *testing.T) {
 	}
 	id := record["id"].(string)
 	before := h.lookup(id)
-	persisted, err := os.ReadFile(filename)
+	persisted, _, _, err := h.metadata.LoadProfiles(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,8 +230,10 @@ func TestDatabaseEditFailedSavePreservesConnectionAndCredentials(t *testing.T) {
 	replacement := miniredis.RunT(t)
 	replacement.RequireAuth("new-private-password")
 	input["name"], input["redis_addr"], input["redis_password"] = "Replacement", replacement.Addr(), "new-private-password"
-	// A directory is an unwritable atomic-rename destination even under root.
-	h.filename = t.TempDir()
+	// Force SQLite to reject writes without altering the active Redis client.
+	if _, err := h.metadata.db.Exec("PRAGMA query_only = ON"); err != nil {
+		t.Fatal(err)
+	}
 	response = serverTestCall(t, h, http.MethodPut, "/v1/databases/"+id, input)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("failed persistence: HTTP %d: %s", response.Code, response.Body.String())
@@ -242,12 +247,19 @@ func TestDatabaseEditFailedSavePreservesConnectionAndCredentials(t *testing.T) {
 	if err := before.service.store.rdb.Ping(context.Background()).Err(); err != nil {
 		t.Fatalf("failed persistence closed the current connection: %v", err)
 	}
-	if len(h.profiles) != 1 || h.profiles[0].Name != "Protected" || h.profiles[0].RedisPassword != "old-private-password" {
-		t.Fatal("failed persistence changed the active credential profile")
+	for _, p := range h.profiles {
+		if p.ID == id && (p.Name != "Protected" || p.RedisPassword != "old-private-password") {
+			t.Fatal("failed persistence changed active profile")
+		}
 	}
-	after, err := os.ReadFile(filename)
-	if err != nil || !bytes.Equal(persisted, after) {
-		t.Fatalf("failed persistence changed the saved profile: %v", err)
+	after, _, _, err := h.metadata.LoadProfiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalJSON, _ := json.Marshal(persisted)
+	afterJSON, _ := json.Marshal(after)
+	if string(originalJSON) != string(afterJSON) {
+		t.Fatal("failed persistence changed saved profiles")
 	}
 }
 

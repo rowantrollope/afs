@@ -681,6 +681,22 @@ export function useCreateWorkspaceMutation() {
   });
 }
 
+export function useDeleteDatabaseMutation() {
+  const invalidate = useWorkspaceInvalidation();
+  return useMutation({
+    mutationFn: (databaseId: string) => afsApi.deleteDatabase(databaseId),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetDefaultDatabaseMutation() {
+  const invalidate = useWorkspaceInvalidation();
+  return useMutation({
+    mutationFn: (databaseId: string) => afsApi.setDefaultDatabase(databaseId),
+    onSuccess: invalidate,
+  });
+}
+
 export function useForkWorkspaceMutation() {
   const invalidate = useWorkspaceInvalidation();
   return useMutation({

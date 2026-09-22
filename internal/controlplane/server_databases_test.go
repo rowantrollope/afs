@@ -1,9 +1,9 @@
 package controlplane
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -40,17 +40,18 @@ func TestDatabaseRegistrationAuthValidationAndAtomicSave(t *testing.T) {
 			t.Fatalf("validation: %d %s", r.Code, r.Body.String())
 		}
 	}
-	// An unwritable destination cannot publish a connection visible only until restart.
-	if err := os.Mkdir(filename, 0700); err != nil {
+	// Force a real SQLite write failure; no connection should be published.
+	if _, err := h.metadata.db.Exec("PRAGMA query_only = ON"); err != nil {
 		t.Fatal(err)
 	}
 	r := serverTestCall(t, h, "POST", "/v1/databases", input)
 	if r.Code != 400 || len(h.root.databaseHandlers()) != 1 {
 		t.Fatalf("failed save published profile: %d %s", r.Code, r.Body.String())
 	}
-	if err := os.Remove(filename); err != nil {
+	if _, err := h.metadata.db.Exec("PRAGMA query_only = OFF"); err != nil {
 		t.Fatal(err)
 	}
+
 	r = serverTestCall(t, h, "POST", "/v1/databases", input)
 	if r.Code != 201 {
 		t.Fatalf("save: %d %s", r.Code, r.Body.String())
@@ -107,15 +108,11 @@ func TestConcurrentDatabaseRegistrationDoesNotLoseConnections(t *testing.T) {
 		}(input)
 	}
 	wg.Wait()
-	raw, err := os.ReadFile(filename)
+	profiles, _, _, err := h.metadata.LoadProfiles(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var profiles []databaseProfile
-	if err := json.Unmarshal(raw, &profiles); err != nil {
-		t.Fatal(err)
-	}
-	if len(profiles) != 2 || len(h.root.databaseHandlers()) != 3 {
-		t.Fatalf("lost concurrent registration: %s", raw)
+	if len(profiles) != 3 || len(h.root.databaseHandlers()) != 3 {
+		t.Fatal("lost concurrent registration")
 	}
 }

@@ -37,8 +37,9 @@ type serverHandler struct {
 	options  HandlerOptions
 	history  http.Handler
 	registry *DatabaseHandler
-	// Authentication remains pinned to the startup Redis, including after database edits.
-	authStore *Store
+	// Authentication belongs to the control plane, independent of selected Redis.
+	authStore        apiKeyStore
+	databaseRegistry *DatabaseHandler
 }
 
 func NewHandler(service *Service, options HandlerOptions) http.Handler {
@@ -48,7 +49,12 @@ func NewHandler(service *Service, options HandlerOptions) http.Handler {
 	if options.DatabaseName == "" {
 		options.DatabaseName = "Redis"
 	}
-	return &serverHandler{service: service, authStore: service.store, options: options, history: NewFileHistoryHandler(service, FileHistoryHTTPOptions{DatabaseID: options.DatabaseID, AllowedOrigins: options.AllowedOrigins})}
+	handler := &serverHandler{service: service, options: options}
+	if service != nil {
+		handler.authStore = service.store
+		handler.history = NewFileHistoryHandler(service, FileHistoryHTTPOptions{DatabaseID: options.DatabaseID, AllowedOrigins: options.AllowedOrigins})
+	}
+	return handler
 }
 
 func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -129,18 +135,13 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		service := h.service
-		release := func() {}
+		var err error
 		if h.registry != nil {
-			target, done := h.registry.acquire(h.options.DatabaseID)
-			if target == nil {
-				serverJSON(w, 503, map[string]bool{"ok": false})
-				return
-			}
-			service, release = target.service, done
+			err = h.registry.metadata.Ping(ctx)
+		} else {
+			err = h.service.store.rdb.Ping(ctx).Err()
 		}
-		defer release()
-		if err := service.store.rdb.Ping(ctx).Err(); err != nil {
+		if err != nil {
 			serverJSON(w, 503, map[string]bool{"ok": false})
 			return
 		}
@@ -163,8 +164,18 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(path, "/databases/") {
 		parts := strings.SplitN(strings.TrimPrefix(path, "/databases/"), "/", 2)
 		if h.registry != nil {
-			if len(parts) == 1 && r.Method == http.MethodPut {
-				h.registry.updateDatabaseRoute(w, r, parts[0])
+			if len(parts) == 1 {
+				if r.Method == http.MethodPut {
+					h.registry.updateDatabaseRoute(w, r, parts[0])
+					return
+				}
+				if r.Method == http.MethodDelete {
+					h.registry.removeDatabaseRoute(w, r, parts[0])
+					return
+				}
+			}
+			if len(parts) == 2 && parts[1] == "default" {
+				h.registry.setDefaultDatabaseRoute(w, r, parts[0])
 				return
 			}
 			if target, release := h.registry.acquire(parts[0]); target != nil {
@@ -189,12 +200,20 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.apiKeysRoute(w, r, strings.TrimPrefix(strings.TrimPrefix(path, "/api-keys"), "/"))
 		return
 	}
+	if path == "/auth/verify" {
+		if r.Method != http.MethodGet {
+			serverMethod(w, "GET")
+			return
+		}
+		serverJSON(w, 200, map[string]bool{"authenticated": true})
+		return
+	}
 	// Root collection views aggregate databases. Everything else without an
 	// explicit database targets the current default's immutable handler snapshot.
 	if h.registry != nil && !(path == "/databases" || r.Method == http.MethodGet && (path == "/workspaces" || path == "/agents" || path == "/events" || path == "/activity" || path == "/changes" || path == "/monitor/stream")) {
-		target, release := h.registry.acquire(h.options.DatabaseID)
+		target, release := h.registry.acquireDefault()
 		if target == nil {
-			serverJSON(w, 503, map[string]string{"error": "control plane is shutting down"})
+			serverJSON(w, 409, map[string]string{"error": "No Redis database is configured; add a connection in Databases", "code": "no_database_configured"})
 			return
 		}
 		defer release()

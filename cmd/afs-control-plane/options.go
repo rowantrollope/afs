@@ -19,6 +19,8 @@ import (
 type serverOptions struct {
 	listen, redisURL, token string
 	databasesFile           string
+	metadataFile            string
+	migrateAPIKeysFrom      string
 	origins                 stringList
 	showVersion             bool
 }
@@ -28,7 +30,7 @@ func (s *stringList) String() string     { return strings.Join(*s, ", ") }
 func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (serverOptions, error) {
-	options := serverOptions{listen: "127.0.0.1:8091", redisURL: "redis://localhost:6379/0", token: strings.TrimSpace(getenv("AFS_CONTROL_PLANE_TOKEN"))}
+	options := serverOptions{listen: "127.0.0.1:8091", token: strings.TrimSpace(getenv("AFS_CONTROL_PLANE_TOKEN"))}
 	if value := getenv("AFS_CONTROL_PLANE_LISTEN"); value != "" {
 		options.listen = value
 	}
@@ -36,20 +38,30 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 		options.redisURL = value
 	}
 	options.databasesFile = getenv("AFS_DATABASES_FILE")
-	if options.databasesFile == "" {
+	options.metadataFile = getenv("AFS_METADATA_FILE")
+	options.migrateAPIKeysFrom = getenv("AFS_MIGRATE_API_KEYS_FROM")
+	if options.databasesFile == "" || options.metadataFile == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return options, errors.New("cannot locate database configuration; set AFS_DATABASES_FILE")
+			return options, errors.New("cannot locate control-plane configuration; set AFS_METADATA_FILE and AFS_DATABASES_FILE")
 		}
-		options.databasesFile = filepath.Join(home, ".config", "afs-lite", "databases.json")
+		if options.databasesFile == "" {
+			options.databasesFile = filepath.Join(home, ".config", "afs-lite", "databases.json")
+		}
+		if options.metadataFile == "" {
+			options.metadataFile = filepath.Join(home, ".config", "afs-lite", "control-plane.sqlite")
+		}
 	}
 	flags := flag.NewFlagSet("afs-control-plane", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&options.listen, "listen", options.listen, "HTTP listen address (AFS_CONTROL_PLANE_LISTEN)")
-	flags.StringVar(&options.redisURL, "redis", options.redisURL, "Redis URL (AFS_REDIS_URL); default redis://localhost:6379/0; password override: AFS_REDIS_PASSWORD")
+	flags.StringVar(&options.redisURL, "redis", options.redisURL, "Optional initial Redis connection (AFS_REDIS_URL); password override: AFS_REDIS_PASSWORD")
 	// flag defaults appear in help; the selected URL may contain a password.
 	flags.Lookup("redis").DefValue = ""
-	flags.StringVar(&options.databasesFile, "databases-file", options.databasesFile, "Private saved Redis connections file (AFS_DATABASES_FILE)")
+	flags.StringVar(&options.metadataFile, "metadata-file", options.metadataFile, "Private SQLite metadata file (AFS_METADATA_FILE)")
+	flags.StringVar(&options.databasesFile, "databases-file", options.databasesFile, "Legacy JSON connections file to import once (AFS_DATABASES_FILE)")
+	flags.StringVar(&options.migrateAPIKeysFrom, "migrate-api-keys-from", options.migrateAPIKeysFrom, "Explicit legacy API-key Redis source (AFS_MIGRATE_API_KEYS_FROM); source is read-only")
+	flags.Lookup("migrate-api-keys-from").DefValue = ""
 	flags.Var(&options.origins, "allow-origin", "Allowed browser origin; repeat for multiple origins")
 	flags.BoolVar(&options.showVersion, "version", false, "Print version")
 	flags.Usage = func() {

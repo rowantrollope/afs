@@ -25,12 +25,16 @@ go build -o bin/afs ./cmd/afs
 ## Optional control plane and UI
 
 Build the copied management UI and separate server with `make web-install` then
-`make control-plane`. Start `./bin/afs-control-plane` against your Redis backend,
-then run `afs auth login --url http://127.0.0.1:8091`. The CLI uses
+`make control-plane`. Start `./bin/afs-control-plane`, open
+`http://127.0.0.1:8091`, and add your Redis connection on the Databases page.
+The server starts without Redis and keeps connections, the selected default,
+and administrator API keys in `~/.config/afs-lite/control-plane.sqlite`.
+Existing `databases.json` profiles are imported once. Then run
+`afs auth login --url http://127.0.0.1:8091`. The CLI uses
 the API for management and obtains Redis credentials for mounts automatically.
-Use **Add database** on the Databases tab to save additional Redis connections
-and select them when creating workspaces. Click a database row to review or edit
-its connection settings.
+Use **Add database** to save additional Redis connections and select them when
+creating workspaces. Database settings support editing, removing connections
+and changing the default; removing a connection leaves its Redis data intact.
 See the [control-plane guide](docs/control-plane.md) for
 authentication, daemon registration and the [capability inventory](docs/control-plane-capabilities.md).
 The ordinary CLI build and direct Redis operation remain independent.

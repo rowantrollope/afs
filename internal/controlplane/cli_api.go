@@ -17,7 +17,8 @@ import (
 )
 
 type ConnectionInfo struct {
-	RedisURL string `json:"redis_url"`
+	RedisURL   string `json:"redis_url"`
+	DatabaseID string `json:"database_id,omitempty"`
 }
 
 // FileHistoryPolicyPatch changes only supplied fields, including explicit zero
@@ -128,7 +129,13 @@ func (h *serverHandler) connectionRoute(w http.ResponseWriter, r *http.Request) 
 		serverJSON(w, http.StatusNotFound, map[string]string{"error": "Redis connection bootstrap is not configured"})
 		return
 	}
-	serverJSON(w, http.StatusOK, ConnectionInfo{RedisURL: h.options.RedisURL})
+	connection := ConnectionInfo{RedisURL: h.options.RedisURL}
+	// Standalone engine handlers have one fixed backend and no database-scoped
+	// mount URL. Only a registry-backed server advertises the pinning contract.
+	if h.databaseRegistry != nil {
+		connection.DatabaseID = h.options.DatabaseID
+	}
+	serverJSON(w, http.StatusOK, connection)
 }
 func (h *serverHandler) cliRoute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
