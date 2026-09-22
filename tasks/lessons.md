@@ -337,3 +337,9 @@ checkout at `/Users/rowantrollope/git/afs`. When restarting an inherited server,
 verify its executable and working directory and replace an old worktree launch
 with the main checkout while preserving its existing configuration. Do not
 delete existing worktrees or their uncommitted work without a separate request.
+
+## Contextual Agent help — 2026-09-22
+
+- User correction: the header terminal icon is the “Agent” button, and its panel must provide relevant help on every page, including suggested agent prompts and AFS CLI guidance.
+- Cover nested workspace tabs, History views, and individual recipes as well as top-level navigation. Keep workspace examples tied to the actual database, and distinguish snapshot browsing from the live mount.
+- Copy prompt prose separately from commands, preserve exact command text, and explain UI-only actions without inventing CLI commands.

@@ -1,33 +1,44 @@
 import { ChevronRight } from "lucide-react";
+import { useLocation } from "@tanstack/react-router";
 import styled, { keyframes } from "styled-components";
 import { useDrawer } from "../foundation/drawer-context";
+import { pageHelpFor } from "../foundation/page-help";
 import { CommandsDrawer } from "./onboarding-drawer";
 
-const defaults = {
-  title: "AFS commands",
-  subline: "The CLI connects directly to your configured Redis backend.",
-  sections: [
-    { title: "List workspaces", command: "afs list" },
-    {
-      title: "Mount a workspace",
-      command: "afs mount my-workspace ~/afs/my-workspace",
-    },
-    { title: "Check local sync", command: "afs sync status" },
-  ],
-};
+function usePageHelp() {
+  const location = useLocation();
+  const { pageHelp } = useDrawer();
+  // Only workspace detail contributes dynamic, database-scoped help.
+  const help =
+    location.pathname.startsWith("/workspaces/") && pageHelp
+      ? pageHelp
+      : pageHelpFor(location.pathname, location.search);
+  return { help, contextKey: `${location.pathname}${location.searchStr}` };
+}
+
 export function GlobalDrawer() {
   const { state, close } = useDrawer();
-  return state ? <CommandsDrawer {...state} onClose={close} /> : null;
+  const { help, contextKey } = usePageHelp();
+  if (!state) return null;
+  return (
+    <CommandsDrawer
+      key={state.kind === "page-help" ? contextKey : state.title}
+      {...(state.kind === "page-help" ? help : state)}
+      onClose={close}
+    />
+  );
 }
 export function HelpButton() {
-  const { open, pageHelp } = useDrawer();
-  const help = pageHelp ?? defaults;
+  const { open, state } = useDrawer();
+  const { help } = usePageHelp();
   return (
     <HelpButtonRoot
       type="button"
-      onClick={() => open({ kind: "commands", ...help })}
-      aria-label={help.title}
-      title={help.title}
+      onClick={() => open({ kind: "page-help" })}
+      aria-label={`Agent help: ${help.title}`}
+      aria-haspopup="dialog"
+      aria-expanded={state?.kind === "page-help"}
+      title={`Agent help: ${help.title}`}
     >
       <TerminalCursor aria-hidden>_</TerminalCursor>
       <ChevronRight size={16} strokeWidth={2.4} />

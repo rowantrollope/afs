@@ -1,5 +1,22 @@
 # AFS extraction
 
+## Contextual Agent help on every page — 2026-09-22
+
+- [x] Review all routes, recipe pages, History views, and workspace tabs against current CLI behavior.
+- [x] Add contextual agent prompts, copyable CLI examples, and page guidance; keep open help aligned with navigation.
+- [x] Scope workspace commands to their database and distinguish saved snapshots from live mounts.
+- [x] Verify copy success/failure, route changes, shell quoting, and narrow-screen wrapping.
+- [x] Validate UI/build and Go build/vet/unit/race plus an isolated real-Redis lifecycle test.
+- [x] Commit and push main.
+
+Review: 154 UI tests pass, including 14 focused help regressions. TypeScript,
+lint and `make control-plane` pass. Go build/vet/unit/race and fresh isolated
+`TestControlPlaneManagedSyncLifecycle` pass; existing Redis data is untouched.
+Browser review covers every page and five recipes, both global History views,
+all workspace tabs and a selected checkpoint. The 390px help panel wraps without
+horizontal overflow. Vite on port 5173 runs from this main checkout. Screenshots:
+`/private/tmp/afs-agent-help-browser`; validation logs: `/private/tmp/afs-agent-help-*.log`.
+
 ## Default topology labels to Agent ID — 2026-09-22
 
 - [x] Use Agent ID as the default node label, with Mount path as the only default detail.

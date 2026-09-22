@@ -17,10 +17,15 @@ export type DrawerCommandSection = {
 export type CommandsDrawerConfig = {
   title: string;
   subline?: string;
+  prompts?: { title: string; description?: string; prompt: string }[];
+  tips?: string[];
   sections: DrawerCommandSection[];
 };
 
-export type DrawerState = null | ({ kind: "commands" } & CommandsDrawerConfig);
+export type DrawerState =
+  | null
+  | { kind: "page-help" }
+  | ({ kind: "commands" } & CommandsDrawerConfig);
 
 type DrawerContextValue = {
   state: DrawerState;

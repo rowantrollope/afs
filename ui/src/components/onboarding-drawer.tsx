@@ -1,7 +1,7 @@
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styled from "styled-components";
-import type { DrawerCommandSection } from "../foundation/drawer-context";
+import type { CommandsDrawerConfig } from "../foundation/drawer-context";
 import { Drawer } from "./drawer";
 
 const DrawerHeader = styled.div`
@@ -14,6 +14,7 @@ const DrawerHeader = styled.div`
 
 const DrawerTitleStack = styled.div`
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -34,6 +35,7 @@ const DrawerTitle = styled.h2`
   font-weight: 750;
   line-height: 1.2;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 `;
 
 const DrawerSubline = styled.p`
@@ -66,6 +68,7 @@ const CloseButton = styled.button`
 
 const DrawerBody = styled.div`
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 18px 22px 28px;
   display: flex;
@@ -73,7 +76,7 @@ const DrawerBody = styled.div`
   gap: 16px;
 `;
 
-const BodyStack = styled.div`
+const BodyStack = styled.section`
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -94,7 +97,8 @@ const StepCommandBlock = styled.div`
 
 const StepCommandText = styled.code`
   color: #4ade80;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   text-shadow: 0 0 6px rgba(74, 222, 128, 0.22);
 `;
 
@@ -128,12 +132,11 @@ const StepCopyButton = styled.button`
 export function CommandsDrawer({
   title,
   subline,
+  prompts,
+  tips,
   sections,
   onClose,
-}: {
-  title: string;
-  subline?: string;
-  sections: DrawerCommandSection[];
+}: CommandsDrawerConfig & {
   onClose: () => void;
 }) {
   return (
@@ -142,7 +145,9 @@ export function CommandsDrawer({
         <>
           <DrawerHeader>
             <DrawerTitleStack>
-              <DrawerEyebrow>Commands</DrawerEyebrow>
+              <DrawerEyebrow>
+                {prompts ? "Agent help" : "Commands"}
+              </DrawerEyebrow>
               <DrawerTitle>{title}</DrawerTitle>
               {subline ? <DrawerSubline>{subline}</DrawerSubline> : null}
             </DrawerTitleStack>
@@ -156,9 +161,39 @@ export function CommandsDrawer({
           </DrawerHeader>
 
           <DrawerBody>
-            <BodyStack>
-              {sections.map((section, idx) => (
-                <CommandSectionRow key={idx} section={section} />
+            {prompts?.length ? (
+              <BodyStack aria-label="Suggested agent prompts">
+                <GroupTitle>Suggested agent prompts</GroupTitle>
+                <CommandDescription>
+                  Copy a prompt into your agent to get help with this page.
+                </CommandDescription>
+                {prompts.map(({ prompt, ...section }) => (
+                  <CopySection
+                    key={prompt}
+                    {...section}
+                    text={prompt}
+                    kind="prompt"
+                  />
+                ))}
+              </BodyStack>
+            ) : null}
+            {tips?.length ? (
+              <Guidance aria-label="Page guidance">
+                <GroupTitle>What to know</GroupTitle>
+                {tips.map((tip) => (
+                  <p key={tip}>{tip}</p>
+                ))}
+              </Guidance>
+            ) : null}
+            <BodyStack aria-label="AFS command line">
+              {prompts ? <GroupTitle>AFS command line</GroupTitle> : null}
+              {sections.map(({ command, ...section }) => (
+                <CopySection
+                  key={`${section.title}:${command}`}
+                  {...section}
+                  text={command}
+                  kind="command"
+                />
               ))}
             </BodyStack>
           </DrawerBody>
@@ -168,37 +203,70 @@ export function CommandsDrawer({
   );
 }
 
-function CommandSectionRow({ section }: { section: DrawerCommandSection }) {
-  const [copied, setCopied] = useState(false);
+function CopySection({
+  title,
+  description,
+  text,
+  kind,
+}: {
+  title: string;
+  description?: string;
+  text: string;
+  kind: "prompt" | "command";
+}) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
+
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(section.command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
     } catch {
-      /* ignore */
+      setCopyState("error");
     }
   }
 
   return (
     <CommandRow>
       <CommandHeader>
-        <CommandTitle>{section.title}</CommandTitle>
-        {section.description ? (
-          <CommandDescription>{section.description}</CommandDescription>
+        <CommandTitle>{title}</CommandTitle>
+        {description ? (
+          <CommandDescription>{description}</CommandDescription>
         ) : null}
       </CommandHeader>
-      <StepCommandBlock>
-        <StepCommandText>{section.command}</StepCommandText>
-        <StepCopyButton type="button" onClick={copy} aria-label="Copy command">
-          {copied ? (
+      <CopyBlock $prompt={kind === "prompt"}>
+        {kind === "prompt" ? (
+          <PromptText>{text}</PromptText>
+        ) : (
+          <StepCommandText>{text}</StepCommandText>
+        )}
+        <StepCopyButton
+          type="button"
+          onClick={copy}
+          aria-label={`Copy ${kind}: ${title}`}
+          title={`Copy ${kind}`}
+        >
+          {copyState === "copied" ? (
             <Check size={14} strokeWidth={2.4} />
           ) : (
             <Copy size={14} strokeWidth={2.4} />
           )}
         </StepCopyButton>
-      </StepCommandBlock>
+      </CopyBlock>
+      <CopyStatus role="status">
+        {copyState === "copied"
+          ? "Copied"
+          : copyState === "error"
+            ? "Could not copy. Select the text and copy it manually."
+            : ""}
+      </CopyStatus>
     </CommandRow>
   );
 }
@@ -226,4 +294,54 @@ const CommandDescription = styled.div`
   color: var(--afs-muted);
   font-size: 12.5px;
   line-height: 1.45;
+`;
+
+const GroupTitle = styled.h3`
+  margin: 0;
+  color: var(--afs-ink);
+  font-size: 16px;
+  font-weight: 750;
+`;
+
+const CopyBlock = styled(StepCommandBlock)<{ $prompt: boolean }>`
+  ${({ $prompt }) =>
+    $prompt &&
+    `
+    background: var(--afs-bg-soft);
+    border-color: var(--afs-line);
+    button {
+      color: var(--afs-muted);
+      border-color: var(--afs-line);
+    }
+  `}
+`;
+
+const PromptText = styled.p`
+  margin: 0;
+  color: var(--afs-ink);
+  font-family: var(--afs-sans, inherit);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+`;
+
+const Guidance = styled.section`
+  padding: 14px;
+  border: 1px solid var(--afs-line);
+  border-radius: 8px;
+  color: var(--afs-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  p {
+    margin: 8px 0 0;
+  }
+`;
+
+const CopyStatus = styled.span`
+  color: var(--afs-muted);
+  font-size: 12px;
+  &:empty {
+    display: none;
+  }
 `;

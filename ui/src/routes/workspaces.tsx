@@ -8,7 +8,7 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import styled from "styled-components";
 import { PageStack } from "../components/afs-kit";
 import { CreateWorkspaceDialog } from "../features/workspaces/CreateWorkspaceDialog";
@@ -16,8 +16,6 @@ import {
   useScopedAgents,
   useScopedWorkspaceSummaries,
 } from "../foundation/database-scope";
-import type { CommandsDrawerConfig } from "../foundation/drawer-context";
-import { useDrawerCommands } from "../foundation/drawer-context";
 import {
   agentsQueryOptions,
   workspaceSummariesQueryOptions,
@@ -26,33 +24,6 @@ import { queryClient } from "../foundation/query-client";
 import { WorkspaceTable } from "../foundation/tables/workspace-table";
 import type { AFSWorkspaceSummary } from "../foundation/types/afs";
 import type { StudioTab } from "../foundation/workspace-tabs";
-
-const WORKSPACE_COMMANDS: CommandsDrawerConfig = {
-  title: "Work with workspaces",
-  subline: "Common commands. Run from your shell.",
-  sections: [
-    {
-      title: "Create",
-      description: "Provision a new workspace.",
-      command: "afs create my-workspace",
-    },
-    {
-      title: "Import",
-      description: "Import a local directory as a workspace.",
-      command: "afs create my-workspace --from ./docs",
-    },
-    {
-      title: "Fork",
-      description: "Branch a copy for an experiment.",
-      command: "afs fork my-workspace my-experiment",
-    },
-    {
-      title: "Delete",
-      description: "Tear down a workspace you no longer need.",
-      command: "afs delete my-workspace",
-    },
-  ],
-};
 
 export const Route = createFileRoute("/workspaces")({
   loader: async () => {
@@ -81,10 +52,6 @@ function WorkspacesPage() {
   const workspacesQuery = useScopedWorkspaceSummaries();
   const agentsQuery = useScopedAgents();
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
-  // Register contextual commands so the global Help button opens this page's
-  // workspace command reference. Memoized so the registration is stable.
-  const drawerConfig = useMemo(() => WORKSPACE_COMMANDS, []);
-  useDrawerCommands(location.pathname === "/workspaces" ? drawerConfig : null);
 
   if (location.pathname !== "/workspaces") {
     return <Outlet />;

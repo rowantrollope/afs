@@ -23,7 +23,7 @@ import {
 import { SurfaceCard } from "../components/card-shell";
 import { ConnectAgentBanner } from "../components/connect-agent-banner";
 import { ForkWorkspaceDialog } from "../features/workspaces/ForkWorkspaceDialog";
-import { workspaceCLICommand } from "../foundation/workspace-commands";
+import { workspaceHelpFor } from "../foundation/workspace-help";
 import { useDatabaseScope } from "../foundation/database-scope";
 import type { CommandsDrawerConfig } from "../foundation/drawer-context";
 import { useDrawerCommands } from "../foundation/drawer-context";
@@ -34,10 +34,7 @@ import {
   workspaceQueryOptions,
 } from "../foundation/hooks/use-afs";
 import { queryClient } from "../foundation/query-client";
-import type {
-  AFSWorkspaceDetail,
-  AFSWorkspaceView,
-} from "../foundation/types/afs";
+import type { AFSWorkspaceView } from "../foundation/types/afs";
 import { resolveWorkspaceBrowserView } from "../foundation/workspace-browser-views";
 import { displayWorkspaceName } from "../foundation/workspace-display";
 import type { StudioTab } from "../foundation/workspace-tabs";
@@ -91,8 +88,8 @@ function WorkspaceStudioPage() {
     if (workspace == null) {
       return null;
     }
-    return workspaceCommandsFor(workspace, tab);
-  }, [tab, workspace]);
+    return workspaceHelpFor(workspace, tab, browserView);
+  }, [tab, workspace, browserView]);
   const hasAgents = (workspace?.agents.length ?? 0) > 0;
   const showBanner =
     workspace != null && !bannerDismissed && userRequestedBanner;
@@ -588,55 +585,3 @@ const DeleteConfirmButton = styled(Button)`
     box-shadow: none;
   }
 `;
-
-type WorkspaceCommandSection = CommandsDrawerConfig["sections"][number] & {
-  tab: StudioTab;
-};
-
-function workspaceCommandsFor(
-  workspace: AFSWorkspaceDetail,
-  activeTab: StudioTab,
-): CommandsDrawerConfig {
-  const name = "'" + workspace.name.replaceAll("'", "'\"'\"'") + "'";
-  const sections: WorkspaceCommandSection[] = [
-    {
-      tab: "browse",
-      title: "Show workspace",
-      description: "Inspect this workspace's content tree.",
-      command: `afs info ${name}`,
-    },
-    {
-      tab: "changes",
-      title: "Review history",
-      description:
-        "Inspect versions of a file; replace README.md with its path.",
-      command: `afs --json history list ${name} README.md`,
-    },
-    {
-      tab: "checkpoints",
-      title: "List checkpoints",
-      description: "See saved checkpoints for this workspace.",
-      command: `afs --json checkpoint list ${name}`,
-    },
-    {
-      tab: "settings",
-      title: "Inspect settings",
-      description: "Fetch workspace details and capabilities.",
-      command: `afs --json info ${name}`,
-    },
-  ];
-
-  const orderedSections = [
-    ...sections.filter((section) => section.tab === activeTab),
-    ...sections.filter((section) => section.tab !== activeTab),
-  ].map(({ tab: _tab, ...section }) => ({
-    ...section,
-    command: workspaceCLICommand(workspace.databaseId, section.command),
-  }));
-
-  return {
-    title: `Work with ${displayWorkspaceName(workspace.name)}`,
-    subline: "Workspace CLI commands for the current view.",
-    sections: orderedSections,
-  };
-}
