@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -19,6 +20,7 @@ import type {
 } from "../foundation/types/afs";
 import { displayWorkspaceName } from "../foundation/workspace-display";
 import { BotIcon, FoldersIcon, LaptopIcon } from "./lucide-icons";
+import { LiveTopologyConfig, TopologyConfigButton, topologyNodeDetails, topologyNodeName, useTopologyDisplay } from "./live-topology-config";
 
 /* ------------------------------------------------------------------ */
 /*  Live topology: agents <-> Redis hub <-> workspaces                    */
@@ -638,22 +640,6 @@ function displayLocalPath(path: string): string {
   return path.trim().replace(/^\/Users\/[^/]+\/?/, "~/");
 }
 
-// Topology-specific label: the parent host group already shows the host, and
-// `agentName` often duplicates it as a friendly prefix (e.g. "Macbook Air").
-// Prefer the session name, then the agent name; never return the hostname.
-// When neither is set, fall back to the full session id.
-function displayAgentPrimaryName(agent: AFSAgentSession): string {
-  const host = agent.hostname.trim();
-  const notHost = (value?: string | null) => {
-    const trimmed = value?.trim();
-    return trimmed && trimmed !== host ? trimmed : undefined;
-  };
-  const named = notHost(agent.sessionName) || notHost(agent.agentName);
-  if (named) return named;
-  const sessionId = agent.sessionId.trim();
-  return sessionId ? `Session: ${sessionId}` : "Session: unknown";
-}
-
 function databaseScopedId(databaseId: string | undefined, id: string): string {
   return `${databaseId ?? ""}:${id}`;
 }
@@ -848,6 +834,9 @@ type Props = {
 
 export function LiveTopologyCard({ agents, workspaces }: Props) {
   const navigate = useNavigate();
+  const [display, setDisplay] = useTopologyDisplay();
+  const [configOpen, setConfigOpen] = useState(false);
+  const configId = useId();
   const sortedAgents = useMemo(
     () => sortAgentsForTopology(agents.filter(isConnectedAgentSession)),
     [agents],
@@ -1033,6 +1022,8 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
     visibleAgents.length,
     visibleWorkspaces.length,
     scheduleLineCompute,
+    display,
+    configOpen,
   ]);
 
   const activeAgents = sortedAgents.filter((a) => a.state === "active").length;
@@ -1091,7 +1082,11 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
               here.
             </CardSubtitle>
           </CardHeading>
+          <TopologyConfigButton type="button" aria-expanded={configOpen} aria-controls={configId} onClick={() => setConfigOpen(!configOpen)}>
+            Config
+          </TopologyConfigButton>
         </CardHeader>
+        {configOpen ? <LiveTopologyConfig id={configId} display={display} onChange={setDisplay} /> : null}
 
         <Topology ref={topologyRef}>
           {/* SVG lines overlay */}
@@ -1175,8 +1170,8 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                     </HostGroupName>
                   </HostGroupHeader>
                   {group.rows.map(({ agent, presence, visibleIndex: i }) => {
-                    const agentName = displayAgentPrimaryName(agent);
-                    const mountedPath = displayLocalPath(agent.localPath);
+                    const agentName = topologyNodeName(agent, display);
+                    const details = topologyNodeDetails(agent, display);
                     const methodLabel = agent.clientKind.trim() || "agent";
                     const active = agent.state === "active";
                     const highlighted = agentIsHighlighted(agent, hoveredItem);
@@ -1189,6 +1184,7 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                         data-highlighted={highlighted}
                         type="button"
                         aria-label={`Open details for ${agentName}`}
+                        aria-describedby={details.length ? `${configId}-agent-${i}` : undefined}
                         title={`Open details for ${agentName}`}
                         onMouseEnter={() => {
                           setHoveredItem({
@@ -1222,11 +1218,13 @@ export function LiveTopologyCard({ agents, workspaces }: Props) {
                         </NodeIconBox>
                         <AgentText>
                           <AgentLabel title={agentName}>{agentName}</AgentLabel>
-                          {mountedPath ? (
-                            <AgentPath title={agent.localPath}>
-                              {mountedPath}
-                            </AgentPath>
-                          ) : null}
+                          <span id={`${configId}-agent-${i}`}>
+                            {details.map(({ key, label, value }) => (
+                              <AgentPath key={key} title={`${label}: ${value}`}>
+                                {key === "localPath" ? displayLocalPath(value) : `${label}: ${value}`}
+                              </AgentPath>
+                            ))}
+                          </span>
                         </AgentText>
                       </AgentNode>
                     );

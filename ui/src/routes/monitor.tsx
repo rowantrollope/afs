@@ -6,6 +6,7 @@ import { NoticeBody, NoticeCard, PageStack } from "../components/afs-kit";
 import { SurfaceCard } from "../components/card-shell";
 import { LiveTopologyCard } from "../components/live-topology-card";
 import { isConnectedAgentSession } from "../foundation/agent-session";
+import { displayAgentPrimaryName } from "../foundation/agent-identity";
 import {
   useScopedActivity,
   useScopedAgents,
@@ -89,17 +90,10 @@ function monitorAgentSortKey(agent: AFSAgentSession) {
 function agentDisplayLabel(agent: AFSAgentSession) {
   const sessionName = agent.sessionName?.trim();
   const agentName = agent.agentName?.trim();
-  if (sessionName && agentName && sessionName !== agentName) {
+  if (sessionName && agentName && sessionName !== agentName && agentName !== agent.hostname.trim()) {
     return `${sessionName} · ${agentName}`;
   }
-  return (
-    sessionName ||
-    agentName ||
-    agent.label?.trim() ||
-    agent.agentId ||
-    agent.hostname ||
-    agent.sessionId
-  );
+  return displayAgentPrimaryName(agent);
 }
 
 function isAgentIdle(agent: AFSAgentSession) {

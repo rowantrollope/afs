@@ -325,6 +325,7 @@ export type AFSAgentSession = {
   agentId?: string;
   agentName?: string;
   sessionName?: string;
+  user?: string;
   clientKind: string;
   afsVersion: string;
   hostname: string;

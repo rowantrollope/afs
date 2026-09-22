@@ -1,5 +1,29 @@
 # AFS extraction
 
+## Configurable mount metadata in Live Topology — 2026-09-22
+
+- [x] Trace mount flags through managed sessions and retain the missing user field in the UI.
+- [x] Prefer supplied session/name/label/agent identity over generated session IDs; expose all supplied metadata in details and search.
+- [x] Add Live Topology Config for node labels and optional details, persisted in browser storage with reset defaults.
+- [x] Cover metadata fallbacks, API mapping, search, configuration, persistence and accessibility with focused UI regressions.
+- [x] Complete UI/build/browser verification and record results.
+- [x] Commit and push main.
+
+Scope: frontend metadata presentation only. Reuse the existing session API;
+`--session` is a descriptive session name, `--label` also populates agent name,
+and `--agent-version` is returned as `afs_version`. Keep generated session IDs
+available in details and as a fallback. Preserve concurrent unmount work.
+
+Review: all 130 UI tests, TypeScript, lint, `make control-plane`, Go build/vet/
+unit/race and a fresh isolated `TestControlPlaneManagedSyncLifecycle` pass.
+The process test uses disposable Redis and strips inherited AFS settings.
+Browser verification at `http://127.0.0.1:5173/monitor` confirmed live hot updates,
+Config label selection, detail toggles, persistence after reload, reset defaults
+and the full metadata dialog. Default Config is open in Safari. Independent
+review preserved the Monitor's combined names and added accessible node details.
+Vite continues from the main checkout; no backend changes or restart required.
+Logs: `/private/tmp/afs-mount-metadata-{go-build,go-vet,go-test,go-race,process-test,embedded-build}.log`.
+
 ## Remove unmounted sessions from Live Topology — 2026-09-22
 
 - [x] Trace retained session history and identify connected mount states.

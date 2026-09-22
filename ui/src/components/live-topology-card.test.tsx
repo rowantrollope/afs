@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { AFSAgentSession, AFSWorkspaceSummary } from "../foundation/types/afs";
 import { LiveTopologyCard } from "./live-topology-card";
@@ -20,6 +20,7 @@ vi.mock("../foundation/tables/agents-table", () => ({
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   navigate.mockClear();
 });
 
@@ -39,6 +40,20 @@ function sessionFixture(databaseId: string): AFSAgentSession {
     clientKind: "sync", afsVersion: "", hostname: "host", operatingSystem: "linux",
     localPath: "/tmp/workspace", readonly: false, state: "active", startedAt: "",
     lastSeenAt: "", leaseExpiresAt: "",
+  };
+}
+
+function taggedSession(): AFSAgentSession {
+  return {
+    ...sessionFixture("primary"),
+    sessionId: "session-123",
+    sessionName: "Review payments",
+    agentName: "Codex",
+    label: "Nightly worker",
+    agentId: "agent-456",
+    user: "maya",
+    afsVersion: "custom-agent-v2",
+    localPath: "/work/payments",
   };
 }
 
@@ -112,4 +127,131 @@ test.each(["closed", "stale"])("removes a mount and its connections when it beco
   expect(screen.getByRole("button", { name: "Open details for primary agent" })).toBeInTheDocument();
   expect(screen.getByText(/1 agent connected.*1\/1 workspaces connected/)).toBeInTheDocument();
   expect(container.querySelectorAll("polyline")).toHaveLength(2);
+});
+
+test("shows supplied mount tags by default without repeating the session name or showing the generated session ID", () => {
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+
+  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+  expect(node.getByText("Review payments")).toBeInTheDocument();
+  for (const detail of [
+    "Agent name: Codex",
+    "Label: Nightly worker",
+    "Agent ID: agent-456",
+    "User: maya",
+    "Agent / AFS version: custom-agent-v2",
+  ]) {
+    expect(node.getByText(detail)).toBeInTheDocument();
+  }
+  expect(node.getByTitle("Mount path: /work/payments")).toBeInTheDocument();
+  expect(node.queryByText("Session name: Review payments")).not.toBeInTheDocument();
+  expect(node.queryByText("Session ID: session-123")).not.toBeInTheDocument();
+});
+
+test.each<[string, Partial<AFSAgentSession>, string]>([
+  ["label", { label: " Legacy worker " }, "Legacy worker"],
+  ["agent ID", { label: "host", agentId: " legacy-agent-123 " }, "legacy-agent-123"],
+  ["user", { user: " legacy-user " }, "legacy-user"],
+  ["session ID", { label: "host" }, "Session: shared-session"],
+])("labels legacy metadata-only mounts using the supplied %s", (_field, metadata, label) => {
+  render(<LiveTopologyCard agents={[{
+    ...sessionFixture("primary"),
+    agentName: undefined,
+    ...metadata,
+  }]} workspaces={[workspace("primary")]} />);
+
+  expect(screen.getByRole("button", { name: `Open details for ${label}` })).toHaveTextContent(label);
+});
+
+test("Config changes the visible node label and falls back when that field is missing", () => {
+  const tagged = taggedSession();
+  render(<LiveTopologyCard agents={[
+    tagged,
+    { ...sessionFixture("primary"), sessionId: "no-agent-id", sessionName: "Docs cleanup", agentId: "  " },
+  ]} workspaces={[workspace("primary")]} />);
+
+  const configButton = screen.getByRole("button", { name: "Config" });
+  expect(configButton).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(configButton);
+  expect(configButton).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("region", { name: "Live Topology configuration" })).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Node label" }), { target: { value: "agentId" } });
+
+  const namedNode = screen.getByRole("button", { name: "Open details for agent-456" });
+  expect(namedNode).toHaveTextContent("agent-456");
+  expect(within(namedNode).queryByText("Agent ID: agent-456")).not.toBeInTheDocument();
+  expect(namedNode).toHaveAccessibleDescription(/Session name: Review payments/);
+  expect(screen.getByRole("button", { name: "Open details for Docs cleanup" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Open details for Review payments" })).not.toBeInTheDocument();
+  fireEvent.click(configButton);
+  expect(screen.queryByRole("region", { name: "Live Topology configuration" })).not.toBeInTheDocument();
+});
+
+test("Config checkboxes hide and restore user, version, session ID, and mount path details", () => {
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+
+  for (const [label, title] of [
+    ["User", "User: maya"],
+    ["Agent / AFS version", "Agent / AFS version: custom-agent-v2"],
+    ["Mount path", "Mount path: /work/payments"],
+  ]) {
+    const checkbox = screen.getByRole("checkbox", { name: label });
+    expect(checkbox).toBeChecked();
+    expect(node.getByTitle(title)).toBeInTheDocument();
+    fireEvent.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+    expect(node.queryByTitle(title)).not.toBeInTheDocument();
+    fireEvent.click(checkbox);
+    expect(node.getByTitle(title)).toBeInTheDocument();
+  }
+
+  const sessionId = screen.getByRole("checkbox", { name: "Session ID" });
+  expect(sessionId).not.toBeChecked();
+  fireEvent.click(sessionId);
+  expect(node.getByText("Session ID: session-123")).toBeInTheDocument();
+  fireEvent.click(sessionId);
+  expect(node.queryByText("Session ID: session-123")).not.toBeInTheDocument();
+});
+
+test("persists Config choices across remounts and restores defaults", () => {
+  const props = { agents: [taggedSession()], workspaces: [workspace("primary")] };
+  const { unmount } = render(<LiveTopologyCard {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Node label" }), { target: { value: "agentId" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "User" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Session ID" }));
+  unmount();
+
+  render(<LiveTopologyCard {...props} />);
+  const node = within(screen.getByRole("button", { name: "Open details for agent-456" }));
+  expect(node.queryByText("User: maya")).not.toBeInTheDocument();
+  expect(node.getByText("Session ID: session-123")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("agentId");
+  expect(screen.getByRole("checkbox", { name: "User" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Session ID" })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Reset defaults" }));
+
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("auto");
+  expect(screen.getByRole("checkbox", { name: "User" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Session ID" })).not.toBeChecked();
+  const resetNode = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+  expect(resetNode.getByText("User: maya")).toBeInTheDocument();
+  expect(resetNode.queryByText("Session ID: session-123")).not.toBeInTheDocument();
+});
+
+test.each([
+  "invalid JSON",
+  JSON.stringify({ name: "unknown-field", details: "all" }),
+])("uses safe defaults for invalid saved Config: %s", (saved) => {
+  localStorage.setItem("afs.topology.display.v1", saved);
+  render(<LiveTopologyCard agents={[taggedSession()]} workspaces={[workspace("primary")]} />);
+
+  const node = within(screen.getByRole("button", { name: "Open details for Review payments" }));
+  expect(node.getByText("User: maya")).toBeInTheDocument();
+  expect(node.queryByText("Session ID: session-123")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Config" }));
+  expect(screen.getByRole("combobox", { name: "Node label" })).toHaveValue("auto");
 });

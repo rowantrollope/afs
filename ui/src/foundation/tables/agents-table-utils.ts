@@ -17,9 +17,11 @@ function trimmed(value?: string | null) {
 }
 
 export function displayAgentIdentityLabel(agent: AFSAgentSession): string {
-  const agentName = trimmed(agent.agentName);
-  const sessionName = trimmed(agent.sessionName);
   const machineName = trimmed(agent.hostname);
+  const agentName = trimmed(agent.agentName) === machineName
+    ? ""
+    : trimmed(agent.agentName);
+  const sessionName = trimmed(agent.sessionName);
 
   if (agentName && sessionName) {
     return `${agentName} - ${sessionName}`;
@@ -34,9 +36,10 @@ export function displayAgentIdentityLabel(agent: AFSAgentSession): string {
   }
 
   return (
-    machineName ||
-    trimmed(agent.label) ||
+    (trimmed(agent.label) !== machineName ? trimmed(agent.label) : "") ||
     trimmed(agent.agentId) ||
+    trimmed(agent.user) ||
+    machineName ||
     trimmed(agent.sessionId) ||
     "unknown agent"
   );
@@ -66,6 +69,10 @@ export function matchesAgentSearch(agent: AFSAgentSession, query: string) {
     agent.agentId,
     agent.agentName,
     agent.sessionName,
+    agent.sessionId,
+    agent.user,
+    agent.afsVersion,
+    agent.clientKind,
     agent.localPath,
     agent.label,
     agent.workspaceName,

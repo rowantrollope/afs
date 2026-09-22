@@ -228,4 +228,68 @@ describe("one-tree HTTP workspace contract", () => {
       message: "Settings changed",
     });
   });
+
+  test("maps every supplied mount identity tag when listing agents", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              session_id: "session-123",
+              workspace: "payments",
+              workspace_id: "tree-123",
+              workspace_name: "Payments",
+              database_id: "db-team",
+              database_name: "Team Redis",
+              session_name: "Review payments",
+              agent_name: "Codex",
+              label: "Nightly worker",
+              agent_id: "agent-456",
+              user: "maya",
+              afs_version: "custom-agent-v2",
+              client_kind: "sync",
+              hostname: "dev-host",
+              os: "darwin",
+              local_path: "/work/payments",
+              readonly: true,
+              state: "active",
+              started_at: "2026-09-22T10:00:00Z",
+              last_seen_at: "2026-09-22T10:01:00Z",
+              lease_expires_at: "2026-09-22T10:02:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { afsApi } = await import("./afs");
+
+    expect(await afsApi.listAgents("db-team")).toEqual([
+      {
+        sessionId: "session-123",
+        workspaceId: "tree-123",
+        workspaceName: "Payments",
+        databaseId: "db-team",
+        databaseName: "Team Redis",
+        sessionName: "Review payments",
+        agentName: "Codex",
+        label: "Nightly worker",
+        agentId: "agent-456",
+        user: "maya",
+        afsVersion: "custom-agent-v2",
+        clientKind: "sync",
+        hostname: "dev-host",
+        operatingSystem: "darwin",
+        localPath: "/work/payments",
+        readonly: true,
+        state: "active",
+        startedAt: "2026-09-22T10:00:00Z",
+        lastSeenAt: "2026-09-22T10:01:00Z",
+        leaseExpiresAt: "2026-09-22T10:02:00Z",
+      },
+    ]);
+    expect(fetch.mock.calls[0][0]).toBe(
+      "https://test.afs.invalid/v1/databases/db-team/agents",
+    );
+  });
 });

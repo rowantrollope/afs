@@ -16,6 +16,7 @@ import {
 import { LiveTopologyCard } from "../../components/live-topology-card";
 import { BotIcon } from "../../components/lucide-icons";
 import { isConnectedAgentSession } from "../agent-session";
+import { agentMetadata, agentMetadataSummary, displayAgentPrimaryName } from "../agent-identity";
 import { useStoredViewMode } from "../hooks/use-stored-view-mode";
 import type { AFSAgentSession, AFSWorkspaceSummary } from "../types/afs";
 import type { AgentSortField } from "./agents-table-utils";
@@ -40,15 +41,6 @@ function timeAgo(iso: string): string {
 
 function displayMountPath(path: string): string {
   return path.trim().replace(/^\/Users\/[^/]+\/?/, "~/");
-}
-
-function displayAgentName(agent: AFSAgentSession): string {
-  return (
-    agent.agentName?.trim() ||
-    (!agent.sessionName?.trim() ? agent.label?.trim() : "") ||
-    agent.agentId?.trim() ||
-    ""
-  );
 }
 
 function displaySessionName(agent: AFSAgentSession): string {
@@ -197,7 +189,7 @@ export function AgentDetailDialog({
         <DialogHeader>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <ActiveDot $active={active} style={{ width: 10, height: 10 }} />
-            <DialogTitle>{agent.hostname || "Unknown Agent"}</DialogTitle>
+            <DialogTitle>{displayAgentPrimaryName(agent)}</DialogTitle>
           </div>
           <DialogCloseButton onClick={onClose}>&times;</DialogCloseButton>
         </DialogHeader>
@@ -228,27 +220,19 @@ export function AgentDetailDialog({
             <DetailValue>{agent.operatingSystem || "Not reported"}</DetailValue>
           </DetailField>
           <DetailField>
-            <DetailLabel>AFS Version</DetailLabel>
-            <DetailValue>{agent.afsVersion || "Unknown"}</DetailValue>
+            <DetailLabel>Hostname</DetailLabel>
+            <DetailValue>{agent.hostname || "Not reported"}</DetailValue>
           </DetailField>
           <DetailField>
             <DetailLabel>Local Path</DetailLabel>
             <DetailValue>{agent.localPath || "Not reported"}</DetailValue>
           </DetailField>
-          <DetailField>
-            <DetailLabel>Agent Name</DetailLabel>
-            <DetailValue>{displayAgentName(agent) || "Not set"}</DetailValue>
-          </DetailField>
-          <DetailField>
-            <DetailLabel>Session Name</DetailLabel>
-            <DetailValue>{displaySessionName(agent) || "Not set"}</DetailValue>
-          </DetailField>
-          <DetailField>
-            <DetailLabel>Agent ID</DetailLabel>
-            <DetailValue style={{ fontSize: 12 }}>
-              {agent.agentId?.trim() || "Not set"}
-            </DetailValue>
-          </DetailField>
+          {agentMetadata(agent).map(({ label, value }) => (
+            <DetailField key={label}>
+              <DetailLabel>{label}</DetailLabel>
+              <DetailValue>{value}</DetailValue>
+            </DetailField>
+          ))}
           <DetailField>
             <DetailLabel>Session ID</DetailLabel>
             <DetailValue style={{ fontSize: 12 }}>
@@ -355,7 +339,7 @@ export function AgentsTable({
                 statusTitle={active ? "Active" : "Inactive"}
               >
                 <StatusNameLine>
-                  <TablePrimaryText title={identityLabel}>
+                  <TablePrimaryText title={[identityLabel, agentMetadataSummary(row.original)].filter(Boolean).join(" · ")}>
                     {identityLabel}
                   </TablePrimaryText>
                 </StatusNameLine>

@@ -393,6 +393,7 @@ type HTTPWorkspaceSessionInfo = {
   agent_id?: string;
   agent_name?: string;
   session_name?: string;
+  user?: string;
   client_kind?: string;
   afs_version?: string;
   hostname?: string;
@@ -1020,6 +1021,7 @@ function mapAgentSession(
     agentId: input.agent_id,
     agentName: input.agent_name,
     sessionName: input.session_name,
+    user: input.user,
     clientKind: input.client_kind ?? "",
     afsVersion: input.afs_version ?? "",
     hostname: input.hostname ?? "",

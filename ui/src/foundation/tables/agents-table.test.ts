@@ -110,6 +110,28 @@ describe("filterAndSortAgents", () => {
     ).toBe("sess-orders");
   });
 
+  test.each([
+    ["session ID", " SESSION-WORKER-123 "],
+    ["user", " MAYA "],
+    ["agent version", " CUSTOM-AGENT-V2 "],
+    ["client kind", " FUSE "],
+  ])("matches %s metadata", (_field, search) => {
+    const taggedAgent = buildAgent({
+      sessionId: "session-worker-123",
+      user: "maya",
+      afsVersion: "custom-agent-v2",
+      clientKind: "fuse",
+    });
+    const otherAgent = buildAgent({
+      hostname: "other-host",
+      localPath: "/work/other",
+    });
+
+    expect(
+      filterAndSortAgents([otherAgent, taggedAgent], search, "lastSeenAt", "desc"),
+    ).toEqual([taggedAgent]);
+  });
+
   test("sorts by session and agent names", () => {
     const namedRows = [
       buildAgent({

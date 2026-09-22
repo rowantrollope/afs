@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-22 — Configurable mount identity
+
+- The control-plane UI should display the informational metadata supplied to `afs mount`, including session labels, agent IDs, users, labels and versions, rather than only a generated session ID.
+- The user wants a Config button on Live Topology to choose the node label and visible details. Persist those preferences in the browser, handle missing fields gracefully and keep full metadata available in session details.
+
 ## 2026-09-22 — Live Topology shows current mounts
 
 - The user expects unmounted sessions to disappear from Live Topology, rather than remain as blue inactive nodes.
