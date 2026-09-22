@@ -150,7 +150,16 @@ func TestDefaultMountOutputAndJSONStatus(t *testing.T) {
 	})
 	for _, args := range [][]string{{"status"}, {"status", root}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			readableOutput(t, c.run(nil, args...), []string{"visible-mount"}, []string{root}, []string{"running"}, []string{"connected", "connection"}, []string{"pending", "queued", "queue"}, []string{"conflict"}, []string{"error"})
+			out := c.run(nil, args...)
+			readableOutput(t, out, []string{"visible-mount"}, []string{root}, []string{"connected", "connection"}, []string{"pending", "queued", "queue"}, []string{"conflict"})
+			if len(args) == 1 {
+				_, table, ok := strings.Cut(string(out), "\n\n")
+				if !ok || !strings.HasPrefix(table, "WORKSPACE") || !strings.Contains(table, "STATUS") || strings.Contains(table, "REDIS") || strings.Contains(table, "CONNECTION") || strings.Contains(table, "STATE") || strings.Contains(table, "ERROR") {
+					t.Fatalf("overview is not compact: %s", out)
+				}
+			} else {
+				readableOutput(t, out, []string{"running"}, []string{"state:"}, []string{"connection:"}, []string{"redis:"}, []string{"error:"})
+			}
 		})
 	}
 	write(t, filepath.Join(root, "kept"), []byte("local survives unmount"))

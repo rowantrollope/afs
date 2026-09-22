@@ -46,8 +46,8 @@ func TestStatusDatabaseContextOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := run("status")
-	if !strings.Contains(got, "Configured REDIS: redis://localhost:1/4") || !strings.Contains(got, rec.Redis) {
-		t.Fatalf("mixed context: %s", got)
+	if !strings.Contains(got, "Configured REDIS: redis://localhost:1/4") || strings.Contains(got, rec.Redis) {
+		t.Fatalf("overview should show configured context without per-mount endpoints: %s", got)
 	}
 	if got := run("status", root); !strings.HasPrefix(got, "REDIS: "+rec.Redis+"\n\n") {
 		t.Fatalf("targeted status: %s", got)

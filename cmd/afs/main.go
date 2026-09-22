@@ -143,7 +143,7 @@ Read-only sync mounts stop without uploading local changes or claiming a flush.
 For native mounts, unmount detaches the filesystem after flushing kernel writes;
 a failed normal unmount leaves the helper serving. --force requests forced detach.
 `,
-	"status": "Usage: afs status [directory]\n\nShow locally registered mounts, connection state, pending work, and errors.\n",
+	"status": "Usage: afs status [directory]\n\nShow a compact overview of locally registered mounts and pending work.\nSTATUS shows the Redis connection or a stopped/unresponsive/unavailable daemon.\nSpecify a directory for full state, connection, Redis endpoint, and error details.\n",
 }
 
 type cliOptions struct {

@@ -1,5 +1,24 @@
 # AFS extraction
 
+## Compact CLI mount status — 2026-09-22
+
+- [x] Remove per-mount Redis URLs from overview rows, abbreviate home paths, and combine lifecycle/connection into STATUS.
+- [x] Show errors below the table; preserve full targeted details, activity counts, and JSON.
+- [x] Validate build, vet, unit/race and isolated real-Redis output checks; rebuild the installed CLI.
+- [x] Commit and push main.
+
+Decision: STATUS shows connected/disconnected for a responding daemon, otherwise
+its stopped/unresponsive/unavailable state (unknown if live status is missing).
+Daemon lifecycle and Redis connectivity remain separate fields in detailed status.
+
+Review: build, vet, full unit/race suites and three isolated real-Redis process
+tests pass. Existing output checks now cover the compact overview, preserved
+details/JSON, unhealthy states, and an 80-column home-directory example. The
+installed CLI symlink uses rebuilt bin/afs. Rebuilt the embedded control plane
+with make control-plane and restarted it from main with Redis/auth settings
+preserved; both local UI endpoints (8091 and 5173) respond successfully. Logs:
+`/private/tmp/afs-status-*.log`. No existing Redis data was used for tests.
+
 ## Complete the downloadable agent skill — 2026-09-22
 
 - [x] Review the skill against the CLI and anticipated agent workflows; prepare and validate a replacement.

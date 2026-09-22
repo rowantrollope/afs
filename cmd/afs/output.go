@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -137,6 +138,7 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 		return "No mounts.\n"
 	}
 	rows := make([][]string, 0, len(mounts))
+	var errors [][]string
 	for _, mount := range mounts {
 		backend, _ := mount["backend"].(string)
 		if backend == "" {
@@ -189,8 +191,37 @@ func formatMountStatus(mounts []map[string]any, detailed bool) string {
 				{"Error:", lastError}, {"PID:", fmt.Sprint(mount["pid"])}, {"REDIS:", fmt.Sprint(mount["redis"])},
 			})
 		}
-		rows = append(rows, []string{fmt.Sprint(mount["workspace"]), fmt.Sprint(mount["directory"]),
-			backend, fmt.Sprint(mount["state"]), connection, queued, uploads, conflicts, lastError, fmt.Sprint(mount["redis"])})
+		// A responding daemon's Redis connection is the useful summary. Keep
+		// lifecycle failures visible when there is no live connection report.
+		status, _ := mount["state"].(string)
+		if status == "running" || status == "" {
+			status = connection
+		}
+		directory := statusDirectory(fmt.Sprint(mount["directory"]))
+		rows = append(rows, []string{fmt.Sprint(mount["workspace"]), directory,
+			backend, status, queued, uploads, conflicts})
+		if lastError != "" {
+			errors = append(errors, []string{directory + ":", lastError})
+		}
 	}
-	return textTable([]string{"WORKSPACE", "DIRECTORY", "BACKEND", "STATE", "CONNECTION", "QUEUED", "UPLOADS", "CONFLICTS", "ERROR", "REDIS"}, rows)
+	out := textTable([]string{"WORKSPACE", "DIRECTORY", "BACKEND", "STATUS", "QUEUED", "UPLOADS", "CONFLICTS"}, rows)
+	if len(errors) > 0 {
+		out += "\nErrors:\n" + textTable(nil, errors)
+	}
+	return out
+}
+
+func statusDirectory(directory string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(directory) {
+		return directory
+	}
+	rel, err := filepath.Rel(home, directory)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return directory
+	}
+	if rel == "." {
+		return "~"
+	}
+	return "~" + string(filepath.Separator) + rel
 }

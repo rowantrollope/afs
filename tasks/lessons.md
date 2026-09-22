@@ -347,3 +347,9 @@ delete existing worktrees or their uncommitted work without a separate request.
 - User correction: the header terminal icon is the “Agent” button, and its panel must provide relevant help on every page, including suggested agent prompts and AFS CLI guidance.
 - Cover nested workspace tabs, History views, and individual recipes as well as top-level navigation. Keep workspace examples tied to the actual database, and distinguish snapshot browsing from the live mount.
 - Copy prompt prose separately from commands, preserve exact command text, and explain UI-only actions without inventing CLI commands.
+
+## Compact CLI status — 2026-09-22
+
+- User correction: status rows wrap; omit per-mount database URLs and avoid separate STATE/CONNECTION overview columns.
+- Show one STATUS that preserves daemon failures and Redis disconnection; retain both underlying fields and the database in targeted details/JSON.
+- Abbreviate home paths and show error text below the table so long diagnostics do not widen every mount row.

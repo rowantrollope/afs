@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -54,6 +55,50 @@ func TestStatusTextDistinguishesUnavailableFromIdle(t *testing.T) {
 			t.Fatalf("status lost %q: %s", expected, out)
 		}
 	}
+	t.Run("compact overview preserves unhealthy states", func(t *testing.T) {
+		for _, state := range []string{"stopped", "unresponsive", "unavailable", "running"} {
+			row["state"] = state
+			out := formatMountStatus([]map[string]any{row}, false)
+			want := state
+			if state == "running" {
+				want = "disconnected"
+			}
+			if !strings.Contains(out, want) || !strings.Contains(out, "\nErrors:\n") || !strings.Contains(out, "/tmp/demo:") || !strings.Contains(out, "connection lost") {
+				t.Fatalf("overview hides state or error: %s", out)
+			}
+		}
+		delete(row, "sync")
+		out := formatMountStatus([]map[string]any{row}, false)
+		if !strings.Contains(out, "unknown") || strings.Contains(out, "connected") {
+			t.Fatalf("missing live status looks connected: %s", out)
+		}
+	})
+	t.Run("home mount overview fits 80 columns", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		row["directory"] = filepath.Join(home, "demo")
+		row["sync"] = &syncStatus{Connected: true}
+		out := formatMountStatus([]map[string]any{row}, false)
+		if !strings.Contains(out, "~/demo") || !strings.Contains(out, "connected") || strings.Contains(out, "REDIS") || strings.Contains(out, "STATE") || strings.Contains(out, "CONNECTION") || strings.Contains(out, "Errors:") {
+			t.Fatalf("overview still includes full diagnostic columns: %s", out)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if len(line) > 80 {
+				t.Fatalf("overview wraps at 80 columns: %q", line)
+			}
+		}
+		out = formatMountStatus([]map[string]any{row}, true)
+		for _, want := range []string{row["directory"].(string), row["redis"].(string), "State:", "running", "Connection:", "connected"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("detailed status lost %q: %s", want, out)
+			}
+		}
+		row["directory"] = home + "-other/demo"
+		out = formatMountStatus([]map[string]any{row}, false)
+		if !strings.Contains(out, row["directory"].(string)) || strings.Contains(out, "~/") {
+			t.Fatalf("home abbreviation changed a sibling path: %s", out)
+		}
+	})
 }
 
 func TestEmptyCheckpointText(t *testing.T) {

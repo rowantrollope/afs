@@ -323,8 +323,12 @@ completed local flush. There is no separate remote-file command group.
 Commands print readable text by default: tables for lists, labeled details for
 `info`, `checkpoint show` and `status <directory>`, and short confirmations for
 changes. Database commands show a credential-free Redis URL header, including the effective
-database number. `status` labels the configured endpoint and lists each mount's
-Redis endpoint; targeted status and unmount identify the mount's database.
+database number. `status` labels the configured endpoint and shows a compact mount
+table with home directories abbreviated as `~/…`. Its single `STATUS` column shows
+`connected` or `disconnected` for a responding daemon, otherwise `stopped`,
+`unresponsive`, `unavailable`, or `unknown`. Errors appear below the table.
+`status <directory>` retains separate daemon state and Redis connection fields,
+full paths, and the mount's Redis endpoint; unmount also identifies that database.
 JSON output keeps its existing schema without a text header.
 Displayed timestamps use `dd/mm/yyyy hh:mm:ss AM/PM` (12-hour time) in the system's local timezone
 (including a `TZ` environment override). JSON and stored timestamps retain their
