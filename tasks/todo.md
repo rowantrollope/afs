@@ -1,5 +1,15 @@
 # AFS extraction
 
+## Agents header button — 2026-09-22
+
+- [x] Show `agents >` followed by the existing blinking cursor in the header help button.
+- [x] Validate UI/build, required Go checks and the live browser; commit and push main.
+
+Review: all 154 UI tests, lint, `make control-plane`, Go build/vet/unit/race
+and a fresh isolated Redis managed lifecycle test pass. Rebuilt and restarted
+the main-checkout server with existing Redis/auth settings preserved; verified
+`http://127.0.0.1:8091/` shows `agents >` followed by the 1.1s blinking cursor.
+
 ## Contextual Agent help on every page — 2026-09-22
 
 - [x] Review all routes, recipe pages, History views, and workspace tabs against current CLI behavior.

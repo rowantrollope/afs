@@ -1,5 +1,9 @@
 # Lessons
 
+## 2026-09-22 — Name the agents button
+
+- User correction: the header help button must visibly say `agents >`, with its blinking cursor to the right of the label.
+
 ## 2026-09-22 — Unmount accepts workspace identity
 
 - The user expects `afs unmount` to accept a workspace name when it identifies one local mount; require the directory only when the selector is ambiguous.

@@ -1,4 +1,3 @@
-import { ChevronRight } from "lucide-react";
 import { useLocation } from "@tanstack/react-router";
 import styled, { keyframes } from "styled-components";
 import { useDrawer } from "../foundation/drawer-context";
@@ -40,8 +39,8 @@ export function HelpButton() {
       aria-expanded={state?.kind === "page-help"}
       title={`Agent help: ${help.title}`}
     >
+      <span>agents &gt;</span>
       <TerminalCursor aria-hidden>_</TerminalCursor>
-      <ChevronRight size={16} strokeWidth={2.4} />
     </HelpButtonRoot>
   );
 }
@@ -53,12 +52,17 @@ const cursorBlink = keyframes`
 const HelpButtonRoot = styled.button`
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 6px;
   padding: 6px 8px 6px 10px;
   border-radius: 8px;
   border: 1px solid #1f2937;
   background: #0d1117;
   color: #4ade80;
+  font-family: var(--afs-mono, "SF Mono", "Fira Code", monospace);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background 120ms ease,
