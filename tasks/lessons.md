@@ -1,5 +1,11 @@
 # Lessons
 
+## 2026-09-22 — Distinguish bootstrap storage from managed Redis databases
+
+- Moving the database connection registry from JSON into Redis still requires a bootstrap Redis endpoint and credentials. Do not present it as removing the control plane's initial storage dependency.
+- Treat control-plane metadata storage separately from the Redis databases it manages. Local JSON or SQLite can bootstrap from a filesystem path on a persistent server; remote metadata storage requires its own connection configuration.
+- When discussing Vercel, distinguish the need for durable shared storage from the choice of JSON, SQLite, Redis, or Postgres. A storage-format change alone does not solve persistence or bootstrap configuration.
+
 ## 2026-09-22 — Name the agents button
 
 - User correction: the header help button must visibly say `agents >`, with its blinking cursor to the right of the label.
