@@ -1,5 +1,17 @@
 # AFS extraction
 
+## Default topology labels to Agent ID — 2026-09-22
+
+- [x] Use Agent ID as the default node label, with Mount path as the only default detail.
+- [x] Migrate prior saved defaults while retaining custom layouts.
+- [x] Validate tests/build and the live browser, then commit and push main.
+
+Review: all 140 UI tests, TypeScript/lint, embedded build, Go build/vet/unit/
+race and the isolated real-Redis lifecycle test pass. Regressions verify reset,
+missing IDs, prior-default migration and explicitly saved custom labels.
+Safari at `http://127.0.0.1:5173/monitor` confirms Agent ID after Reset defaults,
+with only Mount path enabled. Logs: `/private/tmp/afs-topology-agent-id-*.log`.
+
 ## Center topology detail labels and values — 2026-09-22
 
 - [x] Lay out details in two equal columns across the node, with right-aligned labels and left-aligned values.

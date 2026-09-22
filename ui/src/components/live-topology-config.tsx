@@ -27,7 +27,7 @@ type TopologyDisplay = {
 };
 const storageKey = "afs.topology.display.v1";
 const defaults: TopologyDisplay = {
-  name: "agentName",
+  name: "agentId",
   details: ["localPath"],
 };
 const previousDefaultDetails = ["sessionName", "agentName", "label", "agentId", "user", "afsVersion", "localPath"];
@@ -37,11 +37,16 @@ function readDisplay(): TopologyDisplay {
     const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "null");
     if (!stored || typeof stored !== "object") return defaults;
     const { name, details, defaultsVersion } = stored as Record<string, unknown>;
+    const savedVersion = typeof defaultsVersion === "number" ? defaultsVersion : 1;
     // Earlier versions saved defaults on first render, even without a choice.
     // Upgrade that default while retaining every customized configuration.
-    if (defaultsVersion !== 2 && name === "auto" && Array.isArray(details) &&
+    if (savedVersion < 2 && name === "auto" && Array.isArray(details) &&
       details.length === previousDefaultDetails.length &&
       previousDefaultDetails.every((field) => details.includes(field))) {
+      return defaults;
+    }
+    if (savedVersion < 3 && name === "agentName" && Array.isArray(details) &&
+      details.length === 1 && details[0] === "localPath") {
       return defaults;
     }
     return {
@@ -60,7 +65,7 @@ export function useTopologyDisplay() {
   const [display, setDisplay] = useState(readDisplay);
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ ...display, defaultsVersion: 2 }));
+      localStorage.setItem(storageKey, JSON.stringify({ ...display, defaultsVersion: 3 }));
     } catch {
       // The controls still work if browser storage is unavailable.
     }

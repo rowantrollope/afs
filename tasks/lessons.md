@@ -8,7 +8,7 @@
 ## 2026-09-22 — Configurable mount identity
 
 - Align topology details around the middle of the node: labels right-aligned, values left-aligned in equal columns below the title.
-- Default Live Topology to the agent name and mount path only. Uptime belongs in the optional detail list; showing every available tag by default is too busy.
+- Default Live Topology to Agent ID and mount path only: the default agent name duplicates the system name already shown in the host group. Uptime belongs in the optional detail list; showing every available tag by default is too busy.
 - The control-plane UI should display the informational metadata supplied to `afs mount`, including session labels, agent IDs, users, labels and versions, rather than only a generated session ID.
 - The user wants a Config button on Live Topology to choose the node label and visible details. Persist those preferences in the browser, handle missing fields gracefully and keep full metadata available in session details.
 
