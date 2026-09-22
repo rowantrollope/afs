@@ -1,9 +1,11 @@
 import { Loader } from "@redis-ui/components";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useMemo } from "react";
 import styled from "styled-components";
 import { NoticeBody, NoticeCard, PageStack } from "../components/afs-kit";
 import { SurfaceCard } from "../components/card-shell";
 import { LiveTopologyCard } from "../components/live-topology-card";
+import { isConnectedAgentSession } from "../foundation/agent-session";
 import {
   useScopedActivity,
   useScopedAgents,
@@ -21,6 +23,10 @@ function MonitorPage() {
   const workspaces = useScopedWorkspaceSummaries();
   const agents = useScopedAgents();
   const activity = useScopedActivity(50);
+  const connectedAgents = useMemo(
+    () => agents.data.filter(isConnectedAgentSession),
+    [agents.data],
+  );
   if (workspaces.isLoading || agents.isLoading)
     return <Loader data-testid="loader--spinner" />;
   const error = workspaces.error || agents.error;
@@ -41,12 +47,12 @@ function MonitorPage() {
       )}
       <StatusHeader
         workspaces={workspaces.data.length}
-        activeSessions={agents.data.length}
+        activeSessions={connectedAgents.length}
         opsPerMin={computeOpsPerMin(activity.data)}
         loading={activity.isLoading}
       />
-      <MissionHudPanel agents={agents.data} />
-      <LiveTopologyCard agents={agents.data} workspaces={workspaces.data} />
+      <MissionHudPanel agents={connectedAgents} />
+      <LiveTopologyCard agents={connectedAgents} workspaces={workspaces.data} />
       <ActivityCard>
         <ActivityCardHeader>
           <ActivityCardEyebrow>Live activity</ActivityCardEyebrow>

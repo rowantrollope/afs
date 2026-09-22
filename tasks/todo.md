@@ -1,5 +1,26 @@
 # AFS extraction
 
+## Remove unmounted sessions from Live Topology — 2026-09-22
+
+- [x] Trace retained session history and identify connected mount states.
+- [x] Filter topology nodes, connection counts and Monitor active-agent rows to live sessions.
+- [x] Verify close/stale transitions and reconnection regressions, UI checks, build/vet/unit/race and isolated real-Redis lifecycle tests.
+- [x] Verify the updated active browser URL, commit and push main.
+
+Scope: closed/stale sessions remain in history, but no longer appear as connected
+mounts. Starting, active (including idle) and supported syncing sessions remain
+visible. Preserve workspace catalog nodes and direct Redis mount behavior.
+
+Review: all 102 UI tests, UI lint, `make control-plane`, Go build/vet/unit/race,
+and `TestControlPlaneManagedSyncLifecycle` against its own disposable Redis pass.
+Regressions cover initial history, close/stale transitions, removed connections,
+reconnection, idle mounts and Monitor counts. Independent review found no issues.
+Safari at `http://127.0.0.1:5173/monitor` hot-updated from four reported mounts
+to the one connected mount, removing the three historical nodes and their host
+group while preserving workspace nodes and activity history. Both Vite and API
+run from main; no backend source changes or server configuration changes were
+needed. Logs: `/private/tmp/afs-topology-{ui-test,ui-lint,build,go-build,go-vet,go-test,go-race,process-test}.log`.
+
 ## Run the live development UI from main — 2026-09-22
 
 - [x] Identify the API and Vite listeners and verify their source checkout.

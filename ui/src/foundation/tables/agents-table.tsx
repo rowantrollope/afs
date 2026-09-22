@@ -15,6 +15,7 @@ import {
 } from "../../components/afs-kit";
 import { LiveTopologyCard } from "../../components/live-topology-card";
 import { BotIcon } from "../../components/lucide-icons";
+import { isConnectedAgentSession } from "../agent-session";
 import { useStoredViewMode } from "../hooks/use-stored-view-mode";
 import type { AFSAgentSession, AFSWorkspaceSummary } from "../types/afs";
 import type { AgentSortField } from "./agents-table-utils";
@@ -25,17 +26,6 @@ import {
 } from "./agents-table-utils";
 import { StatusNameCell, StatusNameLine } from "./status-name-cell";
 import * as S from "./workspace-table.styles";
-
-/* ------------------------------------------------------------------ */
-/*  Helper: is the agent "active" (seen in the last 60 s)?            */
-/* ------------------------------------------------------------------ */
-function isAgentActive(agent: AFSAgentSession): boolean {
-  return (
-    agent.state === "active" ||
-    agent.state === "starting" ||
-    agent.state === "syncing"
-  );
-}
 
 function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -199,7 +189,7 @@ export function AgentDetailDialog({
   onClose: () => void;
   onOpenWorkspace: (agent: AFSAgentSession) => void;
 }) {
-  const active = isAgentActive(agent);
+  const active = isConnectedAgentSession(agent);
 
   return (
     <DialogOverlay onClick={onClose}>
@@ -355,7 +345,7 @@ export function AgentsTable({
           size: 240,
           enableSorting: true,
           cell: ({ row }) => {
-            const active = isAgentActive(row.original);
+            const active = isConnectedAgentSession(row.original);
             const identityLabel = displayAgentIdentityLabel(row.original);
             return (
               <StatusNameCell
@@ -448,7 +438,7 @@ export function AgentsTable({
           size: 120,
           enableSorting: true,
           cell: ({ row }) => {
-            const active = isAgentActive(row.original);
+            const active = isConnectedAgentSession(row.original);
             return (
               <TableTimeText
                 component="span"

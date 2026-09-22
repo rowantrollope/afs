@@ -73,3 +73,43 @@ test("keeps identical session IDs in separate database hover scopes", () => {
   expect(screen.getByRole("button", { name: "Open Workspace primary" })).toHaveAttribute("data-highlighted", "true");
   expect(screen.getByRole("button", { name: "Open Workspace secondary" })).toHaveAttribute("data-highlighted", "false");
 });
+
+test("shows connected mounts without drawing retained session history", () => {
+  const agents = ["active", "starting", "syncing", "closed", "stale", "unknown"].map((state) => ({
+    ...sessionFixture(state), state, hostname: `${state}-host`,
+    // An idle mount still has a live heartbeat; file activity is not presence.
+    lastSeenAt: "2020-01-01T00:00:00Z",
+  }));
+  render(<LiveTopologyCard agents={agents} workspaces={[workspace("active"), workspace("closed")]} />);
+
+  for (const state of ["active", "starting", "syncing"]) {
+    expect(screen.getByRole("button", { name: `Open details for ${state} agent` })).toBeInTheDocument();
+  }
+  for (const state of ["closed", "stale", "unknown"]) {
+    expect(screen.queryByRole("button", { name: `Open details for ${state} agent` })).not.toBeInTheDocument();
+    expect(screen.queryByText(`${state}-host`)).not.toBeInTheDocument();
+  }
+  expect(screen.getByText(/3 agents connected.*3\/4 workspaces connected/)).toBeInTheDocument();
+  // Catalog workspaces stay visible; only live sessions can add fallback nodes.
+  expect(screen.getByRole("button", { name: "Open Workspace closed" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Open Workspace stale" })).not.toBeInTheDocument();
+});
+
+test.each(["closed", "stale"])("removes a mount and its connections when it becomes %s, and restores it on reconnect", (state) => {
+  const agent = sessionFixture("primary");
+  const workspaces = [workspace("primary")];
+  const { container, rerender } = render(<LiveTopologyCard agents={[agent]} workspaces={workspaces} />);
+  expect(container.querySelectorAll("polyline")).toHaveLength(2);
+
+  rerender(<LiveTopologyCard agents={[{ ...agent, state }]} workspaces={workspaces} />);
+  expect(screen.queryByRole("button", { name: "Open details for primary agent" })).not.toBeInTheDocument();
+  expect(screen.queryByText("host")).not.toBeInTheDocument();
+  expect(screen.getByText("No reported agent sessions")).toBeInTheDocument();
+  expect(screen.getByText(/0 agents connected.*0\/1 workspaces connected/)).toBeInTheDocument();
+  expect(container.querySelectorAll("polyline")).toHaveLength(0);
+
+  rerender(<LiveTopologyCard agents={[agent]} workspaces={workspaces} />);
+  expect(screen.getByRole("button", { name: "Open details for primary agent" })).toBeInTheDocument();
+  expect(screen.getByText(/1 agent connected.*1\/1 workspaces connected/)).toBeInTheDocument();
+  expect(container.querySelectorAll("polyline")).toHaveLength(2);
+});

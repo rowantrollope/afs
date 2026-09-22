@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import styled, { css, keyframes } from "styled-components";
+import { isConnectedAgentSession } from "../foundation/agent-session";
 import { formatBytes } from "../foundation/api/afs";
 import { AgentDetailDialog } from "../foundation/tables/agents-table";
 import { compareAgentsByIdentity } from "../foundation/tables/agents-table-utils";
@@ -847,7 +848,10 @@ type Props = {
 
 export function LiveTopologyCard({ agents, workspaces }: Props) {
   const navigate = useNavigate();
-  const sortedAgents = useMemo(() => sortAgentsForTopology(agents), [agents]);
+  const sortedAgents = useMemo(
+    () => sortAgentsForTopology(agents.filter(isConnectedAgentSession)),
+    [agents],
+  );
   const sortedWorkspaces = useMemo(
     () => buildTopologyTargets(sortedAgents, workspaces),
     [sortedAgents, workspaces],

@@ -1,5 +1,10 @@
 # Lessons
 
+## 2026-09-22 — Live Topology shows current mounts
+
+- The user expects unmounted sessions to disappear from Live Topology, rather than remain as blue inactive nodes.
+- Session listings retain closed/stale history; filter live mount states before deriving topology nodes, workspace connections and Monitor counts. Keep idle mounts with a valid session visible and preserve historical records.
+
 ## 2026-09-22 — Keep development changes visible
 
 - The user reaffirmed that no worktrees should be used: edits, commits, builds and running services all belong on `main` in `/Users/rowantrollope/git/afs`.
