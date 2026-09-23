@@ -9,7 +9,7 @@
 - [x] Update interactive setup guidance to browser approval instead of pasting the shared team token into the CLI.
 - [x] Complete build/vet/unit/race, isolated Redis process and shared Postgres regressions, and browser acceptance.
 - [x] Rebuild/restart the local server preserving settings.
-- [ ] Commit/push main and verify the production deployment.
+- [x] Commit/push main and verify the production deployment.
 
 Design: the CLI starts a ten-minute request with an S256 challenge, opens the
 approval page and polls with its private device secret and verifier. The browser
@@ -30,6 +30,13 @@ disposable server confirmed sign-in, matching-code approval, automatic CLI key
 save/reuse and session reuse in a second tab. No user Redis data was tested.
 The installed CLI and embedded server were rebuilt from main; the local server
 is healthy at http://127.0.0.1:8091 with existing launch settings preserved.
+
+Deployment: main commit 5b58421 produced READY production deployment
+dpl_2pDiWRMgckWoJPz31HLXDjYHZ8gK at https://afs-wine.vercel.app. The live
+browser renders the new remembered-session sign-in guidance, confirming hosted
+metadata/browser-session availability. Production approval with the user's
+credential remains theirs; complete approval/exchange was verified on the
+disposable local server. Existing Vercel token, Postgres and Redis settings remain.
 
 ## Git-connected Vercel production deployment — 2026-09-23
 
