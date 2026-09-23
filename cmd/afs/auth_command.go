@@ -28,12 +28,16 @@ Run 'afs auth help <command>' for details.
 `
 
 var authSubcommandUsage = map[string]string{
-	"login": `Usage: afs auth login [--url <URL>] [--token-stdin] [--self-hosted]
+	"login": `Usage: afs auth login [--url <URL>] [--browser | --no-browser | --token-stdin] [--name <name>]
 
-Verify control-plane authentication, then save its URL and optional team token or API key.
+Sign in through your browser, then save a dedicated, revocable CLI API key.
+If already connected, verify and reuse the saved connection.
 The default is the configured or environment URL, or http://127.0.0.1:8091.
+--browser starts a new browser sign-in even if a saved key still works.
+--no-browser prints the approval link without opening it (useful over SSH).
+--name labels this CLI in the control plane's API Keys page; defaults to this hostname.
 --control-plane-url is an alias for --url; --self-hosted is accepted for compatibility.
-Use --token-stdin to read one token line from stdin (maximum 16384 bytes).
+For automation, --token-stdin reads one token line from stdin (maximum 16384 bytes).
 Environment tokens are used at runtime and are not saved implicitly.
 Redis credentials stay with the server and are obtained when mounting.
 Login works before a Redis database is configured or while Redis is unavailable.
@@ -172,12 +176,23 @@ func authLogin(opts cliOptions, args []string) error {
 	flags.StringVar(&endpoint, "control-plane-url", "", "control-plane URL")
 	flags.Bool("self-hosted", false, "self-managed compatibility flag")
 	tokenStdin := flags.Bool("token-stdin", false, "read team token or API key from stdin")
+	browser := flags.Bool("browser", false, "start a new browser sign-in")
+	noBrowser := flags.Bool("no-browser", false, "print browser approval link without opening it")
+	name := flags.String("name", "", "name for the CLI API key")
 	pos, err := parseCommandFlags(flags, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 0 {
 		return errors.New(authSubcommandUsage["login"])
+	}
+	if *tokenStdin && (*browser || *noBrowser || *name != "") || *browser && *noBrowser {
+		return errors.New("choose browser login (--browser or --no-browser) or --token-stdin")
+	}
+	_, environmentToken := os.LookupEnv("AFS_CONTROL_PLANE_TOKEN")
+	forceBrowser := *browser || *noBrowser || *name != ""
+	if forceBrowser && environmentToken {
+		return errors.New("unset AFS_CONTROL_PLANE_TOKEN before using browser login")
 	}
 	explicitURL := false
 	flags.Visit(func(f *flag.Flag) { explicitURL = explicitURL || f.Name == "url" || f.Name == "control-plane-url" })
@@ -232,10 +247,29 @@ func authLogin(opts cliOptions, args []string) error {
 		return err
 	}
 	defer remote.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := remote.VerifyAuthentication(ctx); err != nil {
-		return err
+	var verifyErr error
+	if !forceBrowser {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		verifyErr = remote.VerifyAuthentication(ctx)
+		cancel()
+	}
+	if forceBrowser || verifyErr != nil {
+		if *tokenStdin || environmentToken {
+			return verifyErr
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		config, configErr := remote.GetAuthConfig(ctx)
+		cancel()
+		if configErr != nil || !config.BrowserLogin {
+			if !forceBrowser && verifyErr != nil {
+				return verifyErr
+			}
+			return errors.New("browser login is unavailable on this control plane; update the server or use --token-stdin")
+		}
+		savedToken, err = browserLogin(settings.URL, *name, *noBrowser, os.Stderr, openAuthBrowser)
+		if err != nil {
+			return err
+		}
 	}
 	if err := saveAuthSettings(file, managedclient.Settings{URL: settings.URL, Token: savedToken}); err != nil {
 		return err

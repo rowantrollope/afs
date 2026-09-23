@@ -25,6 +25,7 @@ type serverOptions struct {
 	origins                 stringList
 	showVersion             bool
 	hosted                  bool
+	secureCookies           bool
 }
 type stringList []string
 
@@ -43,6 +44,10 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	options.metadataFile = getenv("AFS_METADATA_FILE")
 	options.metadataURL = strings.TrimSpace(getenv("AFS_METADATA_URL"))
 	options.migrateAPIKeysFrom = getenv("AFS_MIGRATE_API_KEYS_FROM")
+	var secureCookiesErr error
+	if value := strings.TrimSpace(getenv("AFS_CONTROL_PLANE_SECURE_COOKIES")); value != "" {
+		options.secureCookies, secureCookiesErr = strconv.ParseBool(value)
+	}
 	vercel := getenv("VERCEL") == "1"
 	flags := flag.NewFlagSet("afs-control-plane", flag.ContinueOnError)
 	flags.SetOutput(output)
@@ -57,6 +62,7 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags.Var(&options.origins, "allow-origin", "Allowed browser origin; repeat for multiple origins")
 	flags.BoolVar(&options.showVersion, "version", false, "Print version")
 	flags.BoolVar(&options.hosted, "hosted", vercel, "Require token, PostgreSQL AFS_METADATA_URL and PORT (automatic on Vercel)")
+	flags.BoolVar(&options.secureCookies, "secure-cookies", options.secureCookies, "Require HTTPS browser origins and Secure session cookies behind a trusted TLS proxy (AFS_CONTROL_PLANE_SECURE_COOKIES)")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Usage: afs-control-plane [options]\n\nOptional AFS management API and UI. Files continue to flow directly to Redis.\nSet AFS_CONTROL_PLANE_TOKEN to require a bearer token; required off loopback.\nSet AFS_METADATA_URL for PostgreSQL instead of local SQLite. Hosted mode requires both.")
 		flags.PrintDefaults()
@@ -70,8 +76,17 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	if options.showVersion {
 		return options, nil
 	}
+	flags.Visit(func(option *flag.Flag) {
+		if option.Name == "secure-cookies" {
+			secureCookiesErr = nil
+		}
+	})
+	if secureCookiesErr != nil {
+		return options, errors.New("AFS_CONTROL_PLANE_SECURE_COOKIES must be a boolean")
+	}
 	// An explicit --hosted=false cannot bypass Vercel's required protections.
 	options.hosted = options.hosted || vercel
+	options.secureCookies = options.secureCookies || options.hosted
 	if options.hosted {
 		if options.token == "" {
 			return options, errors.New("AFS_CONTROL_PLANE_TOKEN is required in hosted mode")

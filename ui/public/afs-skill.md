@@ -59,14 +59,36 @@ saved CLI settings; use `--config /path/to/task-config.json` on each relevant
 command when an independent configuration is needed. Environment overrides still
 apply; inspect `auth status` without printing secret values.
 
-Use a supplied named API key or bootstrap team token through
+For interactive login, the CLI opens the browser and shows a confirmation code.
+The user signs into AFS if needed, compares the browser code with the terminal,
+and approves the connection. The browser remembers sign-in using an HttpOnly
+session cookie. The CLI receives its own named administrator key, saved in
+private configuration (`0600`) for up to 30 days, capped by the approving key's
+expiry. The default label is `AFS CLI on <hostname>`.
+
+A valid saved key is reused. `--browser` forces a new login, `--no-browser`
+prints a link for the user to open from SSH or another device, and
+`--name 'Work laptop'` labels the new key. The CLI polls for approval without a
+localhost callback server. Browser login requires HTTPS except for loopback.
+Let the user complete browser approval; do not ask them to paste the team token
+into this conversation. The team token remains a browser bootstrap and recovery
+credential, and the browser also accepts existing named keys.
+
+For automation, use a supplied named API key or bootstrap team token through
 `AFS_CONTROL_PLANE_TOKEN` or `afs auth login --url 'SERVER_URL' --token-stdin`.
+Environment tokens retain precedence; unset the token override before starting
+a new browser login.
 Keep credentials out of prompts, URLs, command arguments, and logs. Named keys
 are trusted administrators across all configured databases, with no workspace
 or read-only scopes. Expiry/revocation blocks later API access but does not stop
 existing mounts or revoke Redis credentials already issued. For an authorized
 key-management task, use `afs auth keys --help`; key creation reveals its secret
 once, including in JSON output.
+
+`afs auth logout` clears only the local saved CLI connection. Browser sign-out
+ends its browser session. Revoke the CLI's key in **API Keys** or with
+`afs auth keys revoke <key-id>` when API access should end; neither logout
+stops existing mounts.
 
 Managed mounts obtain Redis credentials and then access Redis directly. Both
 the management server and the returned Redis address must be reachable when

@@ -47,8 +47,8 @@ export function ConnectAgentBanner({
         <StepDescription>
           Your agent can work with normal files in the mounted directory. These
           commands configure the CLI and obtain the workspace connection
-          automatically. If the server requires a token, set
-          AFS_CONTROL_PLANE_TOKEN before login. See the{" "}
+          automatically. Login opens your browser: match the code to your
+          terminal, then approve the connection. See the{" "}
           <a
             href="https://github.com/rowantrollope/afs/blob/main/docs/control-plane.md#connect-the-cli"
             target="_blank"

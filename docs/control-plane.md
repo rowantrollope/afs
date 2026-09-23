@@ -32,10 +32,11 @@ database list: add a Redis connection through **Databases** when ready. Redis is
 not required to start, log in, or manage API keys. No starter workspace is created
 implicitly.
 
-The control plane keeps its connection profiles, selected default and API keys
+The control plane keeps its connection profiles, selected default, API keys,
+browser sessions and short-lived CLI login requests
 in `~/.config/afs-lite/control-plane.sqlite`. Use `--metadata-file` or
 `AFS_METADATA_FILE` to choose another path. The file contains Redis credentials
-and API-key hashes, is restricted to its owner (`0600`), and is locked to one
+and credential hashes, is restricted to its owner (`0600`), and is locked to one
 running control-plane process. SQLite metadata is independent of the managed
 Redis databases. Set `AFS_METADATA_URL` to use shared Postgres instead;
 see the [Vercel deployment guide](control-plane-vercel.md) for hosted setup.
@@ -64,11 +65,24 @@ connections, allowing an administrator to repair their settings.
 
 The default listener is `127.0.0.1:8091`. Set `AFS_CONTROL_PLANE_LISTEN` or pass
 `--listen` to change it. Set `AFS_CONTROL_PLANE_TOKEN` to require bearer
-authentication. A token is mandatory for a listener outside loopback. The
-browser accepts that token or a named API key and retains it for its browser
-session. Both grant the same administrative access across configured Redis
-connections; neither provides per-workspace authorization. Use HTTPS at the deployment boundary for remote
-access, and Redis TLS as appropriate for the Redis connection.
+authentication. A token is mandatory for a listener outside loopback. Sign into
+the browser with that token or a named API key. The server exchanges it for a
+host-only HttpOnly session cookie, remembering sign-in across tabs for up to 30
+days. HTTPS cookies are Secure. A session created with a named key expires no
+later than that key and stops working when the key is revoked; rotating the
+team token invalidates sessions created with it. Browser sign-out ends the
+browser session. Both credentials grant the same administrative access across
+configured Redis connections, with no per-workspace authorization. Use HTTPS
+at the deployment boundary for remote access, and Redis TLS as appropriate for
+the Redis connection.
+
+When a self-managed HTTPS proxy terminates TLS in front of the HTTP server,
+start the control plane with `--secure-cookies` or set
+`AFS_CONTROL_PLANE_SECURE_COOKIES=true`. This enables Secure session cookies
+and HTTPS browser-origin validation while retaining local SQLite support.
+The proxy must preserve the public `Host` header. Hosted mode enables this
+setting automatically; forwarded headers do not enable it. Leave it disabled
+for ordinary local HTTP development.
 
 For UI development, run the API on port 8091 and `make web-dev` separately.
 The Vite development proxy keeps browser requests on the UI origin. Production
@@ -111,10 +125,11 @@ contains `key` metadata and the one-time `token`; keep it out of logs. To replac
 a key, create a new one, update the client, verify access, then revoke the old
 key. Key management does not replace the administrator's saved login.
 
-Use a key through `AFS_CONTROL_PLANE_TOKEN`, or pipe it from a secret manager
-to `afs auth login --url <server-url> --token-stdin`. The existing private CLI
-configuration and endpoint/token precedence rules apply. Browser sign-in also
-accepts named keys. Every key is a trusted administrator: it can manage keys,
+Browser CLI login creates a named key automatically after approval. To provide
+an existing key to automation, use `AFS_CONTROL_PLANE_TOKEN`, or pipe it from a
+secret manager to `afs auth login --url <server-url> --token-stdin`. The private
+CLI configuration and endpoint/token precedence rules apply. Browser sign-in
+also accepts named keys. Every key is a trusted administrator: it can manage keys,
 manage every configured database and obtain that database's Redis credentials.
 There are no workspace scopes or read-only key permissions.
 
@@ -217,13 +232,45 @@ connection. A failed or unknown database never falls back to another database.
 Log in with the server URL. No Redis configuration is needed on a managed client:
 
 ```sh
-# If the server requires a token, pass it via the environment:
-export AFS_CONTROL_PLANE_TOKEN='your-shared-token'
 afs auth login --url http://127.0.0.1:8091
 afs auth status
 afs list
 afs mount shared ~/shared
 ```
+
+For an authenticated server, the CLI opens a browser and displays a confirmation
+code. Sign in to AFS if needed, compare the browser's code with your terminal,
+and choose **Connect CLI**. The browser remembers your sign-in, so later CLI
+connections can go straight to approval. The team token remains the browser's
+bootstrap and recovery credential; an existing named API key also works.
+
+Approval creates a separate named administrator key for the CLI, expiring after
+30 days or sooner if the approving API key expires first. Its default name is
+`AFS CLI on <hostname>`. The CLI verifies the key and saves it with the complete
+selected URL in a private configuration file (`0600`). Database-scoped URLs
+retain their `/databases/<database-id>` suffix. The generated key has the same
+trusted-administrator permissions as other API keys; the URL selects a database
+but does not restrict the key's access.
+
+A valid saved key for the selected endpoint is reused without opening a browser.
+Use these options when starting a new login:
+
+```sh
+# Issue a new key through browser approval.
+afs auth login --url https://afs.example --browser
+
+# From SSH or a machine without a browser, open the printed link on any device.
+afs auth login --url https://afs.example --no-browser
+
+# Choose a recognizable name for the new key.
+afs auth login --url https://afs.example --name 'Work laptop'
+```
+
+The CLI waits for approval by polling the selected control plane. It runs no
+localhost callback server. Login requests expire after ten minutes and can be
+approved and exchanged only once; the private exchange proof stays in the CLI.
+Browser login requires HTTPS, with HTTP allowed only for loopback servers.
+Use Ctrl+C to cancel without changing the saved connection.
 
 For the local server without a token, just run `afs auth login`. Without `--url`,
 login uses the environment or saved endpoint, then defaults to
@@ -251,13 +298,20 @@ Only the authenticated connection endpoint returns them, with caching disabled.
 Saved Redis settings and `AFS_REDIS_URL`/`AFS_REDIS_PASSWORD` are ignored in managed
 operation. An explicit `afs --redis <url> ...` selects standalone operation for
 that command. To restore standalone defaults, run `afs auth logout` and unset
-`AFS_CONTROL_PLANE_URL` if present. Logout clears the saved URL and token;
-it preserves Redis settings and does not stop existing mounts or revoke tokens.
+`AFS_CONTROL_PLANE_URL` and `AFS_CONTROL_PLANE_TOKEN` if present. CLI logout
+clears the saved URL and token locally; it preserves Redis settings and does
+not stop existing mounts or revoke keys. Browser sign-out separately revokes
+the browser session. To disable a CLI key, revoke it on **API Keys** or with
+`afs auth keys revoke <key-id>` from another authenticated client.
 There is no automatic Redis fallback when the management API fails.
 
-To persist a token without putting it in command arguments, pipe it to
+For automation, use an existing named API key through
+`AFS_CONTROL_PLANE_TOKEN`. To persist a supplied token without putting it in
+command arguments, pipe it to
 `afs auth login --url <url> --token-stdin`; the config file is written with mode
-`0600`. Environment tokens are used without saving them. Daemon bootstrap files
+`0600`. Environment tokens are used without saving them and retain precedence
+over browser login; unset `AFS_CONTROL_PLANE_TOKEN` before requesting a new
+browser login. Daemon bootstrap files
 are private; tokens are excluded from the mount registry and child command lines.
 
 `AFS_CONTROL_PLANE_URL` and `AFS_CONTROL_PLANE_TOKEN` override the corresponding

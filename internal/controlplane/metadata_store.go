@@ -131,6 +131,12 @@ PRAGMA user_version = 1;
 		tx.Rollback()
 		return fail("cannot initialize metadata database")
 	}
+	for _, statement := range []string{browserSessionSchema, cliLoginSchema} {
+		if _, err := tx.Exec(statement); err != nil {
+			tx.Rollback()
+			return fail("cannot initialize browser authentication metadata")
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fail("cannot initialize metadata database")
 	}

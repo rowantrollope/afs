@@ -1,6 +1,7 @@
 const TOKEN_KEY = "afs_console_token";
 
-// Keep the operator token in this tab, never in URLs or persistent storage.
+// Compatibility for older servers only. Current servers exchange this once for
+// an HttpOnly cookie; new sign-ins do not keep bearer tokens in browser storage.
 export function getSessionToken(): string {
   return sessionStorage.getItem(TOKEN_KEY) ?? "";
 }

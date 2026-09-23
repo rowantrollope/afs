@@ -61,7 +61,7 @@ func run(ctx context.Context, args []string) error {
 		streamDuration = 240 * time.Second
 	}
 	databaseHandler, err := controlplane.NewMetadataDatabaseHandler(metadata, controlplane.HandlerOptions{
-		AuthToken: options.token, StreamDuration: streamDuration,
+		AuthToken: options.token, StreamDuration: streamDuration, SecureCookies: options.hosted || options.secureCookies,
 		Version: version.Short(), UI: assets, AllowedOrigins: options.origins,
 	}, options.databasesFile, connectionURL)
 	if err != nil {

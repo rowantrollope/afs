@@ -1,5 +1,36 @@
 # AFS extraction
 
+## Browser CLI sign-in — 2026-09-23
+
+- [x] Restore interactive browser login with matching-code approval and a dedicated named CLI key; retain stdin/environment authentication for automation.
+- [x] Keep browser sessions and one-use PKCE exchanges in SQLite/shared Postgres, independent of Redis availability.
+- [x] Remember browser sign-in with HttpOnly cookies; protect cookie mutations with exact Origin checks and preserve parent expiry/revocation.
+- [x] Support SSH login links, cancellation, scoped URLs and private atomic config writes without exposing credentials.
+- [x] Update interactive setup guidance to browser approval instead of pasting the shared team token into the CLI.
+- [x] Complete build/vet/unit/race, isolated Redis process and shared Postgres regressions, and browser acceptance.
+- [x] Rebuild/restart the local server preserving settings.
+- [ ] Commit/push main and verify the production deployment.
+
+Design: the CLI starts a ten-minute request with an S256 challenge, opens the
+approval page and polls with its private device secret and verifier. The browser
+shows the requesting computer and matching code before explicit approval.
+One transaction consumes the grant and creates a hashed, named administrator
+key valid for up to 30 days (bounded by the approving key's expiry). Browser
+sessions are separately revocable, and no credential appears in the approval URL.
+Existing valid CLI credentials are reused. The bootstrap token remains the
+browser's initial administrator sign-in and recovery mechanism.
+
+Validation: full Go build/vet/unit/race passed, with focused race checks after
+final refinements. All 15 control-plane/auth/managed/API-key process tests passed
+against disposable Redis processes. SQLite and isolated Postgres 16 tests cover
+replay races, wrong proof, expiry/denial, parent revocation, bootstrap rotation,
+cross-instance session/exchange consistency and transactional rollback. All 187
+UI tests, lint and typecheck passed. Browser acceptance against an empty
+disposable server confirmed sign-in, matching-code approval, automatic CLI key
+save/reuse and session reuse in a second tab. No user Redis data was tested.
+The installed CLI and embedded server were rebuilt from main; the local server
+is healthy at http://127.0.0.1:8091 with existing launch settings preserved.
+
 ## Git-connected Vercel production deployment — 2026-09-23
 
 - [x] Verify bookjournal/afs links rowantrollope/afs, builds from the repository root with Node 24, and tracks main for production.

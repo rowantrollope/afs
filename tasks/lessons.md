@@ -364,3 +364,8 @@ delete existing worktrees or their uncommitted work without a separate request.
 - User correction: status rows wrap; omit per-mount database URLs and avoid separate STATE/CONNECTION overview columns.
 - Show one STATUS that preserves daemon failures and Redis disconnection; retain both underlying fields and the database in targeted details/JSON.
 - Abbreviate home paths and show error text below the table so long diagnostics do not widen every mount row.
+## Browser CLI onboarding — 2026-09-23
+
+- User correction: preserve the old application's smooth browser/token-exchange login instead of requiring users to paste the team token into the CLI.
+- Interactive login should open an approval page, remember the browser session, and issue a dedicated revocable CLI key. Keep manual token entry for bootstrap in the browser and automation through stdin/environment.
+- Review onboarding copy, generated commands and agent prompts along with the implementation so they lead users through the new flow consistently.

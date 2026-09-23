@@ -1,15 +1,19 @@
-import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { GlobalDrawer } from "../components/global-drawer";
 import { RouteErrorBoundary } from "../error-boundaries/route-error-boundary";
 import { DrawerProvider } from "../foundation/drawer-context";
+import { DatabaseScopeProvider } from "../foundation/database-scope";
 import { AppBar } from "../layout/app-bar";
 import { FlexColItem, FlexRow, MainContainer } from "../layout/layout.styles";
 import { AppSidebar } from "../layout/sidebar";
 import { BgFx } from "../layout/situation-room-chrome";
 
 function RootLayout() {
+  const location = useLocation();
+  if (location.pathname === "/connect-cli") return <Outlet />;
   return (
-    <DrawerProvider>
+    <DatabaseScopeProvider>
+      <DrawerProvider>
       <BgFx />
       <FlexRow>
         <AppSidebar />
@@ -21,7 +25,8 @@ function RootLayout() {
         </FlexColItem>
       </FlexRow>
       <GlobalDrawer />
-    </DrawerProvider>
+      </DrawerProvider>
+    </DatabaseScopeProvider>
   );
 }
 function RootErrorBoundary(props: Parameters<typeof RouteErrorBoundary>[0]) {

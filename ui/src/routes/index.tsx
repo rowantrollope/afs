@@ -277,7 +277,7 @@ function HomePage() {
                   (mode === "agent" ? "coding agent." : "terminal.")
                 : mode === "agent"
                   ? "Works with any agent that can read a skill."
-                  : "Install the afs CLI first. Set an API key or team token if required."}
+                  : "Install the afs CLI first. Login opens your browser for approval."}
           </p>
           <div className="home-skill-row">
             <FileCode2 size={18} />
@@ -314,7 +314,7 @@ function HomePage() {
               <KeyRound size={20} strokeWidth={1.6} />
               <strong>API access</strong>
               <span>
-                Connect with an API key <ArrowUpRight size={13} />
+                Connect your CLI <ArrowUpRight size={13} />
               </span>
             </button>
             <Link to="/docs">

@@ -10,7 +10,7 @@ export function pageHelpFor(
   const endpoint = controlPlaneEndpoint();
   const connect = `afs auth login --url ${shellQuote(endpoint)}`;
   const connectionTip =
-    "Set AFS_CONTROL_PLANE_TOKEN locally when authentication is required. Keep tokens and Redis credentials out of agent prompts.";
+    "Run afs auth login to open your browser, match its code to the terminal, and approve the connection. Keep tokens and Redis credentials out of agent prompts.";
   const path = pathname.replace(/\/+$/, "") || "/";
 
   switch (path) {

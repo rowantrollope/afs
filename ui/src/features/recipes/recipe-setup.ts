@@ -2,7 +2,7 @@ import { shellQuote } from "../../foundation/home-content";
 import type { Recipe } from "./recipe-catalog";
 
 export function recipeCommands(recipe: Recipe, endpoint: string) {
-  return `# Set AFS_CONTROL_PLANE_TOKEN locally if this server requires it.
+  return `# Approve in your browser after matching the terminal code.
 afs auth login --url ${shellQuote(endpoint)}
 
 # Choose an unused workspace name and an empty local directory.
@@ -33,7 +33,7 @@ export function buildRecipePrompt(
 
   return `Help me set up ${recipe.title} in Agent Filesystem (AFS).
 
-Read the current AFS CLI guide at ${skillURL}. Connect to ${endpoint}. If authentication is required, ask me to set AFS_CONTROL_PLANE_TOKEN locally; never request credentials in chat.
+Read the current AFS CLI guide at ${skillURL}. Run afs auth login --url ${shellQuote(endpoint)}. If authentication is required, have me approve the browser request after matching its code to the terminal; never request credentials in chat.
 
 Use the afs CLI and ordinary files in a mounted folder. Confirm my workspace name and local directory first; suggested defaults are ${recipe.slug} and ~/afs/${recipe.slug}. Check existing workspaces and mounts before creating anything. Create a new workspace with afs create and mount it with afs mount, or use the workspace I explicitly choose. Do not overwrite existing files or merge these starter files into an existing project without asking.
 

@@ -70,6 +70,8 @@ func (s *MetadataStore) initializePostgres(ctx context.Context) error {
  revoked_at TEXT NOT NULL DEFAULT '',
  hash TEXT NOT NULL
 )`,
+		browserSessionSchema,
+		cliLoginSchema,
 		"INSERT INTO metadata_settings (name, value) VALUES ('registry_revision', '0') ON CONFLICT(name) DO NOTHING",
 		"INSERT INTO metadata_settings (name, value) VALUES ('schema_version', '1') ON CONFLICT(name) DO NOTHING",
 	}
@@ -99,6 +101,8 @@ func (s *MetadataStore) querySQL(query string) string {
 		"metadata_settings", "afs_control_plane.metadata_settings",
 		"database_profiles", "afs_control_plane.database_profiles",
 		"api_keys", "afs_control_plane.api_keys",
+		"browser_sessions", "afs_control_plane.browser_sessions",
+		"cli_login_requests", "afs_control_plane.cli_login_requests",
 	).Replace(query)
 	var result strings.Builder
 	result.Grow(len(query) + 16)

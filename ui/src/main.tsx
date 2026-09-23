@@ -18,7 +18,6 @@ import "./styles/skin-situation-room.css";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { AppErrorBoundary } from "./error-boundaries/app-error-boundary";
 import { AuthProvider } from "./foundation/auth-context";
-import { DatabaseScopeProvider } from "./foundation/database-scope";
 import { queryClient } from "./foundation/query-client";
 import { SkinProvider } from "./foundation/skin-context";
 import { ColorModeProvider } from "./foundation/theme-context";
@@ -58,9 +57,7 @@ if (!rootElement.innerHTML) {
               <AppErrorBoundary>
                 <QueryClientProvider client={queryClient}>
                   <AuthProvider>
-                    <DatabaseScopeProvider>
-                      <RouterProvider router={router} />
-                    </DatabaseScopeProvider>
+                    <RouterProvider router={router} />
                   </AuthProvider>
                 </QueryClientProvider>
               </AppErrorBoundary>

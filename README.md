@@ -28,7 +28,8 @@ Build the copied management UI and separate server with `make web-install` then
 `make control-plane`. Start `./bin/afs-control-plane`, open
 `http://127.0.0.1:8091`, and add your Redis connection on the Databases page.
 The server starts without Redis and keeps connections, the selected default,
-and administrator API keys in `~/.config/afs-lite/control-plane.sqlite`.
+administrator API keys and browser login sessions in
+`~/.config/afs-lite/control-plane.sqlite`.
 Existing `databases.json` profiles are imported once. Then run
 `afs auth login --url http://127.0.0.1:8091`. The CLI uses
 the API for management and obtains Redis credentials for mounts automatically.
@@ -76,12 +77,24 @@ using `./bin/afs` directly. The original `agent-filesystem` installation is unch
 
 For managed operation, run `afs auth login` (defaults to the local server at
 `http://127.0.0.1:8091`) or supply `--url` as shown above; no client-side Redis
-settings are needed. If the server requires a token, set
-`AFS_CONTROL_PLANE_TOKEN` before login or pipe it to `afs auth login --token-stdin`.
-Named administrator keys can be created with `afs auth keys create <name>`
-or the UI’s API Keys page; see [key management](docs/control-plane.md#named-api-keys).
-Login verifies access before saving the connection. Use `afs auth status` to see
-the effective settings and `afs auth logout` to clear the saved connection.
+settings are needed. When authentication is required, login opens the browser.
+Sign in once with the team token or an existing API key, check that the code
+matches your terminal, and approve the connection. The CLI saves its own named
+administrator key in private configuration (`0600`); the key lasts up to 30 days.
+The browser remembers its sign-in with an HttpOnly session cookie.
+
+A valid saved key is reused. Use `--browser` for a new browser login,
+`--no-browser` for an approval link you can open from an SSH session, or
+`--name 'Work laptop'` to name the new key. Browser login requires HTTPS except
+on loopback. Automation can still use `AFS_CONTROL_PLANE_TOKEN` or
+`afs auth login --token-stdin`. Every key grants trusted-administrator access;
+see [CLI login](docs/control-plane.md#connect-the-cli) and
+[key management](docs/control-plane.md#named-api-keys).
+
+Login verifies access before saving the connection. `afs auth status` shows
+effective settings; `afs auth logout` clears only the saved CLI connection.
+Use the browser's sign-out action to end its session, and **API Keys** to revoke
+a CLI key.
 Managed commands ignore local Redis settings and environment overrides.
 An explicit `--redis` selects standalone operation for that command.
 

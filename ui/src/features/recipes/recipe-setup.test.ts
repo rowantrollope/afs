@@ -81,7 +81,8 @@ describe("recipe setup handoff", () => {
       const commands = recipeCommands(recipe, endpoint);
       expect(prompt).not.toContain(token);
       expect(commands).not.toContain(token);
-      expect(prompt).toContain("set AFS_CONTROL_PLANE_TOKEN locally");
+      expect(prompt).toContain("approve the browser request after matching its code to the terminal");
+      expect(prompt).not.toContain("set AFS_CONTROL_PLANE_TOKEN");
       expect(prompt).toContain("never request credentials in chat");
       expect(commands).toContain(`afs auth login --url '${endpoint}'`);
       expect(commands).toContain(`afs create ${recipe.slug}`);

@@ -41,8 +41,8 @@ function DocsPage() {
         <PageDescription>
           Connect the CLI to this console, create a workspace, then mount it in
           a local directory for your agent. The server supplies the connection
-          details. Set AFS_CONTROL_PLANE_TOKEN to an API key or team token first
-          when authentication is enabled.
+          details. Login opens your browser, where you match the terminal code
+          and approve the connection. The CLI saves its own key automatically.
         </PageDescription>
         <pre>{`afs auth login --url ${endpoint}
 afs create my-workspace

@@ -76,10 +76,51 @@ func TestHelpDoesNotPrintRedisCredentials(t *testing.T) {
 			t.Fatal("help disclosed environment credentials")
 		}
 	}
-	for _, option := range []string{"-metadata-file", "-databases-file", "-migrate-api-keys-from", "-hosted", "AFS_METADATA_URL"} {
+	for _, option := range []string{"-metadata-file", "-databases-file", "-migrate-api-keys-from", "-hosted", "-secure-cookies", "AFS_CONTROL_PLANE_SECURE_COOKIES", "AFS_METADATA_URL"} {
 		if !strings.Contains(output.String(), option) {
 			t.Fatalf("help omitted %s", option)
 		}
+	}
+}
+
+func TestSecureCookieOptions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		env     string
+		args    []string
+		hosted  bool
+		want    bool
+		wantErr bool
+	}{
+		{name: "local default"},
+		{name: "environment enabled", env: "true", want: true},
+		{name: "environment disabled", env: "false"},
+		{name: "flag enabled", args: []string{"--secure-cookies"}, want: true},
+		{name: "flag overrides environment", env: "true", args: []string{"--secure-cookies=false"}},
+		{name: "invalid environment", env: "private-invalid-value", wantErr: true},
+		{name: "flag replaces invalid environment", env: "private-invalid-value", args: []string{"--secure-cookies"}, want: true},
+		{name: "hosted default", hosted: true, want: true},
+		{name: "hosted cannot disable cookies", hosted: true, env: "false", args: []string{"--hosted=false", "--secure-cookies=false"}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			environment := map[string]string{"AFS_CONTROL_PLANE_SECURE_COOKIES": test.env}
+			if test.hosted {
+				environment["VERCEL"] = "1"
+				environment["PORT"] = "3000"
+				environment["AFS_CONTROL_PLANE_TOKEN"] = "test-token"
+				environment["AFS_METADATA_URL"] = "postgres://metadata.example/afs"
+			}
+			options, err := parseOptions(test.args, func(key string) string { return environment[key] }, io.Discard)
+			if test.wantErr {
+				if err == nil || err.Error() != "AFS_CONTROL_PLANE_SECURE_COOKIES must be a boolean" {
+					t.Fatalf("invalid setting did not return a fixed validation error: %v", err)
+				}
+				return
+			}
+			if err != nil || options.secureCookies != test.want {
+				t.Fatalf("secureCookies = %v, want %v; err = %v", options.secureCookies, test.want, err)
+			}
+		})
 	}
 }
 

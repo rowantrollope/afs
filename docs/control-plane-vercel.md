@@ -1,17 +1,26 @@
 # Vercel control plane
 
 Vercel runs the same Go control plane and embedded UI. Local deployments retain
-SQLite; Vercel uses shared Postgres for connection profiles, the default database
-and administrator API keys. Files, checkpoints, history and mounted-session
+SQLite; Vercel uses shared Postgres for connection profiles, the default database,
+administrator API keys, browser sessions and CLI login requests. Files,
+checkpoints, history and mounted-session
 records stay in the Redis databases you register.
 
 ## Authentication
 
 `AFS_CONTROL_PLANE_TOKEN` is the bootstrap administrator credential. Store a
-random token in the project's sensitive environment variables. The browser asks
-for it before loading management data; the CLI sends it as a bearer token over
-HTTPS. You can then issue named API keys with expiry and revocation from the UI
-or `afs auth keys`. Every key is a trusted administrator, with access to every
+random token in the project's sensitive environment variables and keep a copy
+for recovery. Sign into the browser with it or an existing named API key; a
+Secure HttpOnly session cookie remembers the login across tabs for up to 30
+days, capped by the sign-in key's expiry. Key revocation invalidates its browser
+sessions, and team-token rotation invalidates sessions established with that
+token. Hosted mode always enables Secure cookies, including behind Vercel's
+HTTPS proxy. Other HTTPS proxies can use `--secure-cookies` or
+`AFS_CONTROL_PLANE_SECURE_COOKIES=true` independently of hosted mode.
+CLI login opens the browser for explicit matching-code approval and
+exchanges a private one-use proof for a separate named API key. You can also
+issue named keys with expiry and revocation from the UI or `afs auth keys`.
+Every key is a trusted administrator, with access to every
 registered Redis database. Key revocation does not revoke Redis credentials
 already issued to a mount.
 
@@ -19,12 +28,14 @@ Hosted startup fails if the token is missing, even when an internal listener
 would otherwise qualify as loopback. It also requires a Postgres URL and valid
 `PORT`; it never falls back to unauthenticated operation or temporary SQLite.
 The login UI, authentication configuration, version and health response are
-public. Data, connection credentials, key management and workspace operations
-require authentication on the server.
+public. CLI login initiation and polling are public endpoints; issuing a key
+requires authenticated browser approval and the CLI's private exchange proof.
+Data, connection credentials, key management and workspace operations require
+authentication on the server.
 
 Vercel deployment protection is an additional layer. Protected preview URLs may
 require a Vercel login before reaching AFS. Use the production domain for normal
-token-based CLI access; do not disable AFS authentication to resolve a Vercel
+CLI access, including browser approval; do not disable AFS authentication to resolve a Vercel
 login challenge.
 
 ## Configure a project
@@ -77,12 +88,25 @@ After validating it, publish a production deployment when intended:
 vercel deploy --prod --yes
 ```
 
-Connect another computer using a token supplied privately:
+Connect another computer through browser approval:
 
 ```sh
-afs auth login --url https://your-production-domain --token-stdin
+afs auth login --url https://your-production-domain
 afs auth status
 ```
+
+Compare the browser code with the terminal and approve the connection. The CLI
+saves its own key in private configuration (`0600`), valid for up to 30 days and
+capped by the approving key's expiry. A saved valid key is reused. Use
+`--browser` to issue a new key, `--no-browser` to print a link for SSH/headless
+login, or `--name 'Work laptop'` to replace the default `AFS CLI on <hostname>`
+label. The CLI polls the control plane; it does not run a callback server.
+Browser login requires HTTPS except for loopback development servers.
+
+Automation can use `AFS_CONTROL_PLANE_TOKEN` or a supplied key through
+`--token-stdin`. `afs auth logout` clears only the local CLI connection;
+browser sign-out ends the browser session. Revoke a CLI key through **API Keys**
+or `afs auth keys revoke <key-id>` to block its subsequent API access.
 
 Use a database-scoped URL from the UI when selecting a particular Redis
 connection. Existing mounts continue to exchange file data directly with Redis.
@@ -95,6 +119,8 @@ requests. A registry revision protects profile/default updates: a stale writer
 receives a conflict instead of erasing another instance's change. Refresh errors
 reject the request instead of silently using stale routing. API-key expiry,
 revocation and usage tracking operate directly against the shared store.
+Browser sessions and expiring CLI login requests use that same metadata store,
+so approval and polling can reach different instances while Redis is unavailable.
 
 Hosted monitor streams end after four minutes and the UI reconnects. The
 deployment's function limit is five minutes. Vercel also limits function request

@@ -13,14 +13,14 @@ export function workspaceHelpFor(
 ): CommandsDrawerConfig {
   const name = shellQuote(workspace.name);
   const endpoint = controlPlaneEndpoint(workspace.databaseId);
-  const context = `Use AFS workspace ${JSON.stringify(workspace.name)} on ${endpoint}. Check afs auth status, then connect to this endpoint before running workspace commands. If authentication is needed, have me set AFS_CONTROL_PLANE_TOKEN locally; do not request secrets in chat.`;
+  const context = `Use AFS workspace ${JSON.stringify(workspace.name)} on ${endpoint}. Check afs auth status, then connect to this endpoint before running workspace commands. If authentication is needed, run afs auth login and have me approve the browser request after matching its code to the terminal; do not request secrets in chat.`;
   const scoped = (sections: CommandsDrawerConfig["sections"]) =>
     sections.map((section) => ({
       ...section,
       command: workspaceCLICommand(workspace.databaseId, section.command),
     }));
   const scopeTip =
-    "Each workspace command first selects this workspace’s Redis connection. Set AFS_CONTROL_PLANE_TOKEN locally if required. Local status commands run on the machine where the CLI is installed.";
+    "Each workspace command first selects this workspace’s Redis connection. If login opens your browser, match the code to your terminal and approve. Local status commands run on the machine where the CLI is installed.";
   const tab = activeTab === "activity" ? "changes" : activeTab;
   const title = displayWorkspaceName(workspace.name);
 

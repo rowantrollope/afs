@@ -15,6 +15,7 @@ import { Route as RecipesRouteImport } from './routes/recipes'
 import { Route as MonitorRouteImport } from './routes/monitor'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DatabasesRouteImport } from './routes/databases'
+import { Route as ConnectCliRouteImport } from './routes/connect-cli'
 import { Route as ApiKeysRouteImport } from './routes/api-keys'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as IndexRouteImport } from './routes/index'
@@ -52,6 +53,11 @@ const DatabasesRoute = DatabasesRouteImport.update({
   path: '/databases',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConnectCliRoute = ConnectCliRouteImport.update({
+  id: '/connect-cli',
+  path: '/connect-cli',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiKeysRoute = ApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
   '/api-keys': typeof ApiKeysRoute
+  '/connect-cli': typeof ConnectCliRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
   '/api-keys': typeof ApiKeysRoute
+  '/connect-cli': typeof ConnectCliRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
@@ -115,6 +123,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
   '/api-keys': typeof ApiKeysRoute
+  '/connect-cli': typeof ConnectCliRoute
   '/databases': typeof DatabasesRoute
   '/docs': typeof DocsRoute
   '/monitor': typeof MonitorRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/'
     | '/activity'
     | '/api-keys'
+    | '/connect-cli'
     | '/databases'
     | '/docs'
     | '/monitor'
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/'
     | '/activity'
     | '/api-keys'
+    | '/connect-cli'
     | '/databases'
     | '/docs'
     | '/monitor'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/'
     | '/activity'
     | '/api-keys'
+    | '/connect-cli'
     | '/databases'
     | '/docs'
     | '/monitor'
@@ -173,6 +185,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActivityRoute: typeof ActivityRoute
   ApiKeysRoute: typeof ApiKeysRoute
+  ConnectCliRoute: typeof ConnectCliRoute
   DatabasesRoute: typeof DatabasesRoute
   DocsRoute: typeof DocsRoute
   MonitorRoute: typeof MonitorRoute
@@ -223,6 +236,13 @@ declare module '@tanstack/react-router' {
       path: '/databases'
       fullPath: '/databases'
       preLoaderRoute: typeof DatabasesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connect-cli': {
+      id: '/connect-cli'
+      path: '/connect-cli'
+      fullPath: '/connect-cli'
+      preLoaderRoute: typeof ConnectCliRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api-keys': {
@@ -299,6 +319,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivityRoute: ActivityRoute,
   ApiKeysRoute: ApiKeysRoute,
+  ConnectCliRoute: ConnectCliRoute,
   DatabasesRoute: DatabasesRoute,
   DocsRoute: DocsRoute,
   MonitorRoute: MonitorRoute,

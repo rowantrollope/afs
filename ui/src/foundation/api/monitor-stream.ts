@@ -41,6 +41,7 @@ export function subscribeMonitorStream(
   async function connect() {
     try {
       const response = await fetch(url, {
+        credentials: "same-origin",
         headers: { Accept: "text/event-stream", ...authorizationHeaders() },
         signal: controller.signal,
         cache: "no-store",

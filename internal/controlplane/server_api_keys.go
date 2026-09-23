@@ -34,6 +34,16 @@ func (h *serverHandler) authenticate(r *http.Request) (authenticatedIdentity, bo
 	if h.options.AuthToken == "" {
 		return operator, true, nil
 	}
+	// Explicit authorization always takes precedence, even when malformed or
+	// expired. Never let an ambient browser session conceal a bad bearer token.
+	if _, present := r.Header["Authorization"]; !present {
+		if !h.browserSessionAvailable() {
+			return authenticatedIdentity{}, false, nil
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		return h.authStore.(*MetadataStore).authenticateBrowserSession(ctx, browserCookieToken(r), h.options.AuthToken, time.Now())
+	}
 	supplied, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || supplied == "" {
 		return authenticatedIdentity{}, false, nil

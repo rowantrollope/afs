@@ -19,6 +19,8 @@ export type AFSAuthConfig = {
   provider: string;
   signInRequired: boolean;
   authenticated: boolean;
+  browserLogin?: boolean;
+  browserSessions?: boolean;
   productMode: AFSProductMode;
   user?: AFSAuthUser;
 };

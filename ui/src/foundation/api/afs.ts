@@ -618,6 +618,8 @@ type HTTPAuthConfig = {
   provider: string;
   sign_in_required: boolean;
   authenticated: boolean;
+  browser_login?: boolean;
+  browser_sessions?: boolean;
   product_mode?: string;
   user?: {
     subject: string;
@@ -686,6 +688,7 @@ export async function requestJSON<T>(
   let response: Response;
   try {
     response = await fetch(url, {
+      credentials: "same-origin",
       ...init,
       signal: controller.signal,
       headers: {
@@ -708,7 +711,7 @@ export async function requestJSON<T>(
   const rawBody = response.status === 204 ? "" : await response.text();
 
   if (!response.ok) {
-    if (response.status === 401 && path !== "/auth/config")
+    if (response.status === 401 && path !== "/auth/config" && path !== "/auth/session")
       notifyUnauthorized();
     let message = `Request failed with status ${response.status}`;
     let code: string | undefined;
@@ -1833,13 +1836,15 @@ const httpAFSClient: AFSClient = {
   },
 
   async getAuthConfig() {
-    const response = await requestJSON<HTTPAuthConfig>("/auth/config");
+    const response = await requestJSON<HTTPAuthConfig>("/auth/config", { cache: "no-store" });
     return {
       mode: response.mode,
       enabled: response.enabled,
       provider: response.provider,
       signInRequired: response.sign_in_required,
       authenticated: response.authenticated,
+      browserLogin: response.browser_login === true,
+      browserSessions: response.browser_sessions === true,
       productMode: "self-hosted",
       user:
         response.user == null

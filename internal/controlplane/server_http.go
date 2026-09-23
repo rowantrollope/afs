@@ -31,6 +31,7 @@ type HandlerOptions struct {
 	UI                  fs.FS
 	AllowedOrigins      []string
 	StreamDuration      time.Duration // Zero keeps local monitor streams unbounded.
+	SecureCookies       bool          // HTTPS terminated by a trusted hosted proxy.
 }
 
 type serverHandler struct {
@@ -60,6 +61,8 @@ func NewHandler(service *Service, options HandlerOptions) http.Handler {
 
 func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "DENY")
 	if !strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.Path != "/healthz" {
 		if h.options.UI == nil {
 			http.NotFound(w, r)
@@ -104,8 +107,28 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if !h.validateBrowserSessionOrigin(r) {
+		serverJSON(w, http.StatusForbidden, map[string]string{"error": "Browser session requests require an allowed origin"})
+		return
+	}
+	// Authentication is account-wide and must not depend on a selected Redis
+	// connection. Keep database-scoped login URLs usable during an outage.
+	authPath := strings.TrimPrefix(r.URL.Path, "/v1")
+	if strings.HasPrefix(authPath, "/databases/") {
+		parts := strings.SplitN(strings.TrimPrefix(authPath, "/databases/"), "/", 2)
+		if len(parts) == 2 && validDatabaseID(parts[0]) && strings.HasPrefix(parts[1], "auth/") {
+			authPath = "/" + parts[1]
+		}
+	}
+	if authPath == "/auth/session" {
+		h.browserSessionRoute(w, r)
+		return
+	}
+	if h.cliLoginPublicRoute(w, r, authPath) {
+		return
+	}
 	identity, authenticated, authErr := h.authenticate(r)
-	if r.URL.Path == "/v1/auth/config" {
+	if authPath == "/auth/config" {
 		if r.Method != http.MethodGet {
 			serverMethod(w, "GET")
 			return
@@ -115,6 +138,8 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			mode, provider = "token", "token"
 		}
 		result := map[string]any{"mode": mode, "provider": provider, "enabled": h.options.AuthToken != "", "sign_in_required": !authenticated, "authenticated": authenticated, "product_mode": "self-hosted"}
+		result["browser_login"] = h.cliLoginAvailable()
+		result["browser_sessions"] = h.browserSessionAvailable()
 		if authenticated {
 			result["user"] = map[string]any{"subject": identity.Subject, "name": identity.Name, "is_admin": true}
 		}
@@ -161,6 +186,9 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithValue(r.Context(), authenticatedIdentityContextKey{}, identity)
 	ctx = WithFileVersionAttribution(ctx, FileVersionAttribution{User: identity.Subject})
 	r = r.WithContext(ctx)
+	if h.cliLoginAuthenticatedRoute(w, r, authPath) {
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
 	// Account administration remains available even if the connection registry
 	// cannot be refreshed. Scoped data operations must never use stale profiles.
@@ -168,7 +196,7 @@ func (h *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.apiKeysRoute(w, r, strings.TrimPrefix(strings.TrimPrefix(path, "/api-keys"), "/"))
 		return
 	}
-	if path == "/auth/verify" {
+	if authPath == "/auth/verify" {
 		if r.Method != http.MethodGet {
 			serverMethod(w, "GET")
 			return

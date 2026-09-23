@@ -25,9 +25,9 @@ per-file version capture already belong to the AFS engine and daemon.
 | Redis monitoring | Health, version, memory, keys, operations, connected clients and workspace/session counts | Keep per configured self-managed connection |
 | Managed connection setup | Original auth login/status/logout plus storage and credential discovery | Keep self-managed `afs auth login`, `status` and `logout`; authenticated bootstrap returns the selected backend's effective Redis credentials, used directly by mounts |
 | CLI management through the API | Workspace discovery, lifecycle and checkpoint management without local Redis setup | Keep current workspace/checkpoint/history commands over HTTP, including streaming directory imports; explicit Redis operation remains available |
-| Browser/API authentication | Original supported none, trusted-header and Clerk/Cloud identity | Bootstrap team token plus named administrator keys; loopback-only when the team token is unset |
+| Browser/API authentication | Original supported none, trusted-header and Clerk/Cloud identity | Bootstrap team token plus named administrator keys; remembered HttpOnly browser sessions tied to key expiry/revocation or team-token rotation; loopback-only when the team token is unset |
 | Scoped API-key management | Multiple key families, expiry, ownership and API capabilities | Keep named administrator-key issuance, list, expiry, usage and revoke in CLI/UI; store hashes and metadata in SQLite or Postgres independently of Redis. Omit workspace scopes and Cloud/MCP key families |
-| Browser-to-CLI onboarding | One-use browser token exchange and setup | Omit browser exchange; use `afs auth login` with the server URL and optional shared team token |
+| Browser-to-CLI onboarding | One-use browser token exchange and setup | Keep browser approval with matching terminal code, a short-lived private proof, and single-use exchange for a named administrator key. CLI polling supports SSH without a callback server; retain token input for automation |
 | Multi-database administration | Profiles, credentials, defaults, cross-database views and catalog reconciliation | Add, edit, remove and select a default self-managed connection with private SQLite or shared Postgres persistence and scoped/global views; start with zero databases and retain administration during Redis outages. Omit Cloud provisioning and cached workspace/session catalog |
 | Search | Ranked/semantic query, index status/build, embedding providers and model runtime | Omit backend and corresponding UI controls |
 | Hosted MCP | Remote filesystem/checkpoint/query tools and scoped MCP keys | Omit |
@@ -41,9 +41,10 @@ per-file version capture already belong to the AFS engine and daemon.
 ## What client participation changes
 
 The control plane now uses a small SQLite metadata store for connection profiles,
-default selection and administrator keys. This replaces the local JSON registry
+default selection, administrator keys, browser sessions and expiring CLI login
+requests. This replaces the local JSON registry
 and the startup-Redis key registry; it does not restore the original platform's
-workspace ownership catalog, cached discovery, onboarding tokens, scoped access
+workspace ownership catalog, cached discovery, workspace onboarding tokens, scoped access
 or account management. Hosted deployments can use Postgres for the same small
 metadata model. Workspace contents and managed session presence
 remain in Redis. Server readiness reports metadata availability independently
