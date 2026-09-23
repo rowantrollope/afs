@@ -1,5 +1,21 @@
 # AFS extraction
 
+## Git-connected Vercel production deployment — 2026-09-23
+
+- [x] Verify bookjournal/afs links rowantrollope/afs, builds from the repository root with Node 24, and tracks main for production.
+- [x] Reproduce the fresh Git build failure: Vercel's ignored Git metadata makes Go VCS stamping fail after the UI builds.
+- [x] Disable VCS stamping only in the hosted build script; Vercel retains deployment commit metadata.
+- [x] Validate build, vet, unit/race and isolated Redis process checks.
+- [ ] Commit/push main, verify the Git-triggered production deployment, and confirm the active production URL.
+
+The user approved production publication and confirmed saving a replacement
+bootstrap token in Vercel. Retain existing hosted Postgres and Redis settings.
+
+Validation: the original Go command fails with VCS status 128 in a disposable
+source copy with incomplete Git metadata; the fixed full hosted build succeeds
+in the same copy. Go build/vet/unit/race and all 14 focused control-plane,
+managed CLI, auth and API-key process checks pass with isolated Redis servers.
+
 ## Authenticated Vercel deployment — 2026-09-22
 
 - [x] Add hosted Postgres metadata with atomic registry revisions; retain local SQLite.

@@ -9,4 +9,6 @@ npm --prefix ui ci
 make embed-ui
 output_file=${VERCEL_OUTPUT_FILE:-bin/afs-control-plane}
 mkdir -p "$(dirname "$output_file")"
-go build -trimpath -o "$output_file" ./cmd/afs-control-plane
+# Git-connected builds may retain an incomplete .git directory after Vercel
+# applies .vercelignore. Deployment metadata already records the commit.
+go build -buildvcs=false -trimpath -o "$output_file" ./cmd/afs-control-plane

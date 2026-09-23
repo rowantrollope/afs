@@ -52,6 +52,14 @@ build script compiles the UI, embeds it, and writes the server binary to Vercel'
 requested output path. `.vercel/`, environment files, local binaries, SQLite
 files and development artifacts are excluded from uploads.
 
+For Git-connected deployments, select `rowantrollope/afs` with production branch
+`main`, keep the root directory at the repository root, and use the Go preset
+with Node.js 24 for the UI build. Leave dashboard build, install and output
+overrides unset; `vercel.json` selects the service build script. That script
+disables Go VCS stamping because Vercel removes Git metadata via `.vercelignore`;
+the Vercel deployment record retains the source commit. Pushes to `main` then
+build and publish production automatically.
+
 Deploy a preview:
 
 ```sh
