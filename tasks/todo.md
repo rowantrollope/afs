@@ -6,7 +6,7 @@
 - [x] Reproduce the fresh Git build failure: Vercel's ignored Git metadata makes Go VCS stamping fail after the UI builds.
 - [x] Disable VCS stamping only in the hosted build script; Vercel retains deployment commit metadata.
 - [x] Validate build, vet, unit/race and isolated Redis process checks.
-- [ ] Commit/push main, verify the Git-triggered production deployment, and confirm the active production URL.
+- [x] Commit/push main, verify the Git-triggered production deployment, and confirm the active production URL.
 
 The user approved production publication and confirmed saving a replacement
 bootstrap token in Vercel. Retain existing hosted Postgres and Redis settings.
@@ -15,6 +15,14 @@ Validation: the original Go command fails with VCS status 128 in a disposable
 source copy with incomplete Git metadata; the fixed full hosted build succeeds
 in the same copy. Go build/vet/unit/race and all 14 focused control-plane,
 managed CLI, auth and API-key process checks pass with isolated Redis servers.
+
+Deployment: pushing affd78b to main automatically produced READY production
+deployment dpl_4Hc8Yok2aGas4imQFFVBePyGBTrc, serving the Go control plane in iad1.
+https://afs-wine.vercel.app renders the AFS token login directly, without a
+Vercel sign-in redirect. The user holds the replacement bootstrap token.
+Production and preview variables remain sensitive; metadata stays in Neon.
+The in-app browser blocked direct navigation to /healthz, so that independent
+health response and a login using the user's replacement token were not checked.
 
 ## Authenticated Vercel deployment — 2026-09-22
 
