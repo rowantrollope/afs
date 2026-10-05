@@ -7,7 +7,7 @@
 - [x] Publish bounded UTF-8 artifacts with exclusive staging and atomic no-replace rename; preserve inode/parent/generation fencing, identical retries and foreign-staging cleanup safety.
 - [x] Prove parallel creation, live-root preservation, complete publication, conflict/retry behavior, cancellation cleanup and symlink/generation/parent rejection against newly launched isolated Redis processes.
 - [x] Run full staged build and vet.
-- [x] Full staged unit/race regression checks passed. AgentConnect direct-mode integration independently observed the same Redis files through ordinary AFS folder sync.
+- [x] Full AFS build/vet/race and focused isolated real-Redis request API regressions passed. A separate test-built AFS folder-sync process received request-created artifacts without changing workspace identity.
 - [x] Integrate the reviewed package on main; publish the dependency before AgentConnect pins it.
 
 Scope: AgentConnect can call AFS inside a request without a daemon or volume.
