@@ -1,157 +1,162 @@
-# Two agent communication with an AFS workspace
+# A2A over Redis Streams with an AFS workspace
 
 Proposed design, 5 October 2026. Connect Moneypenny, the user's ChatGPT dot,
-with one other agent so they can exchange messages, share files and hand work
-to each other. Moneypenny should process incoming messages unattended.
+with one other agent so they can communicate, hand off work and share files.
+Moneypenny should process incoming work unattended.
 
-Use one AFS workspace, two Redis Streams inboxes and one small companion
-bridge. Requests, progress updates and replies are all ordinary messages.
-The bridge is separate from AFS's CLI, storage engine and control plane.
+Use A2A for the conversation and task model, Redis Streams for delivery and AFS
+for the shared files. Small runtime adapters connect the two existing agents.
+This companion integration stays separate from AFS's CLI, storage engine and
+control plane.
 
-## Components
+## Three responsibilities
 
 | Component | Responsibility |
 | --- | --- |
-| AFS workspace | Synchronize briefs, work in progress and finished artifacts. |
-| Redis Streams | Keep one message inbox for each agent, with recoverable delivery. |
-| Companion bridge | Provide authenticated message/file tools and notify Moneypenny. |
+| A2A | Messages, task state, follow-up questions and result artifacts. |
+| Redis Streams | Transport requests, responses and updates between the adapters. |
+| AFS workspace | Synchronize briefs, work in progress and result files. |
 
-The other agent uses its local AFS mount for files and a small command-line
-adapter to call the bridge. The bridge also mounts that same workspace and
-provides file access to Moneypenny through a connected plugin. This makes the
-shared files available to her cloud runtime without assuming she has a local
-AFS mount. The bridge host must stay online and reachable over HTTPS.
+Both agents can initiate work for the other. Their adapters translate runtime
+actions into A2A operations and expose incoming work to the actual agents.
+One companion process can host the adapters and shared Redis task state.
 
-The other agent's runtime is still to be identified. It needs an inbox check
-at an existing turn, idle or scheduled entry point. A Redis consumer can receive
-messages, but getting them into an agent's next turn requires that runtime
-hook. Unattended receipt on that side is an acceptance condition to confirm.
+## Redis Streams transport
 
-## Five tools
+Start with one inbound stream per adapter, under a separate `agentlink:`
+namespace. Each stream carries requests, responses and task updates. A small
+transport envelope identifies the authenticated sender, request correlation,
+agreed A2A version and record kind; its payload uses the canonical A2A objects.
 
-The plugin and command-line adapter expose the same five operations:
+A receiver's consumer group reads its stream. Persist request deduplication,
+task state and any outgoing response or notification before acknowledging
+receipt. Replies return through the sender's stream with the same request
+correlation. Use one active dispatcher per adapter initially to keep task
+updates ordered. Retain stream entries initially, without automatic trimming.
 
-| Tool | Behavior |
-| --- | --- |
-| `send_message(id, to, text, files)` | Queue a message; retrying the same ID and content returns the original receipt. |
-| `get_inbox()` | Return messages that have not been finished, including ones from earlier runs. |
-| `finish_message(id, reply, files)` | Record completion and optionally queue a reply in one idempotent Redis operation. |
-| `read_file(path, expected_sha256?)` | Read a workspace file; when a hash is supplied, require matching bytes. |
-| `write_file(path, content)` | Create an artifact through the bridge's AFS mount and return its path and hash. |
+A Redis acknowledgement means the adapter durably admitted the request.
+An A2A task reaching a terminal state records the work's outcome. Keep those
+two events distinct. Duplicate transport delivery returns the recorded result
+or current task instead of starting a second task.
 
-The authenticated connection determines the sender and which inbox it can read
-or finish. File paths are relative to the one configured workspace. The file
-tools stay within that mount, including when resolving symlinks. Each agent has
-its own bridge credential; Redis credentials stay on the bridge.
+This is a proposed private Redis Streams binding. A2A explicitly permits custom
+bindings, but using its object names alone does not establish compatibility.
+Declare the binding in the Agent Card with a URI owned by this project, pin the
+supported protocol version, map the core operations and errors, and document
+authentication and replay behavior. Optional capabilities can be advertised as
+unavailable with the specified error responses. See
+[custom bindings](https://a2a-protocol.org/latest/topics/custom-protocol-bindings/)
+and the [A2A specification](https://a2a-protocol.org/latest/specification/).
+Full conformance remains implementation work.
 
-## A message
+Use existing A2A SDK definitions and validation where supported. The existing
+[a2a-redis integration](https://github.com/redis-developer/a2a-redis) supplies
+Redis task stores and Streams event queues for the Python SDK; evaluate its
+reusable components and version compatibility before implementation. Those
+components are not, by themselves, a complete agent-to-agent Redis transport.
+
+## Shared files
+
+Use one AFS workspace with this convention:
+
+```text
+shared/                       reusable reference material
+handoffs/<handoff-id>/brief.md input for one handoff
+handoffs/<handoff-id>/review.md recipient's output
+```
+
+A2A messages refer to input files. A2A result artifacts refer to output files.
+The file bytes stay in AFS. Our small file-reference convention carries the
+workspace ID, relative path and SHA-256 in a structured data part:
 
 ```json
 {
-  "id": "a6b32607-048a-4263-96b4-0c6d20d12614",
-  "from": "peer",
-  "to": "moneypenny",
-  "text": "Please review this brief and write your feedback beside it.",
-  "reply_to": null,
-  "files": [
-    {
-      "path": "handoffs/a6b32607-048a-4263-96b4-0c6d20d12614/brief.md",
-      "sha256": "<SHA-256 of the file bytes>"
-    }
-  ]
+  "message": {
+    "messageId": "a6b32607-048a-4263-96b4-0c6d20d12614",
+    "role": "ROLE_USER",
+    "parts": [
+      {"text": "Please review this brief and write your feedback beside it."},
+      {
+        "data": {
+          "afs": {
+            "workspaceId": "<configured workspace ID>",
+            "path": "handoffs/a6b32607-048a-4263-96b4-0c6d20d12614/brief.md",
+            "sha256": "<SHA-256 of the file bytes>"
+          }
+        }
+      }
+    ]
+  },
+  "configuration": {"returnImmediately": true}
 }
 ```
 
-The bridge stamps `from` and the creation time. A reply carries its original
-message's ID in `reply_to`. The sender creates an ID before its first send and
-reuses it for retries. Reusing an ID with different content is rejected.
+This illustrates the A2A v1 request model and our proposed file-reference data;
+it is not a complete Redis transport frame. The AFS reference is a convention
+agreed by these two adapters, not a standard A2A filesystem reference.
+The receiver creates the task ID; the message ID identifies the sender's
+request. Follow-up messages use the returned task and context IDs.
 
-Start with this folder convention:
+Keep handed-off inputs immutable. Give each artifact one writer and use new
+paths for revisions. Messages and files arrive independently: the receiver
+starts from a referenced file only after its bytes match the supplied hash.
+If the file is absent or different, leave work unfinished and retry with
+backoff. A persistent mismatch needs attention.
 
-```text
-shared/                         reusable reference material
-handoffs/<message-id>/brief.md   input for one handoff
-handoffs/<message-id>/review.md  recipient's output
-```
+## Moneypenny adapter
 
-Keep handed-off inputs immutable. Each artifact has one writer; revisions use
-new paths. Agents can work on different files concurrently through existing AFS
-sync. This avoids requiring a shared Markdown document to act as a task lock.
+Moneypenny connects through a plugin that provides send, receive, update-task,
+read-file and write-file tools. Her adapter maps these to the A2A task model;
+the file tools use an ordinary AFS mount on the companion host. This provides
+cloud access without assuming the dot has a persistent AFS mount herself.
+The host must stay online and reachable through authenticated HTTPS.
+
+The plugin exposes one `work.available` event, filtered to Moneypenny. It
+translates new A2A requests and relevant task updates into MCP Events
+notifications. OpenAI currently
+documents this integration for dots using persistent subscriptions and signed
+HTTPS callbacks. Confirm an unattended run in Moneypenny's actual account.
+See [MCP Events](https://developers.openai.com/plugins/build/mcp-events).
+
+MCP connects the dot to her adapter; Redis Streams connects the A2A adapters.
+An MCP callback receipt does not complete the A2A task. Persist pending work and
+subscription state across restarts, preserve event IDs across delivery retries,
+and surface unfinished work again on subscription recovery.
+
+Each agent has its own adapter credential. Credentials determine the sender
+and access to assigned work. File tools stay within the configured mount,
+including when resolving symlinks. Redis credentials remain on the companion.
 
 ## One complete handoff
 
-1. The other agent writes `brief.md` into its mount and sends a message with
-   that workspace-relative path and the file's hash.
-2. The bridge stores the message in Moneypenny's inbox and sends a notification
-   through her event subscription.
-3. Moneypenny reads the message and brief, writes `review.md`, then calls
-   `finish_message` with her reply and the review's path and hash.
-4. The other agent receives the reply, reads the review and finishes that
-   message. The files remain in the shared workspace.
+1. The other agent writes the brief into its AFS mount and sends an A2A message
+   through Redis Streams, including the file reference.
+2. Moneypenny's adapter admits a task and notifies her through the plugin.
+3. She reads the matching brief, marks the task working and writes her review.
+4. Her adapter records the completed task with an artifact referencing the
+   review, then sends the task update through the other agent's stream.
+5. The other agent reads the matching review from its AFS mount.
 
-Messages and files arrive independently. If a referenced file is absent or has
-different bytes, `read_file` returns `not_ready` and the message remains pending.
-Retry later with backoff; a persistent mismatch needs attention. Never treat a
-notification as proof that the referenced file has synchronized.
+Questions use A2A messages and the input-required task state. Failures and
+cancellation use the A2A task outcomes. Further work after a terminal task starts
+a new task. The sender can retrieve current task state if an update was missed.
 
-## Wake Moneypenny
-
-Expose one plugin event, `inbox.updated`, filtered to the connected agent's
-inbox. Moneypenny subscribes with an instruction to read incoming messages,
-complete authorized work and reply through the bridge.
-
-OpenAI's current documentation describes MCP Events support for dots using
-authenticated MCP 2.0, persistent subscriptions and signed HTTPS callbacks.
-The bridge translates new inbox entries into those events. Verify subscription
-and unattended processing in Moneypenny's actual account before treating this
-as operational. See [MCP Events](https://developers.openai.com/plugins/build/mcp-events).
-
-Suggested instruction for Moneypenny:
-
-> Monitor my inbox in the agent communication plugin. For each new message,
-> read the referenced files, carry out the requested work within the permissions
-> I have granted, and finish the message with a reply and any result files.
-> If the files are still synchronizing, leave the message pending and retry.
-> Tell me when a decision is needed or a handoff fails. Keep routine exchanges
-> in the channel.
-
-Installing the plugin alone does not create the monitoring responsibility.
-Confirm the saved subscription and observe an unattended run.
-
-## Small reliability contract
-
-Use an `agentlink:` Redis prefix for inboxes, send deduplication, completion
-records and subscription state, separate from AFS's `afs:` keys. Reuse the
-existing self-managed Redis if appropriate; the bridge does not consume AFS's
-internal change streams. Retain messages without automatic trimming initially.
-
-Use a delivery consumer group per inbox for notification retries. Its Redis
-acknowledgement records notification delivery; `finish_message` separately
-records completed agent work. An HTTP callback receipt also does not mean the
-work finished. Pending messages stay available through `get_inbox` across
-restarts. On subscription creation or recovery, surface unfinished messages
-with a new `inbox.updated` notification. Preserve that notification's event ID
-across delivery retries. Redis [consumer groups](https://redis.io/docs/latest/commands/xreadgroup/)
-provide delivery tracking and access to pending entries.
-
-Delivery is at least once. Store completed IDs and make `finish_message`
-idempotent. A crash during incomplete work can cause a retry; this does not
-promise exactly-once external actions. Redis persistence settings determine
-survival of Redis server failures. AFS files and message completion are not a
-single transaction, so create the result file before finishing its message.
+The other agent's runtime is still to be identified. Its adapter needs an
+existing turn, idle or scheduled entry point to get incoming work into the
+agent's next turn. Stream receipt alone does not start that turn.
 
 ## First acceptance
 
-The prototype succeeds when a brief goes from the other agent to Moneypenny,
-she processes it while the user is away, and her review and reply reach the
-other agent through the same workspace and channel. Also verify:
+The prototype succeeds when the other agent sends a brief, Moneypenny reviews
+it unattended, and her result and task update reach the other agent. Verify
+delayed file arrival, duplicate delivery, adapter restart, failed dot execution
+and a clarification round trip using disposable Redis and separate client state.
 
-- A delayed file causes a retry instead of work on stale bytes.
-- Repeating a send or finish creates no duplicate message or completed reply.
-- A bridge restart preserves pending messages and the event subscription.
-- A received event followed by a failed agent run leaves the handoff recoverable.
-- Each identity accesses its own inbox and file tools cannot escape the mount.
+Delivery is at least once; idempotent admission and completion prevent duplicate
+finished handoffs. A crash during unfinished work may cause a retry, so this
+does not promise exactly-once external actions. Redis persistence settings
+determine survival of server failures. Files and task completion are not one
+transaction: create the result file before completing its task.
 
-Use disposable Redis and separate client state for implementation tests.
-This document proposes the design; no bridge, plugin or monitoring subscription
-has been implemented or connected.
+This is a design proposal. No adapters, Redis binding, plugin or monitoring
+subscription have been implemented or connected.

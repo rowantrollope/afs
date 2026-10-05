@@ -3,6 +3,7 @@
 ## 2026-10-05 — Keep two agent collaboration simple
 
 - The user clarified that neither agent has a messaging API and Moneypenny is their ChatGPT dot, with unattended message processing required.
+- Follow-up: use A2A over Redis Streams for communication, with the shared AFS filesystem as the file side channel. Preserve A2A's task model and identify the custom transport binding explicitly; do not substitute HTTP as the inter-agent transport.
 - Solve communication, shared files and handoffs between two agents with one AFS workspace and a small companion bridge. Establish both delivery and an actual runtime wake-up mechanism; receiving a Redis message alone does not start an agent turn.
 - Keep the proposed messaging/plugin integration separate from AFS's existing CLI and storage engine; avoid expanding this request into a general orchestration platform.
 

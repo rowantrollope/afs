@@ -2,14 +2,15 @@
 
 ## Two agent communication design — 2026-10-05
 
-- [x] Design one shared AFS workspace, two Redis Streams inboxes and a separate companion bridge.
+- [x] Design one shared AFS workspace and a separate companion integration.
+- [x] Revise communication to A2A over Redis Streams, preserving the standard task model and identifying the private binding work.
 - [x] Account for Moneypenny being the user's ChatGPT dot and needing unattended processing; verify the documented MCP Events integration.
-- [x] Define a minimal handoff, file readiness checks, acknowledgements and retry behavior in `docs/agent-communication.md`.
+- [x] Define a minimal A2A handoff, file readiness checks, transport acknowledgements and task completion in `docs/agent-communication.md`.
 - [ ] Identify the other agent's runtime and its inbox/wake-up entry point before implementation.
 
-Scope: design only. Keep the bridge/plugin outside AFS's CLI, storage engine
-and control plane. Actual dot subscription, account compatibility and end-to-end
-handoff acceptance remain implementation work.
+Scope: design only. Keep the adapters/plugin outside AFS's CLI, storage engine
+and control plane. Redis binding conformance, actual dot subscription, account
+compatibility and end-to-end handoff acceptance remain implementation work.
 
 ## Browser CLI sign-in — 2026-09-23
 
