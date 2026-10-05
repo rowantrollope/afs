@@ -4,6 +4,12 @@ Proposed design, 5 October 2026. Connect Moneypenny, the user's ChatGPT dot,
 with one other agent so they can communicate, hand off work and share files.
 Moneypenny should process incoming work unattended.
 
+The user's subsequent product direction is a hosted service where customers
+connect multiple agents through one URL. The proposed public tools, onboarding,
+identity and customer isolation contract are defined in
+[AgentConnect service interface](agentconnect-interface.md). This document retains
+the first two-agent example and its underlying transport/file design.
+
 Use A2A for the conversation and task model, Redis Streams for delivery and AFS
 for the shared files. Small runtime adapters connect the two existing agents.
 This companion integration stays separate from AFS's CLI, storage engine and

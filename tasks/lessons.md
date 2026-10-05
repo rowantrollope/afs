@@ -6,6 +6,7 @@
 - Follow-up: use A2A over Redis Streams for communication, with the shared AFS filesystem as the file side channel. Preserve A2A's task model and identify the custom transport binding explicitly; do not substitute HTTP as the inter-agent transport.
 - Solve communication, shared files and handoffs between two agents with one AFS workspace and a small companion bridge. Establish both delivery and an actual runtime wake-up mechanism; receiving a Redis message alone does not start an agent turn.
 - Keep the proposed messaging/plugin integration separate from AFS's existing CLI and storage engine; avoid expanding this request into a general orchestration platform.
+- Subsequent direction: the user is considering a business with one AgentConnect URL that connects multiple agents and handles authentication. Define simple customer onboarding and approved agent identities, preserve the Redis transport internally, and treat customer isolation as separate from AFS's trusted-administrator keys. The two-agent handoff remains the first acceptance example rather than the product's permanent agent-count limit.
 
 ## 2026-09-22 — Require authentication before hosting the control plane
 
