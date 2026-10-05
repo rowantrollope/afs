@@ -1,5 +1,16 @@
 # AFS extraction
 
+## Two agent communication design — 2026-10-05
+
+- [x] Design one shared AFS workspace, two Redis Streams inboxes and a separate companion bridge.
+- [x] Account for Moneypenny being the user's ChatGPT dot and needing unattended processing; verify the documented MCP Events integration.
+- [x] Define a minimal handoff, file readiness checks, acknowledgements and retry behavior in `docs/agent-communication.md`.
+- [ ] Identify the other agent's runtime and its inbox/wake-up entry point before implementation.
+
+Scope: design only. Keep the bridge/plugin outside AFS's CLI, storage engine
+and control plane. Actual dot subscription, account compatibility and end-to-end
+handoff acceptance remain implementation work.
+
 ## Browser CLI sign-in — 2026-09-23
 
 - [x] Restore interactive browser login with matching-code approval and a dedicated named CLI key; retain stdin/environment authentication for automation.

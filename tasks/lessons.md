@@ -1,5 +1,11 @@
 # Lessons
 
+## 2026-10-05 — Keep two agent collaboration simple
+
+- The user clarified that neither agent has a messaging API and Moneypenny is their ChatGPT dot, with unattended message processing required.
+- Solve communication, shared files and handoffs between two agents with one AFS workspace and a small companion bridge. Establish both delivery and an actual runtime wake-up mechanism; receiving a Redis message alone does not start an agent turn.
+- Keep the proposed messaging/plugin integration separate from AFS's existing CLI and storage engine; avoid expanding this request into a general orchestration platform.
+
 ## 2026-09-22 — Require authentication before hosting the control plane
 
 - The user requires authentication before internet deployment. Verify the server rejects unauthenticated data and management requests; a login screen alone is not proof.
