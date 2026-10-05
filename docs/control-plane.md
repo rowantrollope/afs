@@ -17,7 +17,7 @@ features and the migration decisions.
 
 The CLI build remains `make build` and requires no Node installation. To build
 the UI and the separate server, use a current Node release supported by Vite
-and Go 1.22.2 or newer:
+and Go 1.25 or newer:
 
 ```sh
 make web-install

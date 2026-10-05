@@ -1,11 +1,13 @@
 module github.com/rowantrollope/afs
 
-go 1.22.2
+go 1.25.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
@@ -14,7 +16,7 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -23,9 +25,14 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
+	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
@@ -40,7 +47,7 @@ require (
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/sys v0.29.0
+	golang.org/x/sys v0.41.0
 )
 
 replace github.com/willscott/go-nfs => ./third_party/go-nfs

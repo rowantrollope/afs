@@ -12,7 +12,7 @@ not create microVMs or separate containers for each agent.
 
 ## Run locally
 
-Requires Python 3, `redis-server`, `redis-cli`, and `ps` on PATH, plus Go 1.22.2 or
+Requires Python 3, `redis-server`, `redis-cli`, and `ps` on PATH, plus Go 1.25 or
 newer when building the binary. Run from the repository root:
 
 ```sh

@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-10-05 — Optional MCP files are a specific scope exception
+
+- The user explicitly superseded slim AFS's no-MCP restriction for a separate basic file adapter. Keep it in `cmd/afs-mcp`; do not add server commands to `afs` or revive the original cloud/search/templates/volumes/administration surface.
+- AgentConnect wraps AFS server-side. Agents receive four workspace-bound file tools and private connection access, without installing AFS, configuring Redis or managing mounts.
+- Reuse the supported folder-sync lifecycle and verification/recovery path. A single explicitly configured workspace, UTF-8/1 MiB limits, relative paths, SHA-256 references and immutable create-only writes with identical retries define this first version.
+- Control-plane keys remain trusted-administrator credentials, with no workspace isolation and no revocation of already issued Redis credentials. The MCP token is a separate adapter credential.
+
 ## 2026-10-05 — Keep two agent collaboration simple
 
 - The user clarified that neither agent has a messaging API and Moneypenny is their ChatGPT dot, with unattended message processing required.

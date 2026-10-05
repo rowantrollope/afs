@@ -3,7 +3,7 @@
 This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI in README.md and decisions in tasks/todo.md; tasks/brief.txt records the original extraction brief.
 
 - Reuse the retained folder sync, Redis client, manifests, checkpoints, and recovery code.
-- One workspace is one tree; no public volumes, cloud, MCP, or search. Native FUSE/NFS mounting is optional, with folder sync as the default.
+- One workspace is one tree; no public volumes, cloud, or search. Native FUSE/NFS mounting is optional, with folder sync as the default. The optional `cmd/afs-mcp` adapter exposes basic files for one explicitly configured server-managed folder-sync mount; do not add MCP commands to `afs` or restore broader hosted MCP features.
 - Workspace actions live at the root; checkpoint manages checkpoints, config manages settings, and sync provides status and an explicit verification wait. No ws/fs aliases. Access files through mounted directories.
 - Never run tests against existing user Redis data or change the original installation.
 - Retain multi-writer behavior and prove safety changes with focused regressions.

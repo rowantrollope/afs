@@ -1,5 +1,39 @@
 # AFS extraction
 
+## Optional MCP file adapter — 2026-10-05
+
+- [x] Inspect the original MCP documentation, local command and hosted implementation as read-only references; retain one storage engine.
+- [x] Add separate `cmd/afs-mcp` with official MCP Go SDK v1.8.0, stdio and private-token loopback Streamable HTTP; keep the normal CLI unchanged.
+- [x] Bind `list_files`, `read_file`, `write_file`, `workspace_status` to one explicitly configured server-managed writable folder-sync mount through supported CLI status/verification.
+- [x] Enforce relative paths, UTF-8/1 MiB limits, SHA-256, complete atomic create-only writes, identical retries, control-file and symlink/hard-link isolation, shared writer locks and orphan-stage recovery.
+- [x] Prove initialization/discovery, listing/readme.md, two independent clients with bidirectional write/read, exclusive races, retry/conflict, unavailable readiness and Redis/AFS/adapter restart recovery for both transports.
+- [x] Document server setup, supervision/recovery, the AgentConnect interface and explicit security/durability boundaries in `docs/mcp.md`; update build prerequisites to Go 1.25.
+- [x] Run full build/vet/unit/race checks and build the optional binaries with `make mcp`.
+- [x] Complete the full isolated real-Redis process suite.
+- [ ] Finish the required active control-plane rebuild/restart verification while preserving settings.
+- [x] Commit and normally push completed adapter work to origin/main.
+
+Lifecycle: the operator supervises one ordinary foreground sync mount and the
+adapter attached to it using the same private config/state. Startup verifies
+Redis publication; each tool checks the mount/connection/identity. AgentConnect
+provides any external authenticated HTTPS broker to reach the loopback adapter.
+Read/list/status observe local synchronized files; create-only writes return
+success only after the normal AFS barrier and a content-hash check. Verification
+may publish other pending tree changes, so the write annotation conservatively
+allows destructive side effects. No checkpoint/account/admin/cloud features
+are added. Keep a dedicated mount without custom ignores and trusted OS writers.
+
+Validation: full build/vet/unit/race and the full isolated real-Redis e2e/history
+suite passed. The disposable-Redis MCP process test passed both stdio (separate
+adapter processes) and HTTP (two independent SDK clients), including fresh-mount
+Redis hydration after restart. Final focused checks also prove startup refusal
+without Redis and for a mismatched workspace binding.
+The active control plane is healthy at http://127.0.0.1:8091, and
+`make control-plane` rebuilt its embedded binary from main. Automatic approval
+review rejected copying the existing server's full environment because it could
+duplicate secrets; restart remains pending a safe preservation mechanism or
+explicit approval. The existing server and its settings have been preserved.
+
 ## Two agent communication design — 2026-10-05
 
 - [x] Design one shared AFS workspace and a separate companion integration.

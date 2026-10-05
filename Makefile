@@ -1,7 +1,11 @@
-.PHONY: build install native test race native-deps-test integration cli-test compat multiwriter multiwriter-native multiwriter-smoke check clean
+.PHONY: build mcp install native test race native-deps-test integration cli-test compat multiwriter multiwriter-native multiwriter-smoke check clean
 
 build:
 	go build -o bin/afs ./cmd/afs
+
+# Optional adapter; does not change or install the ordinary CLI.
+mcp: build
+	go build -o bin/afs-mcp ./cmd/afs-mcp
 
 # Override with make install INSTALL_DIR=/your/bin
 INSTALL_DIR ?= $(HOME)/.local/bin
@@ -86,7 +90,7 @@ check:
 
 clean:
 	go clean ./...
-	rm -f bin/afs bin/afsmount bin/afs-control-plane
+	rm -f bin/afs bin/afsmount bin/afs-control-plane bin/afs-mcp
 
 # The CLI build remains independent of Node and the web UI.
 .PHONY: web-install web-build embed-ui control-plane web-dev

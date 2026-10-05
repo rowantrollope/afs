@@ -11,7 +11,7 @@ See the [simplification report](docs/simplification.md) for provenance and chang
 
 ## Build
 
-Requires Go 1.22.2 or newer and a Redis server. Supported local platforms are
+Requires Go 1.25 or newer and a Redis server. Supported local platforms are
 macOS and Linux; acceptance runs cover Redis 7.0.15 and 8.6.2. The default folder
 sync needs no FUSE, NFS, control-plane server or agent plugin.
 
@@ -21,6 +21,17 @@ cd afs
 go build -o bin/afs ./cmd/afs
 ./bin/afs --help
 ```
+
+## Optional MCP file access
+
+`make mcp` builds the separate `afs-mcp` adapter using the official MCP Go SDK.
+It exposes `list_files`, `read_file`, `write_file` and `workspace_status` for
+one explicitly configured, server-managed folder-sync mount over stdio or
+private-token Streamable HTTP on loopback. Cloud agents connect through the
+AgentConnect server and need no AFS installation, Redis credentials or mounts.
+Writes create UTF-8 files up to 1 MiB without overwriting existing paths, with
+SHA-256 references and identical retries. See [setup and interface](docs/mcp.md).
+The ordinary CLI remains independent of the adapter at runtime.
 
 ## Optional control plane and UI
 
