@@ -7,14 +7,15 @@
 - [x] Account for Moneypenny being the user's ChatGPT dot and needing unattended processing; verify the documented MCP Events integration.
 - [x] Define a minimal A2A handoff, file readiness checks, transport acknowledgements and task completion in `docs/agent-communication.md`.
 - [x] Define the proposed hosted AgentConnect `/connect` interface, OAuth approval, collaboration tools, wake-up events and customer isolation in `docs/agentconnect-interface.md`; preserve A2A over Redis Streams internally.
-- [ ] Identify the other agent's runtime and its inbox/wake-up entry point before implementation.
+- [x] Move the AgentConnect design to its own private repository, with fully wrapped AFS, one-URL pairing, Account ownership and a dashboard preview.
+- [x] Track AgentConnect implementation and runtime validation in the separate repository, alongside its completed market comparison.
 
-Scope: design only. Keep the adapters/plugin outside AFS's CLI, storage engine
-and control plane. Redis binding conformance, actual dot subscription, account
-compatibility and end-to-end handoff acceptance remain implementation work.
-The user has expanded the product direction to connecting several agents for
-customers through one URL. This interface proposal stays a separate companion
-product; hosted customer authorization must not reuse AFS administrator access.
+Scope: AgentConnect is a separate repository/product. Its current interface is
+[documented there](https://github.com/rowantrollope/agentconnect/blob/main/docs/service-interface.md).
+It wraps AFS server-side; agents do no separate AFS setup. This repository retains
+its existing storage, sync, trusted-administrator keys and optional control plane.
+The AgentConnect runtime integrations, hosted auth and live handoffs are not
+implemented. Local documents point to their new home.
 
 ## Browser CLI sign-in — 2026-09-23
 

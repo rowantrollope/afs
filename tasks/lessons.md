@@ -8,6 +8,10 @@
 - Keep the proposed messaging/plugin integration separate from AFS's existing CLI and storage engine; avoid expanding this request into a general orchestration platform.
 - Subsequent direction: the user is considering a business with one AgentConnect URL that connects multiple agents and handles authentication. Define simple customer onboarding and approved agent identities, preserve the Redis transport internally, and treat customer isolation as separate from AFS's trusted-administrator keys. The two-agent handoff remains the first acceptance example rather than the product's permanent agent-count limit.
 
+- Further correction: keep AgentConnect in a separate repository, fully wrapping AFS server-side so agents never need AFS installation, Redis configuration or mount management.
+- The accepted onboarding uses one /connect URL: Muse requests a pairing code and another agent redeems it, with automatic registration on supported runtimes. Keep code invites distinct from permanent credentials and platform authorization prerequisites.
+- A human dashboard should show pairings, shared files, message history and reports. A separate secure owner claim attaches a pairing to the user's Account without exposing an agent's unrelated pairings.
+
 ## 2026-09-22 — Require authentication before hosting the control plane
 
 - The user requires authentication before internet deployment. Verify the server rejects unauthenticated data and management requests; a login screen alone is not proof.
