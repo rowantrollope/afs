@@ -22,6 +22,36 @@ go build -o bin/afs ./cmd/afs
 ./bin/afs --help
 ```
 
+## Request-scoped Go access
+
+Go services can import `github.com/rowantrollope/afs/workspace` to reuse the same
+Redis filesystem without a mounted folder or background sync process.
+`workspace.New(redisURL)` opens a connection pool; `Store.Ensure(ctx, name)`
+creates a missing workspace through the retained bootstrap and reuses an
+existing live tree untouched. `Store.Open` only opens an existing workspace,
+and `Store.Close` closes the pool. These operations require no control-plane
+server or Postgres metadata.
+
+A workspace exposes its name, storage ID, filesystem key and generation.
+`Workspace.Client()` provides the existing generation-bound AFS client:
+`Stat`, `LsLong`, `Cat` and the other retained filesystem operations.
+An old handle fails after workspace deletion or checkpoint restoration; reopen
+the workspace to obtain its current generation.
+
+`Workspace.CreateArtifact(ctx, relativePath, data, mode)` creates complete
+UTF-8 text of at most 1 MiB without overwriting an existing path. It returns
+`true, nil` on creation, `false, nil` for an identical-content retry, and
+`workspace.ErrAlreadyExists` for different existing content. It rejects
+symlink ancestors and reserves `.afs-artifact-staging` for unpublished files.
+Publication uses the engine's atomic no-replace rename and inode, parent and
+generation guards. Applications must hide this staging directory from their
+file browser and counts. A hard process interruption can leave an unpublished
+staging file; the helper only cleans files allocated by its own request.
+
+This library supplies storage operations. Application authentication and
+workspace authorization remain the caller's responsibility. It adds no hosted
+MCP endpoint or CLI file-command group.
+
 ## Optional MCP file access
 
 `make mcp` builds the separate `afs-mcp` adapter using the official MCP Go SDK.

@@ -4,10 +4,11 @@ This is the slim Go derivative of redis/agent-filesystem. Follow the current CLI
 
 - Reuse the retained folder sync, Redis client, manifests, checkpoints, and recovery code.
 - One workspace is one tree; no public volumes, cloud, or search. Native FUSE/NFS mounting is optional, with folder sync as the default. The optional `cmd/afs-mcp` adapter exposes basic files for one explicitly configured server-managed folder-sync mount; do not add MCP commands to `afs` or restore broader hosted MCP features.
-- Workspace actions live at the root; checkpoint manages checkpoints, config manages settings, and sync provides status and an explicit verification wait. No ws/fs aliases. Access files through mounted directories.
+- Workspace actions live at the root; checkpoint manages checkpoints, config manages settings, and sync provides status and an explicit verification wait. No ws/fs aliases. CLI file access uses mounted directories.
 - Never run tests against existing user Redis data or change the original installation.
 - Retain multi-writer behavior and prove safety changes with focused regressions.
 - Local lifecycle belongs in cmd/afs; Redis content and checkpoints remain internal.
+- The optional public workspace Go package provides request-scoped Redis access for services such as AgentConnect. Wrap the retained bootstrap and filesystem engine; do not duplicate schemas or storage code. Keep fixed-generation fencing, complete atomic create-only artifacts, and staging isolation. No daemon, local folder, HTTP/MCP endpoint, account, or CLI command is added by this library.
 - Keep tasks/todo.md current; record user corrections in tasks/lessons.md.
 - Validate with build, vet, unit/race tests and isolated real-Redis process tests.
 - Preserve scan batching, chunking, worker draining, warm recovery and directory-mode restoration.

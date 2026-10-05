@@ -1,3 +1,9 @@
+## AFS inside AgentConnect — 2026-10-05
+
+- User chose request-scoped AFS inside AgentConnect on Vercel with their existing Redis, rather than requiring a persistent cloud folder-sync backend.
+- Reuse the retained AFS engine through a small public library; do not duplicate storage, import internal packages from another module, or require agents to install AFS.
+- The hosted AFS control plane is optional for this path. Keep its administrator credentials and metadata model separate from AgentConnect's application permissions.
+
 # Lessons
 
 ## 2026-10-05 — Optional MCP files are a specific scope exception

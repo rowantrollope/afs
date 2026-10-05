@@ -1,5 +1,22 @@
 # AFS extraction
 
+## Request-scoped public workspace API — 2026-10-05
+
+- [x] Add the public `workspace` Go package around the retained Redis bootstrap and filesystem engine, without copying engine code or adding CLI/HTTP/MCP commands.
+- [x] Provide idempotent Ensure, existing-only Open, generation-bound Client access and pool Close without local folders or synchronization daemons.
+- [x] Publish bounded UTF-8 artifacts with exclusive staging and atomic no-replace rename; preserve inode/parent/generation fencing, identical retries and foreign-staging cleanup safety.
+- [x] Prove parallel creation, live-root preservation, complete publication, conflict/retry behavior, cancellation cleanup and symlink/generation/parent rejection against newly launched isolated Redis processes.
+- [x] Run full staged build and vet.
+- [x] Full staged unit/race regression checks passed. AgentConnect direct-mode integration independently observed the same Redis files through ordinary AFS folder sync.
+- [x] Integrate the reviewed package on main; publish the dependency before AgentConnect pins it.
+
+Scope: AgentConnect can call AFS inside a request without a daemon or volume.
+The public package delegates to the same storage/bootstrap/client implementation
+used by ordinary AFS. Existing live roots are never reset or rematerialized by
+Open/Ensure. Reserved staging files are excluded by the consuming application;
+hard interruption may retain unpublished staging files. Application credentials,
+agent membership and public HTTP/MCP remain in AgentConnect.
+
 ## Optional MCP file adapter — 2026-10-05
 
 - [x] Inspect the original MCP documentation, local command and hosted implementation as read-only references; retain one storage engine.
