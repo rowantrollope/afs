@@ -459,3 +459,48 @@ func TestArtifactIndependentFolderObserver(t *testing.T) {
 		t.Fatalf("observer changed workspace identity: %v", err)
 	}
 }
+
+func TestDeleteWorkspaceIsIdempotentAndScoped(t *testing.T) {
+	store, rdb, ctx := testStore(t)
+	if err := store.Delete(ctx, "missing-delete"); err != nil {
+		t.Fatal(err)
+	}
+	if size := rdb.DBSize(ctx).Val(); size != 0 {
+		t.Fatalf("missing deletion created data: %d", size)
+	}
+	expired := mustEnsure(t, store, ctx, "expired-delete")
+	neighbor := mustEnsure(t, store, ctx, "neighbor-delete")
+	if _, err := expired.CreateArtifact(ctx, "discard.md", []byte("expired"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := neighbor.CreateArtifact(ctx, "keep.md", []byte("retained"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"first retained revision", "second retained revision"} {
+		if err := expired.Client().Echo(ctx, "/history.md", []byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.service.SaveCheckpointFromLive(ctx, expired.Name, "before-delete"); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := store.Delete(ctx, expired.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.Open(ctx, expired.Name); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted workspace remains open: %v", err)
+	}
+	if _, err := expired.Client().Cat(ctx, "/discard.md"); !errors.Is(err, ErrWorkspaceChanged) {
+		t.Fatalf("old handle was not fenced: %v", err)
+	}
+	keys, err := rdb.Keys(ctx, controlplane.WorkspacePattern(expired.StorageID)).Result()
+	if err != nil || len(keys) != 1 || keys[0] != controlplane.WorkspaceGenerationKey(expired.StorageID) {
+		t.Fatalf("retained deleted data: %v %v", keys, err)
+	}
+	body, err := neighbor.Client().Cat(ctx, "/keep.md")
+	if err != nil || string(body) != "retained" {
+		t.Fatalf("neighbor changed: %q %v", body, err)
+	}
+}

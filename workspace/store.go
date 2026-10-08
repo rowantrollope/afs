@@ -107,6 +107,21 @@ func (s *Store) Ensure(ctx context.Context, name string) (*Workspace, error) {
 	}
 }
 
+// Delete permanently removes an existing workspace and its retained files,
+// checkpoints and file history. Existing handles are fenced before deletion.
+// Missing workspaces are an idempotent success; this method never creates or
+// rematerializes a workspace. Interrupted deletions can be retried by name.
+func (s *Store) Delete(ctx context.Context, name string) error {
+	if err := controlplane.ValidateName("workspace", name); err != nil {
+		return err
+	}
+	err := s.service.DeleteWorkspace(ctx, name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // Client delegates directly to the AFS filesystem and binds every request to
 // this handle's generation. It starts no lease or subscription goroutine.
 func (w *Workspace) Client() client.Client { return w.fs }

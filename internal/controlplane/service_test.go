@@ -377,3 +377,54 @@ func TestWorkspaceDeletionDoesNotRemoveReusedNameMapping(t *testing.T) {
 		t.Fatalf("name maps to %q, want new ID %q", current.ID, replacement.ID)
 	}
 }
+
+func TestDeleteWorkspaceRetainsRetryAnchorUntilNamespaceIsGone(t *testing.T) {
+	s, rdb := serviceFixture(t)
+	ctx := context.Background()
+	expired, err := s.CreateWorkspace(ctx, "expired-delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	neighbor, err := s.CreateWorkspace(ctx, "neighbor-delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := afsclient.New(rdb, neighbor.ID).Echo(ctx, "/keep.md", []byte("retained")); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("uncertain delete batch response")
+	armed := true
+	rdb.AddHook(faultHook{process: func(ctx context.Context, cmd redis.Cmder, next redis.ProcessHook) error {
+		if armed && cmd.Name() == "del" {
+			armed = false
+			if err := next(ctx, cmd); err != nil {
+				return err
+			}
+			return injected
+		}
+		return next(ctx, cmd)
+	}})
+	if err := s.DeleteWorkspace(ctx, expired.Name); !errors.Is(err, injected) {
+		t.Fatalf("injected batch result: %v", err)
+	}
+	if _, err := s.GetWorkspace(ctx, expired.Name); err != nil {
+		t.Fatalf("failed deletion lost its retry anchor: %v", err)
+	}
+	if generation := rdb.Get(ctx, WorkspaceGenerationKey(expired.ID)).Val(); generation != "deleted" {
+		t.Fatalf("old clients were not fenced: %q", generation)
+	}
+	if err := s.DeleteWorkspace(ctx, expired.Name); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := rdb.Keys(ctx, WorkspacePattern(expired.ID)).Result()
+	if err != nil || len(keys) != 1 || keys[0] != WorkspaceGenerationKey(expired.ID) {
+		t.Fatalf("retained expired data: %v %v", keys, err)
+	}
+	if _, err := s.GetWorkspace(ctx, expired.Name); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired catalog entry retained: %v", err)
+	}
+	body, err := afsclient.New(rdb, neighbor.ID).Cat(ctx, "/keep.md")
+	if err != nil || string(body) != "retained" {
+		t.Fatalf("neighbor changed: %q %v", body, err)
+	}
+}

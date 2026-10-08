@@ -229,7 +229,9 @@ func (s *Store) DeleteWorkspace(ctx context.Context, workspace string) error {
 		}
 		filtered := keys[:0]
 		for _, key := range keys {
-			if key != WorkspaceGenerationKey(storageID) && key != ImportLockKey(storageID) {
+			// Retain the metadata and its name mapping until all data has
+			// gone. A failed batch must remain resolvable for a retry.
+			if key != WorkspaceGenerationKey(storageID) && key != ImportLockKey(storageID) && key != workspaceMetaKey(storageID) {
 				filtered = append(filtered, key)
 			}
 		}
@@ -241,13 +243,14 @@ func (s *Store) DeleteWorkspace(ctx context.Context, workspace string) error {
 		}
 		cursor = next
 		if cursor == 0 {
-			if strings.TrimSpace(meta.ID) != "" {
-				// A concurrent name reuse must retain its new ID mapping.
-				if err := s.rdb.Eval(ctx, `if redis.call("HGET",KEYS[1],ARGV[1]) == ARGV[2] then return redis.call("HDEL",KEYS[1],ARGV[1]) end return 0`, []string{workspaceNameIndexKey()}, meta.Name, storageID).Err(); err != nil {
-					return err
-				}
-			}
-			return nil
+			// Store uses one ordinary Redis connection. Atomically retire the
+			// retry anchor and its matching index entry only after all batches
+			// succeed; name reuse must retain a newer workspace's mapping.
+			return s.rdb.Eval(ctx, `
+if ARGV[1] ~= '' and redis.call("HGET", KEYS[1], ARGV[1]) == ARGV[2] then
+  redis.call("HDEL", KEYS[1], ARGV[1])
+end
+return redis.call("DEL", KEYS[2])`, []string{workspaceNameIndexKey(), workspaceMetaKey(storageID)}, meta.Name, storageID).Err()
 		}
 	}
 }

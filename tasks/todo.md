@@ -1696,3 +1696,21 @@ Review: make control-plane, UI lint and 75 UI tests passed. Live computed hero, 
 - [x] Rebuild and restart the real UI; verify desktop (1230px) and narrow (390px) layouts have no horizontal overflow.
 
 Review: embedded control-plane build, lint and all 75 UI tests passed.
+
+
+## Supported permanent workspace erasure for AgentConnect — 8 October 2026
+
+- [x] Expose Store.Delete through the existing AFS deletion engine.
+- [x] Preserve the deletion retry anchor until every namespace batch completes.
+- [x] Prove historical content/checkpoint deletion, stale-handle fencing and neighbor safety.
+- [x] Validate full race suite, vet and CLI/MCP/control-plane builds.
+- [x] Complete independent review and prepare the dependency commit for main.
+
+Plan review: change only the public workspace adapter and deletion retry safety;
+no new storage engine or CLI/API route. Test fresh Redis only. Original AFS
+checkouts/installations remain untouched.
+
+Review: all package race tests pass, including isolated real-Redis workspace
+tests. Vet and all three Go builds pass. Namespace erasure leaves only the
+content-free generation tombstone; global operational lifecycle metadata is
+separate from erased file content.

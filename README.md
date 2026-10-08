@@ -29,7 +29,11 @@ Redis filesystem without a mounted folder or background sync process.
 `workspace.New(redisURL)` opens a connection pool; `Store.Ensure(ctx, name)`
 creates a missing workspace through the retained bootstrap and reuses an
 existing live tree untouched. `Store.Open` only opens an existing workspace,
-and `Store.Close` closes the pool. These operations require no control-plane
+and `Store.Close` closes the pool. `Store.Delete(ctx, name)` permanently removes
+an existing workspace, including retained files, history and checkpoints. It
+fences old handles, never creates a workspace and supports safe retries after
+an interrupted deletion. Missing workspaces are an idempotent success. A minimal
+generation tombstone remains to reject stale clients. These operations require no control-plane
 server or Postgres metadata.
 
 A workspace exposes its name, storage ID, filesystem key and generation.
